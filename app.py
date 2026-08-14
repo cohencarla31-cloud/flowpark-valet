@@ -15,8 +15,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CONFIGURACIÓN DE TELÉFONOS DEL PARKING ---
-TEL_PARKING_1 = "59899123456" # <- REEMPLAZA POR EL CELULAR 1 DEL PARKING
-TEL_PARKING_2 = "59899654321" # <- REEMPLAZA POR EL CELULAR 2 DEL PARKING
+TEL_PARKING_1 = "59899123456" # <- REEMPLAZA POR EL CELULAR 1
+TEL_PARKING_2 = "59899654321" # <- REEMPLAZA POR EL CELULAR 2
 
 # --- CONEXIÓN Y CACHÉ ---
 @st.cache_resource
@@ -29,7 +29,7 @@ sh = init_connection()
 
 @st.cache_data(ttl=15)
 def obtener_datos():
-    if not sh: return [], {}, {}, [], [], []
+    if not sh: return [], {}, {}, [], [], [], []
     conf = sh.worksheet("Configuracion").get_all_values()
     tarifas_raw = sh.worksheet("Tarifas").get_all_values()
     extras_raw = sh.worksheet("Extras").get_all_values()
@@ -37,12 +37,17 @@ def obtener_datos():
     q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
     cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
     
+    try:
+        asistencia = sh.worksheet("Asistencia").get_all_values()
+    except:
+        asistencia = []
+    
     empleados = [r[0] for r in conf[1:] if r[0]]
     tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
     extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-    return empleados, tarifas, extras, registro, q_data, cli
+    return empleados, tarifas, extras, registro, q_data, cli, asistencia
 
-empleados, tarifas, extras, reg, q_data, clientes = obtener_datos()
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data = obtener_datos()
 
 def hora_actual_uy():
     return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
@@ -71,15 +76,10 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
 
 def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
     tipo = "Camioneta" if es_camioneta else "Auto"
-    
-    if local_validacion == "Rodrigo Bueno":
-        return 0
-        
+    if local_validacion == "Rodrigo Bueno": return 0
     descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
     m_cobro = max(0, minutos - descuento)
-    
-    if m_cobro <= 0:
-        return 0
+    if m_cobro <= 0: return 0
         
     hora = tarifas.get("Hora", {}).get(tipo, 110)
     promo = tarifas.get("Promo_4h", {}).get(tipo, 330)
@@ -91,13 +91,11 @@ def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
 
-# Empleado arranca vacío obligatoriamente
 lista_empleados_op = [""] + empleados
 emp = st.selectbox("Empleado a cargo:", lista_empleados_op)
 
 menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno", "🍾 Extras", "📤 Salida", "⏰ Personal"])
 
-# Validación general: Si no selecciona empleado, frena la operación
 if not emp and menu != "⏰ Personal":
     st.warning("⚠️ Por favor, seleccione el empleado a cargo antes de operar.")
     st.stop()
@@ -155,7 +153,7 @@ elif menu == "📊 Activos":
             st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}")
 
 # ==========================================
-# 3. MÓDULOS DE VALIDACIÓN SEPARADOS
+# 3. VALIDACIONES (Locales)
 # ==========================================
 elif menu in ["🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno"]:
     local_actual = menu.replace("🔔 ", "")
@@ -295,7 +293,6 @@ elif menu == "📤 Salida":
             serv_str = str(datos[6])
             nombre_cliente = serv_str.split("Cliente: ")[1] if "Cliente: " in serv_str else "estimado cliente"
             
-            # Ticket de egreso con fecha/hora de ingreso y salida incorporadas
             texto_ticket = f"""*FLOW PARK - TICKET DE EGRESO*
 ---------------------------------
 🚗 Vehículo: {patente} | Tarjeta: #{tkt}
@@ -313,27 +310,54 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
+            # Actualización en Google Sheets de forma segura
+            try:
+                for i, row in enumerate(reg, start=1):
+                    if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+                for i, row in enumerate(reg, start=1):
+                    if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+            except Exception as e:
+                st.warning(f"Aviso de sincronización: {e}")
+
             st.success("✅ ¡Cálculo y ticket generados con éxito!")
             st.code(texto_ticket)
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
-            
-            for i, row in enumerate(reg, start=1):
-                if (row[0].strip() == tkt or (str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper())) and not row[3]:
-                    sh.worksheet("Registro").update_cell(i, 4, h_salida)
 
 # ==========================================
-# 6. PERSONAL (Control de Asistencia)
+# 6. PERSONAL (Control de Asistencia con Stock Obligatorio)
 # ==========================================
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Asistencia")
-    accion = st.radio("Acción a registrar:", ["Entrada", "Salida"])
     
-    if st.button("Registrar Fichada"):
-        if not emp:
-            st.warning("⚠️ Selecciona primero el empleado a cargo en la parte superior.")
-        else:
+    if not emp:
+        st.warning("⚠️ Selecciona primero el empleado a cargo en la parte superior de la página.")
+    else:
+        accion = st.radio("Acción a registrar:", ["Entrada", "Salida"])
+        
+        st.info(f"📋 **Requisito obligatorio:** Para registrar tu {accion}, debes completar primero el **Control de Stock ({'Inicial' if accion == 'Entrada' else 'Final'})** abajo.")
+        
+        st.markdown("---")
+        st.subheader(f"📝 Formulario de Stock {'Inicial' if accion == 'Entrada' else 'Final'}")
+        
+        # Cargar los productos de la hoja Extras para que el empleado los cuente
+        conteo_stock = {}
+        for prod_nombre in list(extras.keys()):
+            conteo_stock[prod_nombre] = st.number_input(f"Cantidad física actual de [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"stock_{accion}_{prod_nombre}")
+            
+        nota_stock = st.text_input("Observaciones del stock (Opcional):")
+
+        if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
-                sh.worksheet("Asistencia").append_row([hora_actual_uy(), str(emp), accion])
-                st.success(f"✅ Se registró la **{accion}** de {emp} correctamente a las {hora_actual_uy()}")
+                # 1. Guardar el reporte de stock en una pestaña llamada 'Auditoria_Stock' o similar (o Control_Stock)
+                hoy_str = datetime.utcnow().strftime("%Y-%m-%d")
+                for prod_nombre, cant in conteo_stock.items():
+                    sh.worksheet("Control_Stock").append_row([hora_actual_uy(), f"Auditoria_{accion}_{prod_nombre}", int(cant), str(emp), nota_stock])
+                
+                # 2. Registrar la asistencia en la pestaña 'Asistencia'
+                sh.worksheet("Asistencia").append_row([hora_actual_uy(), str(emp), accion, f"Stock {accion} verificado"])
+                
+                st.success(f"✅ ¡Stock {'inicial' if accion == 'Entrada' else 'final'} registrado con éxito y **{accion}** confirmada para {emp}!")
             except Exception as e:
-                st.error(f"⚠️ Error. Asegúrate de tener creada una pestaña llamada 'Asistencia'. Detalle: {e}")
+                st.error(f"⚠️ Error al guardar en Google Sheets. Verifica que exista la pestaña 'Asistencia' y 'Control_Stock'. Detalle: {e}")
