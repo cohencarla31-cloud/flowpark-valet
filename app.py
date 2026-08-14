@@ -63,7 +63,6 @@ if menu == "📥 Ingreso de Vehículo":
     patente_input = st.text_input("Matrícula del Vehículo (Ej: SDL567)")
     patente_limpia = patente_input.upper().replace("-", "").replace(" ", "") if patente_input else ""
     
-    # Memoria inteligente: buscar si ya existe en clientes frecuentes
     cliente_sugerido = ""
     celular_sugerido = ""
     if patente_limpia and sh:
@@ -88,13 +87,11 @@ if menu == "📥 Ingreso de Vehículo":
             hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             estado_texto = f"{tipo_cli} ({tipo_vehiculo}) - Op: {empleado_actual}"
             
-            # Guardar en hoja Registro
             sh.worksheet("Registro").append_row([
-                tarjeta, patente_limpia, hora_actual, "", 
+                str(tarjeta).strip(), patente_limpia, hora_actual, "", 
                 estado_texto, "", "", ""
             ])
             
-            # Guardar / Actualizar en Clientes_Frecuentes (Matrícula | Cliente | Celular)
             try:
                 ws_cli = sh.worksheet("Clientes_Frecuentes")
                 rows_cli = ws_cli.get_all_records()
@@ -113,7 +110,7 @@ if menu == "📥 Ingreso de Vehículo":
             st.warning("⚠️ Completa al menos el número de tarjeta y la matrícula.")
 
 # ==========================================
-# 2. PANEL DE ALERTAS Y QUINQUELA (Con Sonido)
+# 2. PANEL DE ALERTAS Y QUINQUELA
 # ==========================================
 elif menu == "🔔 Alertas y Panel Quinquela":
     st.subheader("🔔 Panel de Alertas y Validación de Salón en Vivo")
@@ -122,7 +119,6 @@ elif menu == "🔔 Alertas y Panel Quinquela":
         registros = sh.worksheet("Registro").get_all_records()
         autos_activos = [r for r in registros if not r.get("Hora_Salida") and str(r.get("Ticket")) != "EXTRA"]
         
-        # Consultar respuestas del formulario de Quinquela en tiempo real (usando el nombre exacto de tu hoja)
         patentes_quinquela = []
         if sh_quinquela:
             try:
@@ -183,17 +179,16 @@ elif menu == "🍾 Venta de Extras y Stock":
         if tarjeta_extra:
             try:
                 registros = sh.worksheet("Registro").get_all_records()
-                patente_encontrada = next((r['Matrícula'] for r in registros if str(r['Ticket']) == str(tarjeta_extra) and not r['Hora_Salida']), f"TARJETA_{tarjeta_extra}")
+                t_clean = str(tarjeta_extra).strip().lstrip("0")
+                patente_encontrada = next((r['Matrícula'] for r in registros if str(r['Ticket']).strip().lstrip("0") == t_clean and not r['Hora_Salida']), f"TARJETA_{tarjeta_extra}")
                 
                 hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Fila para la cuenta del cliente
                 sh.worksheet("Registro").append_row([
-                    "EXTRA", patente_encontrada, hora_actual, "", 
+                    str(tarjeta_extra).strip(), patente_encontrada, hora_actual, "", 
                     f"Extra ({empleado_actual})", "", f"{extra_tipo} x{cantidad} (${total_linea})", total_linea
                 ])
                 
-                # Fila para auditoría y stock
                 try:
                     sh.worksheet("Control_Stock").append_row([hora_actual, extra_tipo, cantidad, empleado_actual, patente_encontrada])
                 except:
@@ -206,19 +201,44 @@ elif menu == "🍾 Venta de Extras y Stock":
             st.warning("⚠️ Ingresa el número de tarjeta.")
 
 # ==========================================
-# 4. SALIDA Y TICKET OFICIAL CON LOGOS Y CÁLCULO
+# 4. SALIDA Y TICKET OFICIAL (Con Auto-recuperación de Celular y Matrícula)
 # ==========================================
 elif menu == "📤 Salida y Cómputo Final":
     st.subheader("Cómputo de Egreso y Liquidación Automática")
     
     tarjeta_salida = st.text_input("N° de Tarjeta PVC a devolver:")
-    celular = st.text_input("Celular del cliente para el Ticket (Ej: 59899123456):")
     
+    # Búsqueda automática en vivo del celular y la matrícula si se ingresa la tarjeta
+    celular_sugerido = ""
+    patente_encontrada_auto = ""
+    if tarjeta_salida and sh:
+        try:
+            t_clean = str(tarjeta_salida).strip().lstrip("0")
+            registros_temp = sh.worksheet("Registro").get_all_records()
+            for r in registros_temp:
+                if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida"):
+                    patente_encontrada_auto = r.get("Matrícula")
+                    break
+            
+            if patente_encontrada_auto:
+                ws_cli = sh.worksheet("Clientes_Frecuentes")
+                for rc in ws_cli.get_all_records():
+                    if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_encontrada_auto.upper().replace("-", "").replace(" ", ""):
+                        celular_sugerido = str(rc.get("Celular", ""))
+                        break
+        except:
+            pass
+
+    celular = st.text_input("Celular del cliente para el Ticket:", value=celular_sugerido)
+    if patente_encontrada_auto:
+        st.info(f"🚗 Vehículo vinculado detectado: **{patente_encontrada_auto}**")
+
     if st.button("Calcular Salida y Generar Ticket"):
         if tarjeta_salida and celular:
             try:
                 registros = sh.worksheet("Registro").get_all_records()
-                fila_ingreso = next((r for r in registros if str(r.get("Ticket")) == str(tarjeta_salida) and not r.get("Hora_Salida")), None)
+                t_clean = str(tarjeta_salida).strip().lstrip("0")
+                fila_ingreso = next((r for r in registros if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida")), None)
                 
                 if not fila_ingreso:
                     st.error("❌ No se encontró un vehículo activo con ese número de tarjeta.")
@@ -228,12 +248,10 @@ elif menu == "📤 Salida y Cómputo Final":
                     estado_ingreso = str(fila_ingreso.get("Estado", ""))
                     es_mensualista = "Mensualista VIP" in estado_ingreso
                     
-                    # Cálculo de tiempo
                     hora_ingreso = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
                     hora_salida = datetime.now()
                     minutos_totales = int((hora_salida - hora_ingreso).total_seconds() / 60)
                     
-                    # Verificación de Quinquela
                     tiene_quinquela = False
                     if not es_mensualista and sh_quinquela:
                         try:
@@ -244,7 +262,6 @@ elif menu == "📤 Salida y Cómputo Final":
                         except:
                             pass
                     
-                    # Cálculo de tarifas por tiempo
                     minutos_bonificados = 120 if tiene_quinquela else 0
                     minutos_a_cobrar = max(0, minutos_totales - minutos_bonificados)
                     
@@ -252,9 +269,7 @@ elif menu == "📤 Salida y Cómputo Final":
                     if not es_mensualista and minutos_a_cobrar > 0:
                         monto_estacionamiento = (minutos_a_cobrar // 30 + 1) * 150
 
-                    # Recopilar extras
-                    extras_auto = [r for r in registros if r.get("Matrícula") == patente_limpia and str(r.get("Ticket")) == "EXTRA"]
-                    
+                    extras_auto = [r for r in registros if r.get("Matrícula") == patente_limpia and str(r.get("Ticket")) == str(tarjeta_salida)]
                     detalle_extras_txt = "\n".join([f"• {r.get('Estado')}" for r in extras_auto])
                     total_extras = sum([float(r.get("Precio", 0)) for r in extras_auto])
                     
@@ -267,7 +282,6 @@ elif menu == "📤 Salida y Cómputo Final":
                     else:
                         desc_texto = "Tarifa estándar aplicada."
 
-                    # Mensaje oficial institucional adaptado
                     texto_ticket = f"""
 *FLOW PARK - TICKET DE EGRESO*
 ---------------------------------
