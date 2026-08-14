@@ -171,7 +171,6 @@ elif menu == "🍾 Extras":
     opciones_extras = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_extras]
     
     sel_extra_veh = st.selectbox("Seleccionar Vehículo en Playa:", opciones_extras)
-    tkt_extra = sel_extra_veh.split(" - ")[0].replace("#", "").strip() if sel_sel_extra_veh := sel_extra_veh else "" # fixed logic below cleanly
     
     prod = st.selectbox("Seleccionar Producto / Extra:", list(extras.keys()))
     cantidad = st.number_input("Cantidad:", min_value=1, value=1, step=1)
