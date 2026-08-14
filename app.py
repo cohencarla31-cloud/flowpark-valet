@@ -34,6 +34,29 @@ empleados, tarifas, extras, reg, q_data, clientes = obtener_datos()
 def hora_actual_uy():
     return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
+# --- VERIFICADOR INTELIGENTE DE QUINQUELA POR SESIÓN ---
+def verificar_quinquela(patente, tkt, hora_ingreso_str, q_records):
+    try:
+        ingreso_dt = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
+    except:
+        return False
+        
+    pat_clean = patente.upper().replace("-", "").replace(" ", "")
+    tkt_clean = str(tkt).strip().lstrip("0")
+    
+    for q in q_records[1:]:
+        if len(q) < 4: continue
+        q_time_str, q_tkt, q_pat = str(q[0]).strip(), str(q[2]).strip().lstrip("0"), str(q[3]).upper().replace("-", "").replace(" ", "")
+        try:
+            q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
+        except:
+            continue
+            
+        # El beneficio aplica si coincide la tarjeta o patente Y la validación ocurrió DESPUÉS del ingreso actual
+        if (q_tkt == tkt_clean or q_pat == pat_clean) and q_dt >= ingreso_dt:
+            return True
+    return False
+
 def calcular_mejor_precio(minutos, es_camioneta, tiene_q):
     tipo = "Camioneta" if es_camioneta else "Auto"
     m_cobro = max(0, minutos - (120 if tiene_q else 0))
@@ -54,7 +77,6 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
     
-    # Autocompletado de Clientes Frecuentes
     nombre_sug, cel_sug = "", "598"
     if pat:
         for rc in clientes[1:]:
@@ -86,31 +108,37 @@ if menu == "📥 Ingreso":
             st.warning("Completa la tarjeta y la matrícula.")
 
 # ==========================================
-# 2. ACTIVOS (Con indicador de Quinquela)
+# 2. ACTIVOS
 # ==========================================
 elif menu == "📊 Activos":
     st.subheader("Vehículos en Playa")
-    tkts_validados_q = {str(q[2]).strip() for q in q_data[1:] if len(q) > 2}
-    
     for r in reversed(reg[1:]):
         tkt = str(r[0]).strip()
         h_sal = str(r[3]).strip()
         if tkt.upper() != "EXTRA" and (not h_sal or h_sal.lower() == "nan"):
             pat = r[1]
-            es_q = tkt in tkts_validados_q or any(str(q[3]).upper().replace("-","") == pat.upper().replace("-","") for q in q_data[1:] if len(q) > 3)
+            h_ing = r[2]
+            es_q = verificar_quinquela(pat, tkt, h_ing, q_data)
             tag_q = " | 🍽️ **VALIDADO POR QUINQUELA**" if es_q else ""
-            st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {r[2]}{tag_q}")
+            st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}")
 
 # ==========================================
-# 3. QUINQUELA (Formulario para Mozo y Filtro)
+# 3. QUINQUELA
 # ==========================================
 elif menu == "🔔 Quinquela":
     st.subheader("🍽️ Validación Quinquela (Salón)")
     
-    # Filtrar tarjetas que YA fueron validadas para que desaparezcan de las opciones
-    tkts_validados_q = {str(q[2]).strip() for q in q_data[1:] if len(q) > 2}
-    activos_disponibles = [r for r in reg[1:] if not r[3] and r[0].upper() != "EXTRA" and r[0].strip() not in tkts_validados_q]
-    
+    # Solo muestra vehículos activos que NO hayan sido validados en esta sesión actual
+    activos_disponibles = []
+    for r in reg[1:]:
+        tkt = str(r[0]).strip()
+        h_sal = str(r[3]).strip()
+        if tkt.upper() != "EXTRA" and (not h_sal or h_sal.lower() == "nan"):
+            pat = r[1]
+            h_ing = r[2]
+            if not verificar_quinquela(pat, tkt, h_ing, q_data):
+                activos_disponibles.append(r)
+                
     opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_disponibles]
     
     mozo = st.text_input("Nombre del Mozo:")
@@ -122,7 +150,7 @@ elif menu == "🔔 Quinquela":
             pat_val = next((r[1] for r in activos_disponibles if r[0].strip() == tkt_val), "")
             
             sh.worksheet("Respuestas de formulario 1").append_row([hora_actual_uy(), mozo, tkt_val, pat_val])
-            st.success(f"✅ Validación registrada para Tarjeta #{tkt_val}. ¡Actualiza o cambia de pestaña para ver los cambios!")
+            st.success(f"✅ Validación registrada para Tarjeta #{tkt_val}. ¡Actualiza la página para ver los cambios!")
         else:
             st.error("Completa el nombre del mozo y selecciona un vehículo.")
 
@@ -132,7 +160,7 @@ elif menu == "🔔 Quinquela":
         st.write(f"🕒 {q[0]} | 🍽️ Mozo: {q[1]} | 🎫 Tarjeta: #{q[2]} | 🚗 Patente: {q[3]}")
 
 # ==========================================
-# 4. EXTRAS (Muestra precios y totales)
+# 4. EXTRAS
 # ==========================================
 elif menu == "🍾 Extras":
     st.subheader("Carga de Productos / Extras")
@@ -161,7 +189,7 @@ elif menu == "🍾 Extras":
             st.warning("Ingresa el número de tarjeta.")
 
 # ==========================================
-# 5. SALIDA (Con recuperación de celular y ticket final)
+# 5. SALIDA
 # ==========================================
 elif menu == "📤 Salida":
     st.subheader("Cómputo de Egreso y Ticket Final")
@@ -172,8 +200,8 @@ elif menu == "📤 Salida":
         tkt = sel.split(" - ")[0].replace("#", "").strip()
         datos = next(r for r in activos if r[0].strip() == tkt)
         patente = datos[1]
+        h_ingreso = datos[2]
         
-        # Recuperar celular automáticamente de Clientes Frecuentes
         cel_encontrado = "598"
         for c in clientes[1:]:
             if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", ""):
@@ -183,16 +211,15 @@ elif menu == "📤 Salida":
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         
         if st.button("Calcular y Generar Salida"):
-            ing = datetime.strptime(datos[2], "%Y-%m-%d %H:%M:%S")
+            ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             
-            # Quinquela check por tarjeta o patente
-            tiene_q = any(str(q[2]).strip() == tkt or str(q[3]).upper().replace("-","") == patente.upper() for q in q_data[1:])
+            # Verificación de Quinquela vinculada a la sesión actual
+            tiene_q = verificar_quinquela(patente, tkt, h_ingreso, q_data)
             
             es_camioneta = "Camioneta" in datos[4]
             monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, tiene_q)
             
-            # Buscar extras del auto
             extras_auto = [r for r in reg[1:] if str(r[0]).upper() == "EXTRA" and str(r[1]).upper() == patente.upper() and not r[3]]
             detalle_extras = "\n".join([f"• {r[6]} (${r[7]})" for r in extras_auto])
             total_extras = sum([float(r[7]) for r in extras_auto if r[7]])
@@ -222,7 +249,6 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
             st.code(texto_ticket)
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
             
-            # Registrar salida en la hoja Registro
             for i, row in enumerate(reg, start=1):
                 if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
                     sh.worksheet("Registro").update_cell(i, 4, hora_actual_uy())
