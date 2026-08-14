@@ -275,7 +275,118 @@ elif menu == "🍾 Extras":
                     st.error(f"⚠️ Error al guardar. Detalle: {e}")
             else:
                 st.error("❌ No se encontró un vehículo activo con esa tarjeta.")
+# ==========================================
+# 5. SALIDA
+# ==========================================
+elif menu == "📤 Salida":
+    st.subheader("Cómputo de Egreso y Ticket Final")
+    
+    # Visor de Historial del Turno Actual
+    with st.expander("🕒 Ver tickets emitidos en este turno"):
+        try:
+            try:
+                ws_hist = sh.worksheet("Historial_Tickets")
+            except Exception:
+                ws_hist = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
+                ws_hist.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+            
+            registros_hist = ws_hist.get_all_values()
+            hoy = datetime.now().strftime("%Y-%m-%d")
+            tickets_del_dia = [r for r in registros_hist[1:] if len(r) > 0 and hoy in r[0]]
+            
+            if tickets_del_dia:
+                df_hist = pd.DataFrame(tickets_del_dia, columns=["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+                st.dataframe(df_hist)
+            else:
+                st.info("No hay tickets emitidos todavía hoy.")
+        except Exception as e:
+            st.warning(f"Aviso del visor: {e}")
 
+    # Lógica inteligente para filtrar duplicados: solo muestra el registro más reciente por ticket
+    temp_activos = {}
+    for r in reg[1:]:
+        if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA":
+            tkt_key = r[0].strip()
+            temp_activos[tkt_key] = r
+    activos = list(temp_activos.values())
+
+    sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos])
+    
+    if sel:
+        tkt = sel.split(" - ")[0].replace("#", "").strip()
+        datos = next(r for r in activos if r[0].strip() == tkt)
+        patente = datos[1]
+        h_ingreso = datos[2]
+        
+        cel_encontrado = next((str(c[2]).strip() for c in clientes[1:] if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", "")), "598")
+        cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
+        obs_salida = st.text_input("Observaciones de Salida (Opcional):")
+        
+        if st.button("Calcular y Generar Salida"):
+            h_salida = hora_actual_uy()
+            ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
+            mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
+            
+            local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
+            es_camioneta = "Camioneta" in datos[4]
+            monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
+            
+            total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
+            detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
+            
+            total_a_pagar = monto_estacionamiento + total_extras
+            
+            if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% bonificado por Rodrigo Bueno."
+            elif local_val: info_desc = f"Incluye 2.5h libres de cortesía por {local_val}."
+            else: info_desc = "Tarifa estándar aplicada."
+            
+            serv_str = str(datos[6])
+            nombre_cliente = serv_str.split("Cliente: ")[1] if "Cliente: " in serv_str else "estimado cliente"
+            operador = datos[4].split("Op: ")[1] if "Op: " in datos[4] else "Desconocido"
+            
+            texto_ticket = f"""*FLOW PARK - TICKET DE EGRESO*
+---------------------------------
+🚗 Vehículo: {patente} | Tarjeta: #{tkt}
+🕒 Ingreso: {h_ingreso}
+🕒 Salida:  {h_salida}
+⏱️ Estadía total: {mins//60}h {mins%60}m
+---------------------------------
+📋 DETALLE:
+{detalle_extras_txt}
+Estacionamiento: ${monto_estacionamiento}
+Total Extras: ${total_extras}
+---------------------------------
+💰 *TOTAL A PAGAR: ${total_a_pagar}*
+ℹ️ {info_desc}
+---------------------------------
+Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
+"""
+            try:
+                for i, row in enumerate(reg, start=1):
+                    # Marcamos como salida todas las filas que coincidan con ese ticket
+                    if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+                        sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
+                
+                try:
+                    ws_h = sh.worksheet("Historial_Tickets")
+                except:
+                    ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
+                    ws_h.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+                
+                ws_h.append_row([h_salida, operador, patente, f"#{tkt}", float(monto_estacionamiento), float(total_extras), float(total_a_pagar), obs_salida if obs_salida else "Sin observaciones"])
+                
+            except Exception as e:
+                st.warning(f"Aviso de sincronización: {e}")
+
+            st.success("✅ ¡Cálculo, ticket generado y registrado con éxito!")
+            
+            with st.expander("🔍 Ver vista previa del comprobante generado", expanded=True):
+                st.code(texto_ticket)
+                if obs_salida:
+                    st.info(f"📝 Nota registrada: {obs_salida}")
+                
+            st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 # 6. PERSONAL (Control de Asistencia con Tiempos Diferenciados)
 # ==========================================
 elif menu == "⏰ Personal":
