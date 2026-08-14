@@ -15,8 +15,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CONFIGURACIÓN DE TELÉFONOS DEL PARKING ---
-TEL_PARKING_1 = "59893343092" # <- REEMPLAZA POR EL CELULAR 1 DEL PARKING
-TEL_PARKING_2 = "59895280412" # <- REEMPLAZA POR EL CELULAR 2 DEL PARKING
+TEL_PARKING_1 = "59899123456" # <- REEMPLAZA POR EL CELULAR 1 DEL PARKING
+TEL_PARKING_2 = "59899654321" # <- REEMPLAZA POR EL CELULAR 2 DEL PARKING
 
 # --- CONEXIÓN Y CACHÉ ---
 @st.cache_resource
@@ -61,7 +61,6 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
         q_tkt = str(q[2]).strip().lstrip("0")
         q_pat = str(q[3]).upper().replace("-", "").replace(" ", "")
         
-        # Leemos el local (si no existe, asumimos Quinquela por retrocompatibilidad)
         q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
         
         try: q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
@@ -95,7 +94,7 @@ def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
 emp = st.selectbox("Empleado a cargo:", empleados)
-menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Validaciones", "🍾 Extras", "📤 Salida", "⏰ Personal"])
+menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno", "🍾 Extras", "📤 Salida", "⏰ Personal"])
 
 # ==========================================
 # 1. INGRESO
@@ -104,7 +103,6 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
     
-    # Autocompletado inteligente de Clientes Frecuentes
     nombre_sug, cel_sug = "", "598"
     if pat:
         for rc in clientes[1:]:
@@ -150,11 +148,15 @@ elif menu == "📊 Activos":
             st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}")
 
 # ==========================================
-# 3. VALIDACIONES (Locales)
+# 3. MÓDULOS DE VALIDACIÓN SEPARADOS
 # ==========================================
-elif menu == "🔔 Validaciones":
-    st.subheader("🍽️ Validación de Locales (Mozos)")
+elif menu in ["🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno"]:
     
+    # Identificar el local actual
+    local_actual = menu.replace("🔔 ", "")
+    st.subheader(f"🍽️ Validación - {local_actual}")
+    
+    # Filtrar autos disponibles que no tengan validación
     activos_disponibles = []
     for r in reg[1:]:
         tkt = str(r[0]).strip()
@@ -166,28 +168,31 @@ elif menu == "🔔 Validaciones":
                 activos_disponibles.append(r)
                 
     opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_disponibles]
-    
-    local_sel = st.selectbox("Seleccionar Local:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
-    mozo = st.text_input("Nombre del Mozo / Recepción:")
     seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", opciones_mozo)
-    factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
     
-    if st.button("Enviar Validación y Avisar al Parking"):
-        if mozo and seleccion_mozo:
-            # Obliga a poner factura solo en Quinquela y Number 18
-            if local_sel in ["Quinquela", "Number 18"] and len(factura) < 4:
-                st.error("⚠️ Es obligatorio ingresar los últimos 4 dígitos de la factura para este local.")
+    # Campos específicos por local
+    if local_actual in ["Quinquela", "Number 18"]:
+        mozo = st.text_input("Nombre del Mozo / Recepción:")
+        factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
+    else:
+        # Para Rodrigo Bueno no pedimos mozo ni factura
+        mozo = "Recepción RB"
+        factura = "N/A"
+
+    if st.button(f"Enviar Validación y Avisar al Parking"):
+        if seleccion_mozo:
+            # Validaciones obligatorias para Quinquela y Number 18
+            if local_actual in ["Quinquela", "Number 18"] and (not mozo or len(factura) < 4):
+                st.error("⚠️ Es obligatorio ingresar el nombre del mozo y los últimos 4 dígitos de la factura.")
             else:
                 tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
                 pat_val = next((r[1] for r in activos_disponibles if r[0].strip() == tkt_val), "")
                 
                 try:
-                    # Guardado en Google Sheets [Hora, Mozo, Tkt, Patente, Factura, Local]
-                    sh.worksheet("Respuestas de formulario 1").append_row([hora_actual_uy(), mozo, tkt_val, pat_val, factura, local_sel])
-                    st.success(f"✅ Validación de {local_sel} registrada para Tarjeta #{tkt_val}.")
+                    sh.worksheet("Respuestas de formulario 1").append_row([hora_actual_uy(), mozo, tkt_val, pat_val, factura, local_actual])
+                    st.success(f"✅ Validación de {local_actual} registrada para Tarjeta #{tkt_val}.")
                     
-                    # Generación de mensaje para enviar a los celulares del Parking
-                    msg_aviso = urllib.parse.quote(f"⚠️ *VALIDACIÓN FLOW PARK*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_sel}\n🧾 Factura: {factura}\n👤 Validado por: {mozo}")
+                    msg_aviso = urllib.parse.quote(f"⚠️ *VALIDACIÓN FLOW PARK*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_actual}\n🧾 Factura: {factura}\n👤 Validado por: {mozo}")
                     
                     st.markdown("### 📲 Enviar alerta al equipo del Parking:")
                     st.markdown(f"[➡️ Avisar a Teléfono 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})", unsafe_allow_html=True)
@@ -195,17 +200,21 @@ elif menu == "🔔 Validaciones":
                 except Exception as e:
                     st.error(f"Error al conectar con la base de datos: {e}")
         else:
-            st.error("Completa el nombre y selecciona un vehículo.")
+            st.error("Selecciona un vehículo de la lista.")
 
     st.divider()
-    st.subheader("Historial de Validaciones")
+    st.subheader(f"Historial de Validaciones - {local_actual}")
     for q in reversed(q_data[1:]):
-        fac = str(q[4]) if len(q) > 4 else "N/A"
         loc = str(q[5]) if len(q) > 5 else "Quinquela"
-        st.write(f"🕒 {q[0]} | 🏪 {loc} | 🍽️ Mozo: {q[1]} | 🧾 Fac: {fac} | 🎫 Tkt: #{q[2]} | 🚗 Pat: {q[3]}")
+        if loc == local_actual:
+            fac = str(q[4]) if len(q) > 4 else "N/A"
+            if local_actual == "Rodrigo Bueno":
+                st.write(f"🕒 {q[0]} | 🎫 Tkt: #{q[2]} | 🚗 Pat: {q[3]}")
+            else:
+                st.write(f"🕒 {q[0]} | 🍽️ Mozo: {q[1]} | 🧾 Fac: {fac} | 🎫 Tkt: #{q[2]} | 🚗 Pat: {q[3]}")
 
 # ==========================================
-# 4. EXTRAS (Con Validación de Stock estricta)
+# 4. EXTRAS
 # ==========================================
 elif menu == "🍾 Extras":
     st.subheader("Carga de Productos / Extras")
@@ -215,7 +224,6 @@ elif menu == "🍾 Extras":
     
     sel_extra_veh = st.selectbox("Seleccionar Vehículo en Playa:", opciones_extras)
     
-    # Obliga a elegir un producto dejando el primero en blanco
     lista_productos = [""] + list(extras.keys())
     prod = st.selectbox("Seleccionar Producto / Extra:", lista_productos)
     cantidad = st.number_input("Cantidad:", min_value=1, value=1, step=1)
