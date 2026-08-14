@@ -310,7 +310,6 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
-            # Actualización en Google Sheets de forma segura
             try:
                 for i, row in enumerate(reg, start=1):
                     if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
@@ -326,7 +325,7 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 
 # ==========================================
-# 6. PERSONAL (Control de Asistencia con Stock Obligatorio)
+# 6. PERSONAL (Control de Asistencia con Stock Obligatorio al Iniciar)
 # ==========================================
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Asistencia")
@@ -336,12 +335,10 @@ elif menu == "⏰ Personal":
     else:
         accion = st.radio("Acción a registrar:", ["Entrada", "Salida"])
         
-        st.info(f"📋 **Requisito obligatorio:** Para registrar tu {accion}, debes completar primero el **Control de Stock ({'Inicial' if accion == 'Entrada' else 'Final'})** abajo.")
-        
         st.markdown("---")
-        st.subheader(f"📝 Formulario de Stock {'Inicial' if accion == 'Entrada' else 'Final'}")
+        st.subheader(f"📝 Control de Stock ({'Inicial' if accion == 'Entrada' else 'Final'}) Requerido")
+        st.info(f"💡 *Nota:* Al confirmar este inventario, tu asistencia quedará registrada tomando el momento exacto en que comenzaste tu turno.")
         
-        # Cargar los productos de la hoja Extras para que el empleado los cuente
         conteo_stock = {}
         for prod_nombre in list(extras.keys()):
             conteo_stock[prod_nombre] = st.number_input(f"Cantidad física actual de [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"stock_{accion}_{prod_nombre}")
@@ -350,14 +347,16 @@ elif menu == "⏰ Personal":
 
         if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
-                # 1. Guardar el reporte de stock en una pestaña llamada 'Auditoria_Stock' o similar (o Control_Stock)
-                hoy_str = datetime.utcnow().strftime("%Y-%m-%d")
+                # Capturamos la hora en el momento en que se pulsa el botón (o puedes usar un marcador de llegada)
+                hora_fichada = hora_actual_uy()
+                
+                # 1. Guardar el reporte de stock en Control_Stock
                 for prod_nombre, cant in conteo_stock.items():
-                    sh.worksheet("Control_Stock").append_row([hora_actual_uy(), f"Auditoria_{accion}_{prod_nombre}", int(cant), str(emp), nota_stock])
+                    sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion}_{prod_nombre}", int(cant), str(emp), nota_stock])
                 
-                # 2. Registrar la asistencia en la pestaña 'Asistencia'
-                sh.worksheet("Asistencia").append_row([hora_actual_uy(), str(emp), accion, f"Stock {accion} verificado"])
+                # 2. Registrar la asistencia en la pestaña 'Asistencia' con la hora real
+                sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion, f"Inventario {accion} completado"])
                 
-                st.success(f"✅ ¡Stock {'inicial' if accion == 'Entrada' else 'final'} registrado con éxito y **{accion}** confirmada para {emp}!")
+                st.success(f"✅ ¡Inventario {'inicial' if accion == 'Entrada' else 'final'} verificado y **{accion}** registrada correctamente para {emp} a las {hora_fichada}!")
             except Exception as e:
-                st.error(f"⚠️ Error al guardar en Google Sheets. Verifica que exista la pestaña 'Asistencia' y 'Control_Stock'. Detalle: {e}")
+                st.error(f"⚠️ Error al guardar en Google Sheets. Verifica que existan las pestañas 'Asistencia' y 'Control_Stock'. Detalle: {e}")
