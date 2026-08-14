@@ -332,17 +332,21 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
-            # Actualización limpia en Google Sheets (Usando 'row' correctamente)
+            # Actualización en Google Sheets y respaldo de seguridad
             try:
                 for i, row in enumerate(reg, start=1):
                     if row[0].strip() == tkt and (not row[3] or row[3].lower() == "nan"):
                         sh.worksheet("Registro").update_cell(i, 4, h_salida) # Hora Salida (Col D)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento)) # Parking Dinero (Col G)
                         break
+                
+                # Respaldo automático del ticket emitido en la pestaña Historial_Tickets
+                sh.worksheet("Historial_Tickets").append_row([hora_actual_uy(), patente, f"#{tkt}", texto_ticket])
+                
             except Exception as e:
                 st.warning(f"Aviso de sincronización: {e}")
 
-            st.success("✅ ¡Cálculo y ticket generados con éxito!")
+            st.success("✅ ¡Cálculo, ticket generado y respaldado con éxito!")
             st.code(texto_ticket)
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 # ==========================================
