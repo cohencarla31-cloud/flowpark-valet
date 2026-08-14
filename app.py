@@ -8,22 +8,30 @@ st.set_page_config(page_title="Flow Park - Valet & Gerencia", layout="centered")
 
 # --- CONEXIÓN SEGURA CON GOOGLE SHEETS ---
 @st.cache_resource
-def init_connection():
+def init_connections():
     creds_dict = st.secrets["gcp_service_account"]
     client = gspread.service_account_from_dict(creds_dict)
-    # 🔗 REEMPLAZA ESTE LINK POR EL DE TU GOOGLE SHEET MAESTRO
-    SHEET_URL = "https://docs.google.com/spreadsheets/d/1jknI7amSqutxGT_WAIBNhD0vezFE2AueTEzP7q5Rb1c/edit?gid=1498869870#gid=1498869870"
-    return client.open_by_url(SHEET_URL)
+    
+    # 1. Tu Planilla Maestra de Valet (REEMPLAZA TU LINK AQUÍ)
+    SHEET_VALET_URL = "https://docs.google.com/spreadsheets/d/1jknI7amSqutxGT_WAIBNhD0vezFE2AueTEzP7q5Rb1c/edit?gid=844746886#gid=844746886"
+    sh_valet = client.open_by_url(SHEET_VALET_URL)
+    
+    # 2. Planilla del Formulario de Quinquela (Conectada directo por código)
+    id_quinquela = "18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM"
+    sh_quinquela = client.open_by_key(id_quinquela)
+    
+    return sh_valet, sh_quinquela
 
 try:
-    sh = init_connection()
-    # Cargar datos dinámicos desde las pestañas del Excel
+    sh, sh_quinquela = init_connections()
+    
+    # Cargar empleados desde la pestaña 'Configuracion' de tu Excel
     ws_config = sh.worksheet("Configuracion")
-    empleados = ws_config.col_values(1)[1:] # Salta la cabecera
+    empleados = ws_config.col_values(1)[1:] 
     if not empleados:
-        empleados = ["Valet 1", "Valet 2", "Encargado"] # Fallback por seguridad
+        empleados = ["Valet 1", "Valet 2", "Encargado"]
 except Exception as e:
-    st.error(f"Error al conectar con Google Sheets o leer pestañas: {e}")
+    st.error(f"Error al conectar con las planillas: {e}")
     empleados = ["Valet 1", "Valet 2", "Encargado"]
 
 st.title("🚗 Flow Park - Operativa VIP")
@@ -40,7 +48,6 @@ menu = st.radio("Selecciona una opción operativa:", ["📥 Ingreso de Vehículo
 if menu == "📥 Ingreso de Vehículo":
     st.subheader("Registro de Ingreso en Puerta")
     
-    # Uso de st.form para limpiar campos automáticamente al enviar
     with st.form("form_ingreso", clear_on_submit=True):
         tarjeta = st.text_input("N° de Tarjeta PVC (Ej: 045)")
         patente = st.text_input("Matrícula del Vehículo (Ej: SBA-1234)")
@@ -50,30 +57,25 @@ if menu == "📥 Ingreso de Vehículo":
         
         if submitted_ingreso:
             if tarjeta and patente:
-                # Estandarización de matrícula (Mayúsculas, sin guiones ni espacios)
                 patente_limpia = patente.upper().replace("-", "").replace(" ", "")
                 hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Columnas de tu Excel: [Ticket, Matricula, Hora_Ingreso, Hora_Salida, Estado, Factura_Quinquela, Servicios_Extras, Total_Cobrado]
+                # Columnas de tu Excel de Registro
                 fila_datos = [
                     tarjeta, 
                     patente_limpia, 
                     hora_actual, 
-                    "",               # Hora_Salida (vacía al ingresar)
+                    "",               
                     f"Ingresado ({tipo_vehiculo}) - Op: {empleado_actual}", 
-                    "",               # Factura_Quinquela
-                    "",               # Servicios_Extras
-                    ""                # Total_Cobrado (calculado por fórmula en Excel)
+                    "",               
+                    "",               
+                    ""                
                 ]
                 
                 ws_registro = sh.worksheet("Registro")
                 ws_registro.append_row(fila_datos)
                 
                 st.success(f"✅ ¡Vehículo {patente_limpia} vinculado a tarjeta {tarjeta} con éxito!")
-                
-                # Mensaje de bienvenida simulado por WhatsApp
-                mensaje_wsp = f"Hola! Bienvenido a Distrito El Globo. Su vehículo {patente_limpia} ha sido ingresado correctamente bajo la tarjeta #{tarjeta}."
-                st.info(f"📋 Datos listos para el sistema. Operador a cargo: {empleado_actual}")
             else:
                 st.warning("⚠️ Por favor completa el número de tarjeta y la matrícula.")
 
@@ -95,7 +97,6 @@ elif menu == "🍾 Venta de Extras / Lavados":
                 patente_limpia = patente_extra.upper().replace("-", "").replace(" ", "")
                 hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                # Registramos el extra como una línea de consumo asociada
                 fila_extra = [
                     "EXTRA", 
                     patente_limpia, 
@@ -129,13 +130,26 @@ elif menu == "📤 Salida y Ticket WSP":
         if submitted_salida:
             if patente_salida and celular:
                 patente_limpia = patente_salida.upper().replace("-", "").replace(" ", "")
-                hora_salida = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Verificación automática en la planilla de Quinquela
+                try:
+                    ws_q = sh_quinquela.worksheet("Form_Responses")
+                    # Traemos todas las patentes registradas por los mozos (Columna C)
+                    patentes_quinquela = [p.upper().replace("-", "").replace(" ", "") for p in ws_q.col_values(3)]
+                    
+                    if patente_limpia in patentes_quinquela:
+                        descuento_txt = "¡Beneficio Quinquela aplicado (2 horas libres)!"
+                    else:
+                        descuento_txt = "Estándar (Sin validación de salón)."
+                except Exception:
+                    descuento_txt = "No se pudo verificar Quinquela en línea."
                 
                 # Generador de enlace de WhatsApp automatizado
-                texto_ticket = f"Hola! Gracias por visitar Distrito El Globo y Flow Park. Su vehículo {patente_limpia} ya se encuentra listo en rampa. ¡Buen viaje!"
+                texto_ticket = f"Hola! Gracias por visitar Distrito El Globo y Flow Park. Su vehículo {patente_limpia} ya se encuentra listo en rampa. {descuento_txt} ¡Buen viaje!"
                 link_wsp = f"https://wa.me/{celular}?text={urllib.parse.quote(texto_ticket)}"
                 
                 st.success(f"✅ Egreso procesado para {patente_limpia} por {empleado_actual}.")
+                st.info(f"ℹ️ Estado de salón: {descuento_txt}")
                 st.markdown(f"### [📲 HAGA CLIC AQUÍ PARA ENVIAR EL TICKET POR WHATSAPP AL CLIENTE]({link_wsp})", unsafe_allow_html=True)
             else:
                 st.warning("⚠️ Ingresa la matrícula y el número de celular.")
