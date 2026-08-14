@@ -381,7 +381,7 @@ elif menu == "⏰ Personal":
             
         nota_stock = st.text_input("Observaciones del stock (Opcional):")
 
-   if st.button(f"Confirmar Stock y Registrar {accion}"):
+if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
                 hora_fichada = hora_actual_uy()
             
