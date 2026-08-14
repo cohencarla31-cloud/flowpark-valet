@@ -316,6 +316,42 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
+            # Actualización en Google Sheets
+            try:
+                # Actualizamos Registro principal
+                for i, row in enumerate(reg, start=1):
+                    if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
+                        # i es el número de fila real en Sheets (empezando en 1)
+                        # Columna 4 = Hora_Salida, Columna 8 = Total_Cobrado
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+                        sh.worksheet("Registro").update_cell(i, 8, float(total_a_pagar))
+                
+                # Actualizamos los registros de extras como cerrados
+                for i, row in enumerate(reg, start=1):
+                    if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+            except Exception as e:
+                st.warning(f"Aviso de sincronización: {e}")
+
+            st.success("✅ ¡Cálculo y ticket generados con éxito!")
+            st.code(texto_ticket)
+            st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
+---------------------------------
+🚗 Vehículo: {patente} | Tarjeta: #{tkt}
+🕒 Ingreso: {h_ingreso}
+🕒 Salida:  {h_salida}
+⏱️ Estadía total: {mins//60}h {mins%60}m
+---------------------------------
+📋 DETALLE:
+{detalle_extras if detalle_extras else "Sin extras consumidos."}
+Estacionamiento: ${monto_estacionamiento}
+Total Extras: ${total_extras}
+---------------------------------
+💰 *TOTAL A PAGAR: ${total_a_pagar}*
+ℹ️ {info_desc}
+---------------------------------
+Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
+"""
             try:
                 for i, row in enumerate(reg, start=1):
                     if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
