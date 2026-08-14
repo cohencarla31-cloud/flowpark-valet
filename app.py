@@ -15,8 +15,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CONFIGURACIÓN DE TELÉFONOS DEL PARKING ---
-TEL_PARKING_1 = "59895280412" # <- REEMPLAZA POR EL CELULAR 1 DEL PARKING
-TEL_PARKING_2 = "59893343092" # <- REEMPLAZA POR EL CELULAR 2 DEL PARKING
+TEL_PARKING_1 = "59899123456" # <- REEMPLAZA POR EL CELULAR 1 DEL PARKING
+TEL_PARKING_2 = "59899654321" # <- REEMPLAZA POR EL CELULAR 2 DEL PARKING
 
 # --- CONEXIÓN Y CACHÉ ---
 @st.cache_resource
@@ -60,7 +60,6 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
         q_time_str = str(q[0]).strip()
         q_tkt = str(q[2]).strip().lstrip("0")
         q_pat = str(q[3]).upper().replace("-", "").replace(" ", "")
-        
         q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
         
         try: q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
@@ -73,11 +72,9 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
 def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
     tipo = "Camioneta" if es_camioneta else "Auto"
     
-    # Lógica Rodrigo Bueno (Gratis Total)
     if local_validacion == "Rodrigo Bueno":
         return 0
         
-    # Lógica 2.5 horas (150 mins) para Quinquela y Number 18
     descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
     m_cobro = max(0, minutos - descuento)
     
@@ -93,8 +90,17 @@ def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
 
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
-emp = st.selectbox("Empleado a cargo:", empleados)
+
+# Empleado arranca vacío obligatoriamente
+lista_empleados_op = [""] + empleados
+emp = st.selectbox("Empleado a cargo:", lista_empleados_op)
+
 menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno", "🍾 Extras", "📤 Salida", "⏰ Personal"])
+
+# Validación general: Si no selecciona empleado, frena la operación
+if not emp and menu != "⏰ Personal":
+    st.warning("⚠️ Por favor, seleccione el empleado a cargo antes de operar.")
+    st.stop()
 
 # ==========================================
 # 1. INGRESO
@@ -120,13 +126,14 @@ if menu == "📥 Ingreso":
             if any((r[0].strip().lstrip("0") == tkt.strip().lstrip("0") or r[1].upper() == pat) and not r[3] for r in reg[1:]):
                 st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
             else:
+                h_ing = hora_actual_uy()
                 estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                sh.worksheet("Registro").append_row([str(tkt).strip(), pat, hora_actual_uy(), "", estado_txt, "", f"Cliente: {cli}", ""])
+                sh.worksheet("Registro").append_row([str(tkt).strip(), pat, h_ing, "", estado_txt, "", f"Cliente: {cli}", ""])
                 try: sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
                 except: pass
                 
                 st.success(f"✅ Ingreso registrado: {pat} | Tarjeta #{tkt}")
-                msg_ingreso = f"*FLOW PARK - TICKET INGRESO*\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n¡Gracias {cli} por elegirnos!"
+                msg_ingreso = f"*FLOW PARK - TICKET INGRESO*\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias {cli} por elegirnos!"
                 st.code(msg_ingreso)
                 st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel}?text={urllib.parse.quote(msg_ingreso)})")
         else:
@@ -151,12 +158,9 @@ elif menu == "📊 Activos":
 # 3. MÓDULOS DE VALIDACIÓN SEPARADOS
 # ==========================================
 elif menu in ["🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno"]:
-    
-    # Identificar el local actual
     local_actual = menu.replace("🔔 ", "")
     st.subheader(f"🍽️ Validación - {local_actual}")
     
-    # Filtrar autos disponibles que no tengan validación
     activos_disponibles = []
     for r in reg[1:]:
         tkt = str(r[0]).strip()
@@ -170,18 +174,15 @@ elif menu in ["🔔 Quinquela", "🔔 Number 18", "🔔 Rodrigo Bueno"]:
     opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_disponibles]
     seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", opciones_mozo)
     
-    # Campos específicos por local
     if local_actual in ["Quinquela", "Number 18"]:
         mozo = st.text_input("Nombre del Mozo / Recepción:")
         factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
     else:
-        # Para Rodrigo Bueno no pedimos mozo ni factura
         mozo = "Recepción RB"
         factura = "N/A"
 
-    if st.button(f"Enviar Validación y Avisar al Parking"):
+    if st.button("Enviar Validación y Avisar al Parking"):
         if seleccion_mozo:
-            # Validaciones obligatorias para Quinquela y Number 18
             if local_actual in ["Quinquela", "Number 18"] and (not mozo or len(factura) < 4):
                 st.error("⚠️ Es obligatorio ingresar el nombre del mozo y los últimos 4 dígitos de la factura.")
             else:
@@ -273,6 +274,7 @@ elif menu == "📤 Salida":
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         
         if st.button("Calcular y Generar Salida"):
+            h_salida = hora_actual_uy()
             ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             
@@ -293,9 +295,12 @@ elif menu == "📤 Salida":
             serv_str = str(datos[6])
             nombre_cliente = serv_str.split("Cliente: ")[1] if "Cliente: " in serv_str else "estimado cliente"
             
+            # Ticket de egreso con fecha/hora de ingreso y salida incorporadas
             texto_ticket = f"""*FLOW PARK - TICKET DE EGRESO*
 ---------------------------------
 🚗 Vehículo: {patente} | Tarjeta: #{tkt}
+🕒 Ingreso: {h_ingreso}
+🕒 Salida:  {h_salida}
 ⏱️ Estadía total: {mins//60}h {mins%60}m
 ---------------------------------
 📋 DETALLE:
@@ -314,7 +319,7 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
             
             for i, row in enumerate(reg, start=1):
                 if (row[0].strip() == tkt or (str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper())) and not row[3]:
-                    sh.worksheet("Registro").update_cell(i, 4, hora_actual_uy())
+                    sh.worksheet("Registro").update_cell(i, 4, h_salida)
 
 # ==========================================
 # 6. PERSONAL (Control de Asistencia)
@@ -324,8 +329,11 @@ elif menu == "⏰ Personal":
     accion = st.radio("Acción a registrar:", ["Entrada", "Salida"])
     
     if st.button("Registrar Fichada"):
-        try:
-            sh.worksheet("Asistencia").append_row([hora_actual_uy(), str(emp), accion])
-            st.success(f"✅ Se registró la **{accion}** de {emp} correctamente a las {hora_actual_uy()}")
-        except Exception as e:
-            st.error(f"⚠️ Error. Asegúrate de tener creada una pestaña llamada 'Asistencia'. Detalle: {e}")
+        if not emp:
+            st.warning("⚠️ Selecciona primero el empleado a cargo en la parte superior.")
+        else:
+            try:
+                sh.worksheet("Asistencia").append_row([hora_actual_uy(), str(emp), accion])
+                st.success(f"✅ Se registró la **{accion}** de {emp} correctamente a las {hora_actual_uy()}")
+            except Exception as e:
+                st.error(f"⚠️ Error. Asegúrate de tener creada una pestaña llamada 'Asistencia'. Detalle: {e}")
