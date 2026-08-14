@@ -12,13 +12,9 @@ def init_connections():
     creds_dict = st.secrets["gcp_service_account"]
     client = gspread.service_account_from_dict(creds_dict)
     
-    # 1. Tu Planilla Maestra de Valet abierta por su nombre exacto en Drive
+    # Abre por nombre exacto en Drive
     sh_valet = client.open("FlowPark_Valet_DB")
-    
-    # 2. Planilla del Formulario de Quinquela
-    id_quinquela = "18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM"
-    sh_quinquela = client.open_by_key(id_quinquela)
-    
+    sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
     return sh_valet, sh_quinquela
 
 try:
