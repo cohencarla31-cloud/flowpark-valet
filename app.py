@@ -385,15 +385,13 @@ elif menu == "⏰ Personal":
             try:
                 hora_fichada = hora_actual_uy()
             
-                # 1. Guardar el reporte de stock en Control_Stock (La nota solo va en el primer producto para no repetir)
                 for index, (prod_nombre, cant) in enumerate(conteo_stock.items()):
                     obs_a_guardar = nota_stock if index == 0 else ""
                     sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion}_{prod_nombre}", int(cant), str(emp), obs_a_guardar])
                 
-                # 2. Registrar la asistencia en la pestaña 'Asistencia'
                 texto_asistencia = f"Inventario {accion} completado - Obs: {nota_stock}" if nota_stock else f"Inventario {accion} completado"
                 sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion, texto_asistencia])
                 
                 st.success(f"✅ ¡Inventario {'inicial' if accion == 'Entrada' else 'final'} verificado y **{accion}** registrada correctamente para {emp} a las {hora_fichada}!")
             except Exception as e:
-                st.error(f"⚠️ Error al guardar en Google Sheets. Detalle: {e}")heets. Detalle: {e}")
+                st.error(f"⚠️ Error al guardar en Google Sheets. Detalle: {e}")
