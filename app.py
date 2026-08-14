@@ -34,7 +34,6 @@ empleados, tarifas, extras, reg, q_data, clientes = obtener_datos()
 def hora_actual_uy():
     return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
-# --- VERIFICADOR INTELIGENTE DE QUINQUELA POR SESIÓN ---
 def verificar_quinquela(patente, tkt, hora_ingreso_str, q_records):
     try:
         ingreso_dt = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
@@ -52,7 +51,6 @@ def verificar_quinquela(patente, tkt, hora_ingreso_str, q_records):
         except:
             continue
             
-        # El beneficio aplica si coincide la tarjeta o patente Y la validación ocurrió DESPUÉS del ingreso actual
         if (q_tkt == tkt_clean or q_pat == pat_clean) and q_dt >= ingreso_dt:
             return True
     return False
@@ -60,10 +58,15 @@ def verificar_quinquela(patente, tkt, hora_ingreso_str, q_records):
 def calcular_mejor_precio(minutos, es_camioneta, tiene_q):
     tipo = "Camioneta" if es_camioneta else "Auto"
     m_cobro = max(0, minutos - (120 if tiene_q else 0))
+    if m_cobro <= 0:
+        return 0  # Si Quinquela cubre todo el tiempo, el costo de estacionamiento es 0
+        
     hora = tarifas.get("Hora", {}).get(tipo, 110)
     promo = tarifas.get("Promo_4h", {}).get(tipo, 330)
     dia = tarifas.get("Dia_Completo", {}).get(tipo, 500)
-    return min((m_cobro // 60 + 1) * hora, promo if m_cobro > 60 else 99999, dia)
+    
+    monto_hora = ((m_cobro - 1) // 60 + 1) * hora
+    return min(monto_hora, promo if m_cobro > 60 else 99999, dia)
 
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
@@ -128,7 +131,6 @@ elif menu == "📊 Activos":
 elif menu == "🔔 Quinquela":
     st.subheader("🍽️ Validación Quinquela (Salón)")
     
-    # Solo muestra vehículos activos que NO hayan sido validados en esta sesión actual
     activos_disponibles = []
     for r in reg[1:]:
         tkt = str(r[0]).strip()
@@ -160,11 +162,17 @@ elif menu == "🔔 Quinquela":
         st.write(f"🕒 {q[0]} | 🍽️ Mozo: {q[1]} | 🎫 Tarjeta: #{q[2]} | 🚗 Patente: {q[3]}")
 
 # ==========================================
-# 4. EXTRAS
+# 4. EXTRAS (Con Desplegable de Tarjetas Activas)
 # ==========================================
 elif menu == "🍾 Extras":
     st.subheader("Carga de Productos / Extras")
-    tkt_extra = st.text_input("N° de Tarjeta PVC del vehículo:")
+    
+    activos_extras = [r for r in reg[1:] if not r[3] and r[0].upper() != "EXTRA"]
+    opciones_extras = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_extras]
+    
+    sel_extra_veh = st.selectbox("Seleccionar Vehículo en Playa:", opciones_extras)
+    tkt_extra = sel_extra_veh.split(" - ")[0].replace("#", "").strip() if sel_sel_extra_veh := sel_extra_veh else "" # fixed logic below cleanly
+    
     prod = st.selectbox("Seleccionar Producto / Extra:", list(extras.keys()))
     cantidad = st.number_input("Cantidad:", min_value=1, value=1, step=1)
     
@@ -173,10 +181,11 @@ elif menu == "🍾 Extras":
     st.info(f"💵 Precio unitario: ${precio_unitario} | **Total a sumar: ${total_extra}**")
     
     if st.button("Sumar Extra a la Cuenta"):
-        if tkt_extra:
+        tkt_elegido = sel_extra_veh.split(" - ")[0].replace("#", "").strip() if sel_extra_veh else ""
+        if tkt_elegido:
             patente_encontrada = ""
             for r in reg[1:]:
-                if r[0].strip().lstrip("0") == tkt_extra.strip().lstrip("0") and not r[3]:
+                if r[0].strip().lstrip("0") == tkt_elegido.lstrip("0") and not r[3]:
                     patente_encontrada = r[1]
                     break
             
@@ -186,7 +195,7 @@ elif menu == "🍾 Extras":
             else:
                 st.error("❌ No se encontró un vehículo activo con esa tarjeta.")
         else:
-            st.warning("Ingresa el número de tarjeta.")
+            st.warning("Selecciona un vehículo de la lista.")
 
 # ==========================================
 # 5. SALIDA
@@ -214,7 +223,6 @@ elif menu == "📤 Salida":
             ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             
-            # Verificación de Quinquela vinculada a la sesión actual
             tiene_q = verificar_quinquela(patente, tkt, h_ingreso, q_data)
             
             es_camioneta = "Camioneta" in datos[4]
