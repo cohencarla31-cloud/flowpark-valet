@@ -12,11 +12,23 @@ def init_connections():
     creds_dict = st.secrets["gcp_service_account"]
     client = gspread.service_account_from_dict(creds_dict)
     
-    # Abre por nombre exacto en Drive
-    sh_valet = client.open("FlowPark_Valet_DB")
-    sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
-    return sh_valet, sh_quinquela
+    # Intentar conectar con la principal
+    try:
+        sh_valet = client.open("FlowPark_Valet_DB")
+        st.write("✅ Conectado a FlowPark_Valet_DB")
+    except Exception as e:
+        st.error(f"❌ Error al abrir FlowPark_Valet_DB: {e}")
+        sh_valet = None
 
+    # Intentar conectar con Quinquela
+    try:
+        sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
+        st.write("✅ Conectado a Planilla Quinquela")
+    except Exception as e:
+        st.error(f"❌ Error al abrir Quinquela: {e}")
+        sh_quinquela = None
+        
+    return sh_valet, sh_quinquela
 try:
     sh, sh_quinquela = init_connections()
     
