@@ -1,6 +1,6 @@
 import streamlit as st
 import gspread
-from datetime import datetime
+from datetime import datetime, timedelta
 import urllib.parse
 
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
@@ -26,6 +26,10 @@ def init_connections():
 
 sh, sh_quinquela = init_connections()
 
+# --- HORA LOCAL URUGUAY (UTC -3) ---
+def hora_actual_uy():
+    return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+
 # --- CARGA DE DATOS INICIALES ---
 empleados = ["Valet 1", "Valet 2", "Encargado"]
 if sh:
@@ -50,17 +54,17 @@ empleado_actual = st.selectbox("👤 Empleado a cargo:", empleados)
 menu = st.radio("Módulo:", [
     "📥 Ingreso de Vehículo", 
     "🔔 Alertas y Panel Quinquela", 
-    "🍾 Venta de Extras y Stock", 
+    "🍾 Venta y Corrección de Extras", 
     "📤 Salida y Cómputo Final"
 ])
 
 # ==========================================
-# 1. INGRESO (Con memoria de clientes)
+# 1. INGRESO
 # ==========================================
 if menu == "📥 Ingreso de Vehículo":
     st.subheader("Registro de Ingreso y Creación de Base de Clientes")
     
-    patente_input = st.text_input("Matrícula del Vehículo (Ej: SDL567)")
+    patente_input = st.text_input("Matrícula del Vehículo (Ej: SDL567)", key="ing_patente")
     patente_limpia = patente_input.upper().replace("-", "").replace(" ", "") if patente_input else ""
     
     cliente_sugerido = ""
@@ -76,36 +80,43 @@ if menu == "📥 Ingreso de Vehículo":
         except:
             pass
 
-    tarjeta = st.text_input("N° de Tarjeta PVC (Ej: 045)")
-    nombre_cliente = st.text_input("Nombre y Apellido del Cliente:", value=cliente_sugerido)
-    celular = st.text_input("Celular del cliente (Ej: 59899123456):", value=celular_sugerido)
-    tipo_cli = st.selectbox("Tipo de Cliente:", ["Estándar", "Mensualista VIP (Costo $0)"])
-    tipo_vehiculo = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"])
+    tarjeta = st.text_input("N° de Tarjeta PVC (Ej: 045)", key="ing_tarjeta")
+    nombre_cliente = st.text_input("Nombre y Apellido del Cliente:", value=cliente_sugerido, key="ing_nombre")
+    celular = st.text_input("Celular del cliente (Ej: 59899123456):", value=celular_sugerido, key="ing_celular")
+    tipo_cli = st.selectbox("Tipo de Cliente:", ["Estándar", "Mensualista VIP (Costo $0)"], key="ing_tipo")
+    tipo_vehiculo = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"], key="ing_vehi")
     
     if st.button("Registrar Ingreso"):
         if tarjeta and patente_limpia:
-            hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            hora_act = hora_actual_uy()
             estado_texto = f"{tipo_cli} ({tipo_vehiculo}) - Op: {empleado_actual}"
             
-            sh.worksheet("Registro").append_row([
-                str(tarjeta).strip(), patente_limpia, hora_actual, "", 
-                estado_texto, "", "", ""
-            ])
+            registros = sh.worksheet("Registro").get_all_records()
+            t_clean = str(tarjeta).strip().lstrip("0")
+            activo_existente = any(str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida") for r in registros)
             
-            try:
-                ws_cli = sh.worksheet("Clientes_Frecuentes")
-                rows_cli = ws_cli.get_all_records()
-                existe = any(str(r.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia for r in rows_cli)
-                if not existe and nombre_cliente:
-                    ws_cli.append_row([patente_limpia, nombre_cliente, celular])
-            except:
-                pass
+            if activo_existente:
+                st.error(f"❌ La tarjeta #{tarjeta} ya tiene un vehículo activo asignado.")
+            else:
+                sh.worksheet("Registro").append_row([
+                    str(tarjeta).strip(), patente_limpia, hora_act, "", 
+                    estado_texto, "", "", ""
+                ])
+                
+                try:
+                    ws_cli = sh.worksheet("Clientes_Frecuentes")
+                    rows_cli = ws_cli.get_all_records()
+                    existe = any(str(r.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia for r in rows_cli)
+                    if not existe and nombre_cliente:
+                        ws_cli.append_row([patente_limpia, nombre_cliente, celular])
+                except:
+                    pass
 
-            st.success(f"✅ Ingreso registrado: Patente {patente_limpia} | Tarjeta #{tarjeta} | Cliente: {nombre_cliente or 'No especificado'}")
-            
-            if celular:
-                texto_wsp = f"¡Bienvenido a Distrito El Globo y Flow Park! Su vehículo {patente_limpia} ha sido registrado con éxito. Tarjeta #{tarjeta}. ¡Gracias por confiar en nosotros!"
-                st.markdown(f"[📲 Enviar Ticket de Ingreso por WhatsApp](https://wa.me/{celular}?text={urllib.parse.quote(texto_wsp)})")
+                st.success(f"✅ Ingreso registrado: Patente {patente_limpia} | Tarjeta #{tarjeta} | Cliente: {nombre_cliente or 'No especificado'}")
+                
+                if celular:
+                    texto_wsp = f"¡Bienvenido a Distrito El Globo y Flow Park! Su vehículo {patente_limpia} ha sido registrado con éxito. Tarjeta #{tarjeta}. ¡Gracias por confiar en nosotros!"
+                    st.markdown(f"[📲 Enviar Ticket de Ingreso por WhatsApp](https://wa.me/{celular}?text={urllib.parse.quote(texto_wsp)})")
         else:
             st.warning("⚠️ Completa al menos el número de tarjeta y la matrícula.")
 
@@ -161,54 +172,103 @@ elif menu == "🔔 Alertas y Panel Quinquela":
         st.error(f"Error al cargar el panel de alertas: {e}")
 
 # ==========================================
-# 3. EXTRAS, CANTIDAD Y CONTROL DE STOCK
+# 3. EXTRAS Y CORRECCIÓN
 # ==========================================
-elif menu == "🍾 Venta de Extras y Stock":
-    st.subheader("Gestión de Consumibles (Upselling y Stock)")
+elif menu == "🍾 Venta y Corrección de Extras":
+    st.subheader("Gestión y Corrección de Consumibles")
     
-    tarjeta_extra = st.text_input("N° de Tarjeta PVC del Vehículo:")
-    extra_tipo = st.selectbox("Servicio o Producto:", list(dict_tarifas.keys()))
-    cantidad = st.number_input("Cantidad:", min_value=1, value=1, step=1)
+    sub_menu = st.radio("Acción:", ["➕ Sumar Extra", "❌ Anular / Borrar Extra Cargado Por Error"], key="sub_menu_extras")
     
-    precio_unitario = dict_tarifas.get(extra_tipo, 0)
-    total_linea = precio_unitario * cantidad
-    
-    st.info(f"Precio unitario: ${precio_unitario} | **Total a sumar: ${total_linea}**")
-    
-    if st.button("Sumar Extra a la Cuenta"):
-        if tarjeta_extra:
-            try:
-                registros = sh.worksheet("Registro").get_all_records()
-                t_clean = str(tarjeta_extra).strip().lstrip("0")
-                patente_encontrada = next((r['Matrícula'] for r in registros if str(r['Ticket']).strip().lstrip("0") == t_clean and not r['Hora_Salida']), f"TARJETA_{tarjeta_extra}")
-                
-                hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                sh.worksheet("Registro").append_row([
-                    str(tarjeta_extra).strip(), patente_encontrada, hora_actual, "", 
-                    f"Extra ({empleado_actual})", "", f"{extra_tipo} x{cantidad} (${total_linea})", total_linea
-                ])
-                
+    if sub_menu == "➕ Sumar Extra":
+        tarjeta_extra = st.text_input("N° de Tarjeta PVC del Vehículo:", key="ext_tarjeta")
+        extra_tipo = st.selectbox("Servicio o Producto:", list(dict_tarifas.keys()), key="ext_tipo")
+        cantidad = st.number_input("Cantidad:", min_value=1, value=1, step=1, key="ext_cant")
+        
+        precio_unitario = dict_tarifas.get(extra_tipo, 0)
+        total_linea = precio_unitario * cantidad
+        
+        st.info(f"Precio unitario: ${precio_unitario} | **Total a sumar: ${total_linea}**")
+        
+        if st.button("Sumar Extra a la Cuenta"):
+            if tarjeta_extra:
                 try:
-                    sh.worksheet("Control_Stock").append_row([hora_actual, extra_tipo, cantidad, empleado_actual, patente_encontrada])
-                except:
-                    pass
+                    registros = sh.worksheet("Registro").get_all_records()
+                    t_clean = str(tarjeta_extra).strip().lstrip("0")
+                    fila_activa = next((r for r in registros if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida")), None)
+                    
+                    if not fila_activa:
+                        st.error(f"❌ No se encontró un vehículo activo con la tarjeta #{tarjeta_extra}.")
+                    else:
+                        patente_encontrada = fila_activa.get("Matrícula")
+                        hora_act = hora_actual_uy()
+                        
+                        # GUARDAMOS USANDO EL NÚMERO DE TARJETA REAL PARA QUE LA SALIDA LO TOME AUTOMÁTICAMENTE
+                        sh.worksheet("Registro").append_row([
+                            str(tarjeta_extra).strip(), 
+                            patente_encontrada, 
+                            hora_act, 
+                            "", 
+                            f"Extra - Op: {empleado_actual}", 
+                            "EXTRA", 
+                            f"{extra_tipo} x{cantidad}", 
+                            total_linea
+                        ])
+                        
+                        try:
+                            sh.worksheet("Control_Stock").append_row([hora_act, extra_tipo, cantidad, empleado_actual, patente_encontrada])
+                        except:
+                            pass
+                        
+                        st.success(f"✅ Se agregaron {cantidad}x '{extra_tipo}' (${total_linea}) a la tarjeta #{tarjeta_extra} ({patente_encontrada}).")
+                except Exception as ex:
+                    st.error(f"Error al registrar el extra: {ex}")
+            else:
+                st.warning("⚠️ Ingresa el número de tarjeta.")
                 
-                st.success(f"✅ Se agregaron {cantidad}x '{extra_tipo}' (${total_linea}) a la tarjeta #{tarjeta_extra} ({patente_encontrada}).")
-            except Exception as ex:
-                st.error(f"Error al registrar el extra: {ex}")
-        else:
-            st.warning("⚠️ Ingresa el número de tarjeta.")
+    else:
+        st.markdown("### ❌ Anular un extra cargado por error")
+        tarjeta_anular = st.text_input("N° de Tarjeta PVC para revisar extras:", key="anular_tarjeta")
+        if tarjeta_anular:
+            try:
+                ws_reg = sh.worksheet("Registro")
+                all_rows = ws_reg.get_all_records()
+                t_clean = str(tarjeta_anular).strip().lstrip("0")
+                
+                fila_ingreso = next((r for r in all_rows if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida")), None)
+                
+                if fila_ingreso:
+                    patente_auto = fila_ingreso.get("Matrícula")
+                    st.info(f"Vehículo vinculado: **{patente_auto}** (Tarjeta #{tarjeta_anular})")
+                    
+                    extras_activos = []
+                    for idx, r in enumerate(all_rows, start=2):
+                        if str(r.get("Ticket")).strip().lstrip("0") == t_clean and str(r.get("Factura_Quinquela")) == "EXTRA" and not r.get("Hora_Salida"):
+                            extras_activos.append((idx, r.get("Servicios_Extras"), r.get("Total_Cobrado"), r.get("Hora_Ingreso")))
+                    
+                    if extras_activos:
+                        st.write("Selecciona el extra que deseas **eliminar/anular**:")
+                        for idx, desc, precio, hora in extras_activos:
+                            col1, col2 = st.columns([3, 1])
+                            col1.text(f"[{hora}] {desc} - ${precio}")
+                            if col2.button("🗑️ Borrar", key=f"del_{idx}"):
+                                ws_reg.delete_rows(idx)
+                                st.success(f"¡Extra eliminado correctamente! Recarga la página.")
+                                st.rerun()
+                    else:
+                        st.info("No se encontraron extras cargados para este vehículo.")
+                else:
+                    st.error("No se encontró un vehículo activo con ese número de tarjeta.")
+            except Exception as e:
+                st.error(f"Error al buscar extras: {e}")
 
 # ==========================================
-# 4. SALIDA Y TICKET OFICIAL (Con Auto-recuperación de Celular y Matrícula)
+# 4. SALIDA Y TICKET OFICIAL
 # ==========================================
 elif menu == "📤 Salida y Cómputo Final":
     st.subheader("Cómputo de Egreso y Liquidación Automática")
     
-    tarjeta_salida = st.text_input("N° de Tarjeta PVC a devolver:")
+    tarjeta_salida = st.text_input("N° de Tarjeta PVC a devolver:", key="salida_tarjeta")
     
-    # Búsqueda automática en vivo del celular y la matrícula si se ingresa la tarjeta
     celular_sugerido = ""
     patente_encontrada_auto = ""
     if tarjeta_salida and sh:
@@ -216,7 +276,7 @@ elif menu == "📤 Salida y Cómputo Final":
             t_clean = str(tarjeta_salida).strip().lstrip("0")
             registros_temp = sh.worksheet("Registro").get_all_records()
             for r in registros_temp:
-                if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida"):
+                if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida") and str(r.get("Factura_Quinquela")) != "EXTRA":
                     patente_encontrada_auto = r.get("Matrícula")
                     break
             
@@ -229,16 +289,18 @@ elif menu == "📤 Salida y Cómputo Final":
         except:
             pass
 
-    celular = st.text_input("Celular del cliente para el Ticket:", value=celular_sugerido)
+    celular = st.text_input("Celular del cliente para el Ticket:", value=celular_sugerido, key="salida_celular")
     if patente_encontrada_auto:
-        st.info(f"🚗 Vehículo vinculado detectado: **{patente_encontrada_auto}**")
+        st.info(f"🚗 Vehículo vinculado detectado automáticamente: **{patente_encontrada_auto}**")
 
     if st.button("Calcular Salida y Generar Ticket"):
         if tarjeta_salida and celular:
             try:
                 registros = sh.worksheet("Registro").get_all_records()
                 t_clean = str(tarjeta_salida).strip().lstrip("0")
-                fila_ingreso = next((r for r in registros if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida")), None)
+                
+                # Buscar la fila de ingreso (excluyendo los extras)
+                fila_ingreso = next((r for r in registros if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida") and str(r.get("Factura_Quinquela")) != "EXTRA"), None)
                 
                 if not fila_ingreso:
                     st.error("❌ No se encontró un vehículo activo con ese número de tarjeta.")
@@ -249,7 +311,7 @@ elif menu == "📤 Salida y Cómputo Final":
                     es_mensualista = "Mensualista VIP" in estado_ingreso
                     
                     hora_ingreso = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
-                    hora_salida = datetime.now()
+                    hora_salida = datetime.utcnow() - timedelta(hours=3) # Hora local Uruguay
                     minutos_totales = int((hora_salida - hora_ingreso).total_seconds() / 60)
                     
                     tiene_quinquela = False
@@ -269,9 +331,11 @@ elif menu == "📤 Salida y Cómputo Final":
                     if not es_mensualista and minutos_a_cobrar > 0:
                         monto_estacionamiento = (minutos_a_cobrar // 30 + 1) * 150
 
-                    extras_auto = [r for r in registros if r.get("Matrícula") == patente_limpia and str(r.get("Ticket")) == str(tarjeta_salida)]
-                    detalle_extras_txt = "\n".join([f"• {r.get('Estado')}" for r in extras_auto])
-                    total_extras = sum([float(r.get("Precio", 0)) for r in extras_auto])
+                    # Buscar todos los extras de esta tarjeta exacta que aún no tienen salida
+                    extras_auto = [r for r in registros if str(r.get("Ticket")).strip().lstrip("0") == t_clean and str(r.get("Factura_Quinquela")) == "EXTRA" and not r.get("Hora_Salida")]
+                    
+                    detalle_extras_txt = "\n".join([f"• {r.get('Servicios_Extras')} (${r.get('Total_Cobrado')})" for r in extras_auto])
+                    total_extras = sum([float(r.get("Total_Cobrado", 0)) for r in extras_auto])
                     
                     total_a_pagar = 0 if es_mensualista else (monto_estacionamiento + total_extras)
                     
