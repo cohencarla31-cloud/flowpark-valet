@@ -17,7 +17,6 @@ def init_connections():
         st.error(f"❌ Error al abrir la planilla principal: {e}")
         sh_valet = None
 
-    # Nota: Asegúrate de que este ID sea el correcto de tu planilla de Quinquela en los secrets o ponlo aquí directo
     try:
         sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
     except Exception:
@@ -53,7 +52,7 @@ if not sh: st.stop()
 
 empleado_actual = st.selectbox("👤 Empleado a cargo (Puerta / Turno):", empleados)
 
-# Menú completo con todas las opciones solicitadas
+# Menú principal con todos los módulos
 menu = st.radio("Módulo:", [
     "📥 Ingreso de Vehículo", 
     "📊 Panel de Control y Autos Activos", 
@@ -63,7 +62,7 @@ menu = st.radio("Módulo:", [
 ])
 
 # ==========================================
-# 1. INGRESO
+# 1. INGRESO (Con autocompletado y prefijo 598)
 # ==========================================
 if menu == "📥 Ingreso de Vehículo":
     st.subheader("Registro de Ingreso y Creación de Base de Clientes")
@@ -71,22 +70,25 @@ if menu == "📥 Ingreso de Vehículo":
     patente_input = st.text_input("Matrícula del Vehículo (Ej: SDL567)", key="ing_patente")
     patente_limpia = patente_input.upper().replace("-", "").replace(" ", "") if patente_input else ""
     
+    # Búsqueda automática en Clientes_Frecuentes si ya existe la patente
     cliente_sugerido = ""
-    celular_sugerido = ""
+    celular_sugerido = "598"
     if patente_limpia and sh:
         try:
             ws_cli = sh.worksheet("Clientes_Frecuentes")
             for rc in ws_cli.get_all_records():
                 if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia:
                     cliente_sugerido = rc.get("Cliente", "")
-                    celular_sugerido = str(rc.get("Celular", ""))
+                    cel_db = str(rc.get("Celular", "")).strip()
+                    if cel_db:
+                        celular_sugerido = cel_db
                     break
         except:
             pass
 
     tarjeta = st.text_input("N° de Tarjeta PVC (Ej: 045)", key="ing_tarjeta")
     nombre_cliente = st.text_input("Nombre y Apellido del Cliente:", value=cliente_sugerido, key="ing_nombre")
-    celular = st.text_input("Celular del cliente (Ej: 59899123456):", value=celular_sugerido, key="ing_celular")
+    celular = st.text_input("Celular del cliente (Código de país editable):", value=celular_sugerido, key="ing_celular")
     tipo_cli = st.selectbox("Tipo de Cliente:", ["Estándar", "Mensualista VIP (Costo $0)"], key="ing_tipo")
     tipo_vehiculo = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"], key="ing_vehi")
     
@@ -134,10 +136,9 @@ elif menu == "📊 Panel de Control y Autos Activos":
     try:
         registros = sh.worksheet("Registro").get_all_records()
         if registros:
-            # Filtramos para mostrar de forma clara
             for r in reversed(registros):
                 tkt = r.get("Ticket")
-                if tkt == "EXTRA": continue # Omitimos las líneas de extras sueltas para limpiar la visual
+                if tkt == "EXTRA": continue 
                 
                 pat = r.get("Matrícula", "S/D")
                 h_ing = r.get("Hora_Ingreso", "S/D")
@@ -145,7 +146,6 @@ elif menu == "📊 Panel de Control y Autos Activos":
                 est = r.get("Estado", "Estándar")
                 serv = r.get("Servicios_Extras", "")
                 
-                # Estado actual (Activo vs Finalizado)
                 if not h_sal or str(h_sal).strip() == "" or str(h_sal) == "nan":
                     estado_visual = "🟢 En Estacionamiento (Activo)"
                     color_fondo = "#d4edda"
@@ -294,7 +294,7 @@ elif menu == "📤 Salida y Cómputo Final":
     empleado_salida = st.selectbox("👤 Empleado que realiza el Cobro/Salida:", empleados, key="emp_salida")
     tarjeta_salida = st.text_input("N° de Tarjeta PVC a devolver:", key="salida_tarjeta")
     
-    celular_sugerido = ""
+    celular_sugerido = "598"
     nombre_cliente_sugerido = ""
     patente_encontrada_auto = ""
     if tarjeta_salida and sh:
@@ -313,7 +313,9 @@ elif menu == "📤 Salida y Cómputo Final":
                 ws_cli = sh.worksheet("Clientes_Frecuentes")
                 for rc in ws_cli.get_all_records():
                     if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_encontrada_auto.upper().replace("-", "").replace(" ", ""):
-                        celular_sugerido = str(rc.get("Celular", ""))
+                        cel_db = str(rc.get("Celular", "")).strip()
+                        if cel_db:
+                            celular_sugerido = cel_db
                         if not nombre_cliente_sugerido:
                             nombre_cliente_sugerido = rc.get("Cliente", "")
                         break
