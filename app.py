@@ -292,6 +292,9 @@ elif menu == "📤 Salida":
         cel_encontrado = next((str(c[2]).strip() for c in clientes[1:] if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", "")), "598")
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         
+        # Campo de observaciones por si el empleado cometió un error o quiere aclarar algo
+        obs_salida = st.text_input("Observaciones de Salida (Opcional - por si hubo algún error o aclaración):")
+        
         if st.button("Calcular y Generar Salida"):
             h_salida = hora_actual_uy()
             ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
@@ -301,7 +304,6 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
             
-            # Como los extras ya se sumaron en la columna H (índice 7) al cargarlos, los leemos de la fila del auto
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             
@@ -332,24 +334,30 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
-            # Actualización en Google Sheets y respaldo de seguridad
+            # Actualización y guardado estructurado con la observación incluida
             try:
                 for i, row in enumerate(reg, start=1):
                     if row[0].strip() == tkt and (not row[3] or row[3].lower() == "nan"):
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida) # Hora Salida (Col D)
-                        sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento)) # Parking Dinero (Col G)
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+                        sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         break
                 
-                # Respaldo automático del ticket emitido en la pestaña Historial_Tickets
-                sh.worksheet("Historial_Tickets").append_row([hora_actual_uy(), patente, f"#{tkt}", texto_ticket])
+                # Respaldo limpio por columnas incluyendo la observación del empleado
+                sh.worksheet("Historial_Tickets").append_row([
+                    h_salida, operador, patente, f"#{tkt}", float(monto_estacionamiento), float(total_extras), float(total_a_pagar), obs_salida if obs_salida else "Sin observaciones"
+                ])
                 
             except Exception as e:
                 st.warning(f"Aviso de sincronización: {e}")
 
-            st.success("✅ ¡Cálculo, ticket generado y respaldado con éxito!")
-            st.code(texto_ticket)
+            st.success("✅ ¡Cálculo, ticket generado y registrado con éxito!")
+            
+            with st.expander("🔍 Ver vista previa del comprobante generado", expanded=True):
+                st.code(texto_ticket)
+                if obs_salida:
+                    st.info(f"📝 Nota registrada: {obs_salida}")
+                
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
-# ==========================================
 # 6. PERSONAL (Control de Asistencia con Tiempos Diferenciados)
 # ==========================================
 elif menu == "⏰ Personal":
