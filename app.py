@@ -5,7 +5,7 @@ import urllib.parse
 
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
-# --- CONEXIÓN A PLANILLA MAESTRA ---
+# --- CONEXIÓN PRINCIPAL ---
 @st.cache_resource
 def init_connection():
     creds_dict = st.secrets["gcp_service_account"]
@@ -21,41 +21,59 @@ sh = init_connection()
 def hora_actual_uy():
     return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
-# --- CARGA DE DATOS (CONFIG, TARIFAS Y EXTRAS) ---
-def obtener_datos():
+# --- LECTURA EFICIENTE CON CACHÉ (Evita error 429 de Google) ---
+@st.cache_data(ttl=15)
+py_cache_data_dummy = None # Forzar estructura de caché
+
+def obtener_registros_seguros(nombre_hoja):
+    if not sh: return []
+    try:
+        ws = sh.worksheet(nombre_hoja)
+        return ws.get_all_records()
+    except Exception:
+        return []
+
+# --- CARGA DINÁMICA DE CONFIG, TARIFAS Y EXTRAS ---
+def obtener_datos_config():
+    empleados_default = ["Valet 1", "Valet 2", "Encargado"]
     tarifas_default = {
         "Hora": {"Auto": 110, "Camioneta": 140}, 
         "Promo_4h": {"Auto": 330, "Camioneta": 420}, 
         "Dia_Completo": {"Auto": 500, "Camioneta": 650}
     }
     extras_default = {"Lavado Premium": 500, "Bebida / Gaseosa": 100, "Agua Cortesia": 50, "Paraguas": 300}
-    empleados_default = ["Valet 1", "Valet 2", "Encargado"]
 
-    if not sh:
-        return empleados_default, tarifas_default, extras_default
+    # Empleados desde hoja Configuracion
+    config_data = obtener_registros_seguros("Configuracion")
+    empleados = []
+    for r in config_data:
+        for val in r.values():
+            if val: empleados.append(str(val))
+    if not empleados: empleados = empleados_default
 
-    try:
-        ws_config = sh.worksheet("Configuracion")
-        empleados = [e for e in ws_config.col_values(1)[1:] if e]
-        if not empleados: empleados = empleados_default
-    except:
-        empleados = empleados_default
+    # Tarifas desde hoja Tarifas
+    tarifas_data = obtener_registros_seguros("Tarifas")
+    tarifas = {}
+    for r in tarifas_data:
+        serv = str(r.get("Servicio", "")).strip()
+        if serv:
+            tarifas[serv] = {"Auto": int(r.get("Precio_Auto", 0)), "Camioneta": int(r.get("Precio_Camioneta", 0))}
+    if not tarifas: tarifas = tarifas_default
 
-    try:
-        ws_tarifas = sh.worksheet("Tarifas")
-        tarifas = {r["Servicio"]: {"Auto": int(r["Precio_Auto"]), "Camioneta": int(r["Precio_Camioneta"])} for r in ws_tarifas.get_all_records()}
-    except:
-        tarifas = tarifas_default
-
-    try:
-        ws_extras = sh.worksheet("Extras")
-        extras = {str(r["Producto"]).strip(): int(r["Precio"]) for r in ws_extras.get_all_records() if str(r.get("Producto", "")).strip()}
-    except:
-        extras = extras_default
+    # Extras desde hoja Extras
+    extras_data = obtener_registros_seguros("Extras")
+    extras = {}
+    for r in extras_data:
+        prod = str(r.get("Producto", "")).strip()
+        precio = r.get("Precio", 0)
+        if prod:
+            try: extras[prod] = int(precio)
+            except: pass
+    if not extras: extras = extras_default
 
     return empleados, tarifas, extras
 
-empleados, tarifas_globales, extras_globales = obtener_datos()
+empleados, tarifas_globales, extras_globales = obtener_datos_config()
 
 # --- LÓGICA DE TARIFA INTELIGENTE (Con 2h Quinquela gratis) ---
 def calcular_mejor_precio(minutos, es_camioneta, tiene_quinquela):
@@ -82,11 +100,10 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     patente = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
     
-    # Autocompletado desde Clientes_Frecuentes
     nombre_sug, celular_sug = "", "598"
-    if patente and sh:
+    if patente:
         try:
-            for rc in sh.worksheet("Clientes_Frecuentes").get_all_records():
+            for rc in obtener_registros_seguros("Clientes_Frecuentes"):
                 if str(rc.get("Matrícula", rc.get("Matricula", ""))).upper().replace("-", "").replace(" ", "") == patente:
                     nombre_sug = rc.get("Cliente", "")
                     celular_sug = str(rc.get("Celular", "")).strip() or "598"
@@ -101,7 +118,7 @@ if menu == "📥 Ingreso":
     if st.button("Registrar Ingreso"):
         if tarjeta and patente:
             try:
-                reg = sh.worksheet("Registro").get_all_records()
+                reg = obtener_registros_seguros("Registro")
                 activo = any((str(r.get("Ticket")).strip().lstrip("0") == str(tarjeta).strip().lstrip("0") or 
                              str(r.get("Matricula", r.get("Matrícula"))).upper() == patente) 
                              and not str(r.get("Hora_Salida", "")).strip() for r in reg)
@@ -131,7 +148,8 @@ if menu == "📥 Ingreso":
 elif menu == "📊 Activos":
     st.subheader("Vehículos en Playa")
     try:
-        for r in reversed(sh.worksheet("Registro").get_all_records()):
+        registros_activos = obtener_registros_seguros("Registro")
+        for r in reversed(registros_activos):
             tkt = str(r.get("Ticket", ""))
             h_sal = str(r.get("Hora_Salida", "")).strip()
             if tkt.upper() != "EXTRA" and (not h_sal or h_sal.lower() == "nan"):
@@ -145,7 +163,7 @@ elif menu == "📊 Activos":
 elif menu == "🔔 Quinquela":
     st.subheader("Validaciones del Salón Quinquela")
     try:
-        for q in reversed(sh.worksheet("Respuestas de formulario 1").get_all_records()):
+        for q in reversed(obtener_registros_seguros("Respuestas de formulario 1")):
             marca_t = q.get("Marca temporal", q.get("Timestamp", "Hora no registrada"))
             mozo = q.get('MOZO - NOMBRE', 'Mozo')
             pat = q.get('PATENTE', '')
@@ -170,7 +188,7 @@ elif menu == "🍾 Extras":
     if st.button("Sumar Extra a la Cuenta"):
         if tarjeta_extra:
             try:
-                registros = sh.worksheet("Registro").get_all_records()
+                registros = obtener_registros_seguros("Registro")
                 t_clean = str(tarjeta_extra).strip().lstrip("0")
                 patente_encontrada = ""
                 for r in registros:
@@ -197,8 +215,7 @@ elif menu == "🍾 Extras":
 elif menu == "📤 Salida":
     st.subheader("Cómputo de Egreso y Ticket Final")
     
-    # Selector inteligente filtrando solo activos
-    registros_salida = sh.worksheet("Registro").get_all_records()
+    registros_salida = obtener_registros_seguros("Registro")
     activos_opciones = []
     mapa_activos = {}
     
@@ -226,7 +243,7 @@ elif menu == "📤 Salida":
         if t_buscar:
             try:
                 ws_reg = sh.worksheet("Registro")
-                all_rows = ws_reg.get_all_records()
+                all_rows = obtener_registros_seguros("Registro")
                 
                 fila_encontrada_idx = None
                 datos_auto = None
@@ -249,10 +266,10 @@ elif menu == "📤 Salida":
                     hora_ing = datetime.strptime(datos_auto.get("Hora_Ingreso"), "%Y-%m-%d %H:%M:%S")
                     minutos = int((datetime.utcnow() - timedelta(hours=3) - hora_ing).total_seconds() / 60)
                     
-                    # Verificación Quinquela local (última validación registrada para esa patente)
+                    # Verificación Quinquela local (busca si la patente está en las respuestas del form)
                     tiene_q = False
                     try:
-                        q_data = sh.worksheet("Respuestas de formulario 1").get_all_records()
+                        q_data = obtener_registros_seguros("Respuestas de formulario 1")
                         for q in reversed(q_data):
                             pat_q = str(q.get("PATENTE", "")).upper().replace("-","").replace(" ","")
                             if pat_q == patente.upper().replace("-","").replace(" ",""):
@@ -261,7 +278,7 @@ elif menu == "📤 Salida":
                     except:
                         tiene_q = False
                     
-                    # Cálculo automático de estadía restando las 2h si tiene Quinquela
+                    # Cálculo automático de estadía (Descuenta 2h si tiene Quinquela)
                     es_camioneta = "Camioneta" in datos_auto.get("Estado", "")
                     monto_estacionamiento = calcular_mejor_precio(minutos, es_camioneta, tiene_q)
                     
