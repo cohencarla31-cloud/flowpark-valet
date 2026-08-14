@@ -17,6 +17,7 @@ def init_connections():
         st.error(f"❌ Error al abrir la planilla principal: {e}")
         sh_valet = None
 
+    # Nota: Asegúrate de que este ID sea el correcto de tu planilla de Quinquela en los secrets o ponlo aquí directo
     try:
         sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
     except Exception:
@@ -51,8 +52,11 @@ st.title("🚗 Flow Park - Operativa VIP")
 if not sh: st.stop()
 
 empleado_actual = st.selectbox("👤 Empleado a cargo (Puerta / Turno):", empleados)
+
+# Menú completo con todas las opciones solicitadas
 menu = st.radio("Módulo:", [
     "📥 Ingreso de Vehículo", 
+    "📊 Panel de Control y Autos Activos", 
     "🔔 Validación en Vivo Quinquela", 
     "🍾 Venta y Corrección de Extras", 
     "📤 Salida y Cómputo Final"
@@ -121,11 +125,53 @@ if menu == "📥 Ingreso de Vehículo":
             st.warning("⚠️ Completa al menos el número de tarjeta y la matrícula.")
 
 # ==========================================
-# 2. NUEVO MÓDULO: VALIDACIÓN EN VIVO QUINQUELA
+# 2. PANEL DE CONTROL Y AUTOS ACTIVOS
+# ==========================================
+elif menu == "📊 Panel de Control y Autos Activos":
+    st.subheader("📊 Panel General de Operaciones y Estado de Vehículos")
+    st.write("Resumen detallado en tiempo real de tarjetas, matrículas, horas de ingreso y estado de salida.")
+    
+    try:
+        registros = sh.worksheet("Registro").get_all_records()
+        if registros:
+            # Filtramos para mostrar de forma clara
+            for r in reversed(registros):
+                tkt = r.get("Ticket")
+                if tkt == "EXTRA": continue # Omitimos las líneas de extras sueltas para limpiar la visual
+                
+                pat = r.get("Matrícula", "S/D")
+                h_ing = r.get("Hora_Ingreso", "S/D")
+                h_sal = r.get("Hora_Salida", "")
+                est = r.get("Estado", "Estándar")
+                serv = r.get("Servicios_Extras", "")
+                
+                # Estado actual (Activo vs Finalizado)
+                if not h_sal or str(h_sal).strip() == "" or str(h_sal) == "nan":
+                    estado_visual = "🟢 En Estacionamiento (Activo)"
+                    color_fondo = "#d4edda"
+                else:
+                    estado_visual = f"🔴 Finalizado (Salida: {h_sal})"
+                    color_fondo = "#f8f9fa"
+                
+                st.markdown(f"""
+                <div style="padding: 10px; border: 1px solid #ccc; border-radius: 8px; background-color: {color_fondo}; margin-bottom: 8px;">
+                    🎫 <b>Tarjeta #{tkt}</b> &nbsp;|&nbsp; 🚗 <b>Matrícula:</b> {pat} <br>
+                    🕒 <b>Ingreso:</b> {h_ing} &nbsp;|&nbsp; 📋 {est} <br>
+                    🏷️ <b>Info:</b> {serv if serv else 'Sin observaciones'} <br>
+                    📌 <b>Estado:</b> {estado_visual}
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No hay registros cargados en la base de datos.")
+    except Exception as e:
+        st.error(f"Error al cargar el panel de control: {e}")
+
+# ==========================================
+# 3. VALIDACIÓN EN VIVO QUINQUELA
 # ==========================================
 elif menu == "🔔 Validación en Vivo Quinquela":
-    st.subheader("🔔 Panel de Respuestas y Validaciones de Quinquela")
-    st.write("Monitoreo en tiempo real de las solicitudes enviadas por los mozos desde el salón.")
+    st.subheader("🔔 Panel de Validaciones del Salón Quinquela")
+    st.write("Monitoreo en tiempo real de las solicitudes enviadas por los mozos[cite: 1].")
     
     if sh_quinquela:
         try:
@@ -134,27 +180,24 @@ elif menu == "🔔 Validación en Vivo Quinquela":
             
             if datos_quinquela:
                 st.markdown('<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
-                st.success(f"✅ Se detectaron {len(datos_quinquela)} registros de validación en el salón.")
+                st.success(f"✅ Conexión exitosa. Se detectaron {len(datos_quinquela)} validaciones registradas.")
                 
-                # Mostramos los registros en una tabla limpia o tarjetas destacadas
                 for q_row in reversed(datos_quinquela):
-                    # Asumimos columnas comunes del form: Timestamp, Mozo/Mesa, Cliente, Matrícula, etc.
-                    vals = list(q_row.values())
                     st.markdown(f"""
                     <div style="padding: 12px; border: 2px solid #28a745; border-radius: 8px; background-color: #d4edda; margin-bottom: 10px;">
-                        🍽️ <b>Registro Quinquela:</b> {q_row} <br>
-                        <span style="background-color: #28a745; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">BENEFICIO 2H APLICADO</span>
+                        🍽️ <b>Datos Quinquela:</b> {q_row} <br>
+                        <span style="background-color: #28a745; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">✔ BENEFICIO 2H APLICADO</span>
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("No hay registros nuevos en el formulario de Quinquela en este momento.")
+                st.info("La planilla de Quinquela está conectada, pero no hay registros todavía.")
         except Exception as e:
-            st.error(f"Error al leer la hoja de Quinquela: {e}")
+            st.error(f"⚠️ Error al leer la pestaña 'QUINQUELA - FLOW PARK'. Verifica que el nombre de la hoja sea exacto en Google Sheets: {e}")
     else:
-        st.warning("⚠️ No se pudo conectar a la planilla de Quinquela.")
+        st.error("❌ No se pudo conectar a la planilla de Quinquela. Verifica el ID de la planilla externa en el código.")
 
 # ==========================================
-# 3. EXTRAS Y CORRECCIÓN
+# 4. EXTRAS Y CORRECCIÓN
 # ==========================================
 elif menu == "🍾 Venta y Corrección de Extras":
     st.subheader("Gestión y Corrección de Consumibles")
@@ -243,7 +286,7 @@ elif menu == "🍾 Venta y Corrección de Extras":
                 st.error(f"Error al buscar extras: {e}")
 
 # ==========================================
-# 4. SALIDA Y TICKET OFICIAL
+# 5. SALIDA Y TICKET OFICIAL
 # ==========================================
 elif menu == "📤 Salida y Cómputo Final":
     st.subheader("Cómputo de Egreso y Liquidación Automática")
