@@ -264,7 +264,7 @@ elif menu == "🍾 Extras":
 # 5. SALIDA
 # ==========================================
 elif menu == "📤 Salida":
-    st.subheader("Cómputo de Egreso y Ticket Final")
+    st.subheader("Computo de Egreso y Ticket Final")
     activos = [r for r in reg[1:] if not r[3] and r[0].upper() != "EXTRA"]
     sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos])
     
@@ -287,84 +287,51 @@ elif menu == "📤 Salida":
             monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
             
             extras_auto = [r for r in reg[1:] if str(r[0]).upper() == "EXTRA" and str(r[1]).upper() == patente.upper() and not r[3]]
-            detalle_extras = "\n".join([f"• {r[6]} (${r[7]})" for r in extras_auto])
+            detalle_extras = "\n".join([f"* {r[6]} (${r[7]})" for r in extras_auto])
             total_extras = sum([float(r[7]) for r in extras_auto if r[7]])
             
             total_a_pagar = monto_estacionamiento + total_extras
             
-            if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% bonificado por Rodrigo Bueno."
-            elif local_val: info_desc = f"Incluye 2.5h libres de cortesía por {local_val}."
-            else: info_desc = "Tarifa estándar aplicada."
+            if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% bonificado."
+            elif local_val: info_desc = f"Incluye 2.5h libres de cortesia por {local_val}."
+            else: info_desc = "Tarifa estandar aplicada."
             
             serv_str = str(datos[6])
             nombre_cliente = serv_str.split("Cliente: ")[1] if "Cliente: " in serv_str else "estimado cliente"
             
-            texto_ticket = f"""*FLOW PARK - TICKET DE EGRESO*
+            texto_ticket = f"""FLOW PARK - TICKET DE EGRESO
 ---------------------------------
-🚗 Vehículo: {patente} | Tarjeta: #{tkt}
-🕒 Ingreso: {h_ingreso}
-🕒 Salida:  {h_salida}
-⏱️ Estadía total: {mins//60}h {mins%60}m
+Vehiculo: {patente} | Tarjeta: #{tkt}
+Ingreso: {h_ingreso}
+Salida:  {h_salida}
+Estadia total: {mins//60}h {mins%60}m
 ---------------------------------
-📋 DETALLE:
+DETALLE:
 {detalle_extras if detalle_extras else "Sin extras consumidos."}
 Estacionamiento: ${monto_estacionamiento}
 Total Extras: ${total_extras}
 ---------------------------------
-💰 *TOTAL A PAGAR: ${total_a_pagar}*
-ℹ️ {info_desc}
+TOTAL A PAGAR: ${total_a_pagar}
+Info: {info_desc}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
             # Actualización en Google Sheets
             try:
-                # Actualizamos Registro principal
                 for i, row in enumerate(reg, start=1):
                     if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
-                        # i es el número de fila real en Sheets (empezando en 1)
-                        # Columna 4 = Hora_Salida, Columna 8 = Total_Cobrado
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         sh.worksheet("Registro").update_cell(i, 8, float(total_a_pagar))
                 
-                # Actualizamos los registros de extras como cerrados
                 for i, row in enumerate(reg, start=1):
                     if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
             except Exception as e:
-                st.warning(f"Aviso de sincronización: {e}")
+                st.warning(f"Aviso de sincronizacion: {e}")
 
-            st.success("✅ ¡Cálculo y ticket generados con éxito!")
+            st.success("Calculo y ticket generados con exito!")
             st.code(texto_ticket)
-            st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
----------------------------------
-🚗 Vehículo: {patente} | Tarjeta: #{tkt}
-🕒 Ingreso: {h_ingreso}
-🕒 Salida:  {h_salida}
-⏱️ Estadía total: {mins//60}h {mins%60}m
----------------------------------
-📋 DETALLE:
-{detalle_extras if detalle_extras else "Sin extras consumidos."}
-Estacionamiento: ${monto_estacionamiento}
-Total Extras: ${total_extras}
----------------------------------
-💰 *TOTAL A PAGAR: ${total_a_pagar}*
-ℹ️ {info_desc}
----------------------------------
-Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
-"""
-            try:
-                for i, row in enumerate(reg, start=1):
-                    if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
-                for i, row in enumerate(reg, start=1):
-                    if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
-            except Exception as e:
-                st.warning(f"Aviso de sincronización: {e}")
-
-            st.success("✅ ¡Cálculo y ticket generados con éxito!")
-            st.code(texto_ticket)
-            st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
+            st.markdown(f"[Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")p](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 
 # ==========================================
 # 6. PERSONAL (Control de Asistencia con Tiempos Diferenciados)
