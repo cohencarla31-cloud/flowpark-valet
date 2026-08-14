@@ -5,6 +5,19 @@ import urllib.parse
 
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
+# --- ESTILOS CSS PARA BOTONES MÁS GRANDES ---
+st.markdown("""
+    <style>
+    div.row-widget.stRadio > div { flex-wrap: wrap; justify-content: center; gap: 10px; }
+    div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
+    div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- CONFIGURACIÓN DE TELÉFONOS DEL PARKING ---
+TEL_PARKING_1 = "59893343092" # <- REEMPLAZA POR EL CELULAR 1 DEL PARKING
+TEL_PARKING_2 = "59895280412" # <- REEMPLAZA POR EL CELULAR 2 DEL PARKING
+
 # --- CONEXIÓN Y CACHÉ ---
 @st.cache_resource
 def init_connection():
@@ -34,32 +47,43 @@ empleados, tarifas, extras, reg, q_data, clientes = obtener_datos()
 def hora_actual_uy():
     return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
-def verificar_quinquela(patente, tkt, hora_ingreso_str, q_records):
+def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     try:
         ingreso_dt = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
-    except:
-        return False
+    except: return None
         
     pat_clean = patente.upper().replace("-", "").replace(" ", "")
     tkt_clean = str(tkt).strip().lstrip("0")
     
     for q in q_records[1:]:
         if len(q) < 4: continue
-        q_time_str, q_tkt, q_pat = str(q[0]).strip(), str(q[2]).strip().lstrip("0"), str(q[3]).upper().replace("-", "").replace(" ", "")
-        try:
-            q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
-        except:
-            continue
+        q_time_str = str(q[0]).strip()
+        q_tkt = str(q[2]).strip().lstrip("0")
+        q_pat = str(q[3]).upper().replace("-", "").replace(" ", "")
+        
+        # Leemos el local (si no existe, asumimos Quinquela por retrocompatibilidad)
+        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
+        
+        try: q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
+        except: continue
             
         if (q_tkt == tkt_clean or q_pat == pat_clean) and q_dt >= ingreso_dt:
-            return True
-    return False
+            return q_local
+    return None
 
-def calcular_mejor_precio(minutos, es_camioneta, tiene_q):
+def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
     tipo = "Camioneta" if es_camioneta else "Auto"
-    m_cobro = max(0, minutos - (120 if tiene_q else 0))
+    
+    # Lógica Rodrigo Bueno (Gratis Total)
+    if local_validacion == "Rodrigo Bueno":
+        return 0
+        
+    # Lógica 2.5 horas (150 mins) para Quinquela y Number 18
+    descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
+    m_cobro = max(0, minutos - descuento)
+    
     if m_cobro <= 0:
-        return 0  # Si Quinquela cubre todo el tiempo, el costo de estacionamiento es 0
+        return 0
         
     hora = tarifas.get("Hora", {}).get(tipo, 110)
     promo = tarifas.get("Promo_4h", {}).get(tipo, 330)
@@ -71,7 +95,7 @@ def calcular_mejor_precio(minutos, es_camioneta, tiene_q):
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
 emp = st.selectbox("Empleado a cargo:", empleados)
-menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Quinquela", "🍾 Extras", "📤 Salida"])
+menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Validaciones", "🍾 Extras", "📤 Salida", "⏰ Personal"])
 
 # ==========================================
 # 1. INGRESO
@@ -80,6 +104,7 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
     
+    # Autocompletado inteligente de Clientes Frecuentes
     nombre_sug, cel_sug = "", "598"
     if pat:
         for rc in clientes[1:]:
@@ -99,8 +124,7 @@ if menu == "📥 Ingreso":
             else:
                 estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
                 sh.worksheet("Registro").append_row([str(tkt).strip(), pat, hora_actual_uy(), "", estado_txt, "", f"Cliente: {cli}", ""])
-                try:
-                    sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
+                try: sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
                 except: pass
                 
                 st.success(f"✅ Ingreso registrado: {pat} | Tarjeta #{tkt}")
@@ -121,15 +145,15 @@ elif menu == "📊 Activos":
         if tkt.upper() != "EXTRA" and (not h_sal or h_sal.lower() == "nan"):
             pat = r[1]
             h_ing = r[2]
-            es_q = verificar_quinquela(pat, tkt, h_ing, q_data)
-            tag_q = " | 🍽️ **VALIDADO POR QUINQUELA**" if es_q else ""
+            local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
+            tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
             st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}")
 
 # ==========================================
-# 3. QUINQUELA
+# 3. VALIDACIONES (Locales)
 # ==========================================
-elif menu == "🔔 Quinquela":
-    st.subheader("🍽️ Validación Quinquela (Salón)")
+elif menu == "🔔 Validaciones":
+    st.subheader("🍽️ Validación de Locales (Mozos)")
     
     activos_disponibles = []
     for r in reg[1:]:
@@ -138,31 +162,50 @@ elif menu == "🔔 Quinquela":
         if tkt.upper() != "EXTRA" and (not h_sal or h_sal.lower() == "nan"):
             pat = r[1]
             h_ing = r[2]
-            if not verificar_quinquela(pat, tkt, h_ing, q_data):
+            if not obtener_validacion_local(pat, tkt, h_ing, q_data):
                 activos_disponibles.append(r)
                 
     opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_disponibles]
     
-    mozo = st.text_input("Nombre del Mozo:")
+    local_sel = st.selectbox("Seleccionar Local:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
+    mozo = st.text_input("Nombre del Mozo / Recepción:")
     seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", opciones_mozo)
+    factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
     
-    if st.button("Enviar Validación Quinquela"):
+    if st.button("Enviar Validación y Avisar al Parking"):
         if mozo and seleccion_mozo:
-            tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
-            pat_val = next((r[1] for r in activos_disponibles if r[0].strip() == tkt_val), "")
-            
-            sh.worksheet("Respuestas de formulario 1").append_row([hora_actual_uy(), mozo, tkt_val, pat_val])
-            st.success(f"✅ Validación registrada para Tarjeta #{tkt_val}. ¡Actualiza la página para ver los cambios!")
+            # Obliga a poner factura solo en Quinquela y Number 18
+            if local_sel in ["Quinquela", "Number 18"] and len(factura) < 4:
+                st.error("⚠️ Es obligatorio ingresar los últimos 4 dígitos de la factura para este local.")
+            else:
+                tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
+                pat_val = next((r[1] for r in activos_disponibles if r[0].strip() == tkt_val), "")
+                
+                try:
+                    # Guardado en Google Sheets [Hora, Mozo, Tkt, Patente, Factura, Local]
+                    sh.worksheet("Respuestas de formulario 1").append_row([hora_actual_uy(), mozo, tkt_val, pat_val, factura, local_sel])
+                    st.success(f"✅ Validación de {local_sel} registrada para Tarjeta #{tkt_val}.")
+                    
+                    # Generación de mensaje para enviar a los celulares del Parking
+                    msg_aviso = urllib.parse.quote(f"⚠️ *VALIDACIÓN FLOW PARK*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_sel}\n🧾 Factura: {factura}\n👤 Validado por: {mozo}")
+                    
+                    st.markdown("### 📲 Enviar alerta al equipo del Parking:")
+                    st.markdown(f"[➡️ Avisar a Teléfono 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})", unsafe_allow_html=True)
+                    st.markdown(f"[➡️ Avisar a Teléfono 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})", unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Error al conectar con la base de datos: {e}")
         else:
-            st.error("Completa el nombre del mozo y selecciona un vehículo.")
+            st.error("Completa el nombre y selecciona un vehículo.")
 
     st.divider()
     st.subheader("Historial de Validaciones")
     for q in reversed(q_data[1:]):
-        st.write(f"🕒 {q[0]} | 🍽️ Mozo: {q[1]} | 🎫 Tarjeta: #{q[2]} | 🚗 Patente: {q[3]}")
+        fac = str(q[4]) if len(q) > 4 else "N/A"
+        loc = str(q[5]) if len(q) > 5 else "Quinquela"
+        st.write(f"🕒 {q[0]} | 🏪 {loc} | 🍽️ Mozo: {q[1]} | 🧾 Fac: {fac} | 🎫 Tkt: #{q[2]} | 🚗 Pat: {q[3]}")
 
 # ==========================================
-# 4. EXTRAS (Con Desplegable de Tarjetas Activas)
+# 4. EXTRAS (Con Validación de Stock estricta)
 # ==========================================
 elif menu == "🍾 Extras":
     st.subheader("Carga de Productos / Extras")
@@ -172,29 +215,37 @@ elif menu == "🍾 Extras":
     
     sel_extra_veh = st.selectbox("Seleccionar Vehículo en Playa:", opciones_extras)
     
-    prod = st.selectbox("Seleccionar Producto / Extra:", list(extras.keys()))
+    # Obliga a elegir un producto dejando el primero en blanco
+    lista_productos = [""] + list(extras.keys())
+    prod = st.selectbox("Seleccionar Producto / Extra:", lista_productos)
     cantidad = st.number_input("Cantidad:", min_value=1, value=1, step=1)
     
-    precio_unitario = extras.get(prod, 0)
-    total_extra = precio_unitario * cantidad
-    st.info(f"💵 Precio unitario: ${precio_unitario} | **Total a sumar: ${total_extra}**")
+    if prod:
+        precio_unitario = extras.get(prod, 0)
+        total_extra = precio_unitario * cantidad
+        st.info(f"💵 Precio unitario: ${precio_unitario} | **Total a sumar: ${total_extra}**")
+    else:
+        total_extra = 0
     
     if st.button("Sumar Extra a la Cuenta"):
         tkt_elegido = sel_extra_veh.split(" - ")[0].replace("#", "").strip() if sel_extra_veh else ""
-        if tkt_elegido:
-            patente_encontrada = ""
-            for r in reg[1:]:
-                if r[0].strip().lstrip("0") == tkt_elegido.lstrip("0") and not r[3]:
-                    patente_encontrada = r[1]
-                    break
+        
+        if not tkt_elegido:
+            st.warning("⚠️ Primero debes seleccionar un vehículo de la lista.")
+        elif not prod:
+            st.warning("⚠️ Debes seleccionar un Producto/Extra para poder sumarlo.")
+        else:
+            patente_encontrada = next((r[1] for r in reg[1:] if r[0].strip().lstrip("0") == tkt_elegido.lstrip("0") and not r[3]), "")
             
             if patente_encontrada:
-                sh.worksheet("Registro").append_row(["EXTRA", patente_encontrada, hora_actual_uy(), "", f"Extra - {prod}", "EXTRA", f"{prod} x{cantidad}", total_extra])
-                st.success(f"✅ Se agregó {prod} x{cantidad} (${total_extra}) al vehículo {patente_encontrada}.")
+                try:
+                    sh.worksheet("Registro").append_row(["EXTRA", patente_encontrada, hora_actual_uy(), "", f"Extra - {prod}", "EXTRA", f"{prod} x{cantidad}", total_extra])
+                    sh.worksheet("Control_Stock").append_row([hora_actual_uy(), str(prod), int(cantidad), str(emp), str(patente_encontrada)])
+                    st.success(f"✅ Se agregó {prod} x{cantidad} (${total_extra}) al vehículo {patente_encontrada}.")
+                except Exception as e:
+                    st.error(f"⚠️ Error al guardar. Verifica que exista la pestaña 'Control_Stock'. Detalle: {e}")
             else:
                 st.error("❌ No se encontró un vehículo activo con esa tarjeta.")
-        else:
-            st.warning("Selecciona un vehículo de la lista.")
 
 # ==========================================
 # 5. SALIDA
@@ -210,29 +261,26 @@ elif menu == "📤 Salida":
         patente = datos[1]
         h_ingreso = datos[2]
         
-        cel_encontrado = "598"
-        for c in clientes[1:]:
-            if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", ""):
-                cel_encontrado = str(c[2]).strip() or "598"
-                break
-                
+        cel_encontrado = next((str(c[2]).strip() for c in clientes[1:] if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", "")), "598")
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         
         if st.button("Calcular y Generar Salida"):
             ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             
-            tiene_q = verificar_quinquela(patente, tkt, h_ingreso, q_data)
-            
+            local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             es_camioneta = "Camioneta" in datos[4]
-            monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, tiene_q)
+            monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
             
             extras_auto = [r for r in reg[1:] if str(r[0]).upper() == "EXTRA" and str(r[1]).upper() == patente.upper() and not r[3]]
             detalle_extras = "\n".join([f"• {r[6]} (${r[7]})" for r in extras_auto])
             total_extras = sum([float(r[7]) for r in extras_auto if r[7]])
             
             total_a_pagar = monto_estacionamiento + total_extras
-            info_desc = "Incluye 2h libres de cortesía por Quinquela." if tiene_q else "Tarifa estándar aplicada."
+            
+            if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% bonificado por Rodrigo Bueno."
+            elif local_val: info_desc = f"Incluye 2.5h libres de cortesía por {local_val}."
+            else: info_desc = "Tarifa estándar aplicada."
             
             serv_str = str(datos[6])
             nombre_cliente = serv_str.split("Cliente: ")[1] if "Cliente: " in serv_str else "estimado cliente"
@@ -257,8 +305,19 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
             
             for i, row in enumerate(reg, start=1):
-                if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
+                if (row[0].strip() == tkt or (str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper())) and not row[3]:
                     sh.worksheet("Registro").update_cell(i, 4, hora_actual_uy())
-            for i, row in enumerate(reg, start=1):
-                if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
-                    sh.worksheet("Registro").update_cell(i, 4, hora_actual_uy())
+
+# ==========================================
+# 6. PERSONAL (Control de Asistencia)
+# ==========================================
+elif menu == "⏰ Personal":
+    st.subheader("Control de Horarios y Asistencia")
+    accion = st.radio("Acción a registrar:", ["Entrada", "Salida"])
+    
+    if st.button("Registrar Fichada"):
+        try:
+            sh.worksheet("Asistencia").append_row([hora_actual_uy(), str(emp), accion])
+            st.success(f"✅ Se registró la **{accion}** de {emp} correctamente a las {hora_actual_uy()}")
+        except Exception as e:
+            st.error(f"⚠️ Error. Asegúrate de tener creada una pestaña llamada 'Asistencia'. Detalle: {e}")
