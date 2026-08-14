@@ -88,6 +88,15 @@ def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
     monto_hora = ((m_cobro - 1) // 60 + 1) * hora
     return min(monto_hora, promo if m_cobro > 60 else 99999, dia)
 
+# Función para verificar el último estado de asistencia del empleado
+def verificar_estado_empleado(nombre_emp, asistencia_rows):
+    # Buscamos de abajo hacia arriba el último registro de este empleado
+    for row in reversed(asistencia_rows[1:]):
+        if len(row) > 2 and str(row[1]).strip().lower() == str(nombre_emp).strip().lower():
+            accion = str(row[2]).strip().capitalize()
+            return accion # Retorna "Entrada" o "Salida"
+    return "Salida" # Si nunca fichó, asumimos que está fuera
+
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
 
@@ -325,7 +334,7 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 
 # ==========================================
-# 6. PERSONAL (Control de Asistencia con Stock Obligatorio al Iniciar)
+# 6. PERSONAL (Control de Asistencia con Validación Estricta)
 # ==========================================
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Asistencia")
@@ -333,11 +342,24 @@ elif menu == "⏰ Personal":
     if not emp:
         st.warning("⚠️ Selecciona primero el empleado a cargo en la parte superior de la página.")
     else:
-        accion = st.radio("Acción a registrar:", ["Entrada", "Salida"])
+        # Verificamos cuál fue su último estado en la hoja de asistencia
+        ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
+        
+        st.info(f"👤 Empleado: **{emp}** | Estado actual según registros: **{ultimo_estado}**")
+        
+        # Determinamos la acción permitida
+        if ultimo_estado == "Entrada":
+            accion_permitida = "Salida"
+            st.warning("⚠️ Ya tienes una entrada registrada. Para registrar un nuevo turno, debes marcar tu **Salida** primero.")
+        else:
+            accion_permitida = "Entrada"
+            st.success("✅ Estás fuera de turno. Puedes registrar tu **Entrada** completando el stock inicial.")
+
+        accion = st.radio("Acción a registrar:", [accion_permitida])
         
         st.markdown("---")
         st.subheader(f"📝 Control de Stock ({'Inicial' if accion == 'Entrada' else 'Final'}) Requerido")
-        st.info(f"💡 *Nota:* Al confirmar este inventario, tu asistencia quedará registrada tomando el momento exacto en que comenzaste tu turno.")
+        st.info(f"💡 *Nota:* Al confirmar este inventario, tu **{accion}** quedará registrada tomando el momento exacto en que comenzaste el proceso.")
         
         conteo_stock = {}
         for prod_nombre in list(extras.keys()):
@@ -347,14 +369,13 @@ elif menu == "⏰ Personal":
 
         if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
-                # Capturamos la hora en el momento en que se pulsa el botón (o puedes usar un marcador de llegada)
                 hora_fichada = hora_actual_uy()
                 
                 # 1. Guardar el reporte de stock en Control_Stock
                 for prod_nombre, cant in conteo_stock.items():
                     sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion}_{prod_nombre}", int(cant), str(emp), nota_stock])
                 
-                # 2. Registrar la asistencia en la pestaña 'Asistencia' con la hora real
+                # 2. Registrar la asistencia en la pestaña 'Asistencia'
                 sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion, f"Inventario {accion} completado"])
                 
                 st.success(f"✅ ¡Inventario {'inicial' if accion == 'Entrada' else 'final'} verificado y **{accion}** registrada correctamente para {emp} a las {hora_fichada}!")
