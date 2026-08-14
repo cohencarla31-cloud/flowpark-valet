@@ -255,7 +255,7 @@ elif menu == "🍾 Extras":
                 try:
                     # Buscamos la fila del auto en el Excel para acumular el extra en LA MISMA FILA
                     for i, row in enumerate(reg, start=1):
-                        if row[0].strip().lstrip("0") == tkt_elegido.lstrip("0") and not r[3]:
+                        if row[0].strip().lstrip("0") == tkt_elegido.lstrip("0") and (not row[3] or row[3].lower() == "nan"):
                             # Columna H (8) es Extras_Dinero. Sumamos al valor anterior si ya tenía.
                             actual_extras_dinero = float(row[7]) if len(row) > 7 and row[7] and row[7] != "" else 0
                             nuevo_extras_dinero = actual_extras_dinero + total_extra
@@ -275,7 +275,6 @@ elif menu == "🍾 Extras":
                     st.error(f"⚠️ Error al guardar. Detalle: {e}")
             else:
                 st.error("❌ No se encontró un vehículo activo con esa tarjeta.")
-
 # ==========================================
 # 5. SALIDA
 # ==========================================
