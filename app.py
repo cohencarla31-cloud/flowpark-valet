@@ -381,10 +381,14 @@ elif menu == "⏰ Personal":
             
         nota_stock = st.text_input("Observaciones del stock (Opcional):")
 
-        if st.button(f"Confirmar Stock y Registrar {accion}"):
+       if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
-                hora_fichada = hora_actual_uy()
-            
+                # LÓGICA DE TIEMPOS DIFERENCIADA:
+                if accion == "Entrada":
+                    hora_fichada = hora_actual_uy()
+                else:
+                    hora_fichada = hora_actual_uy()
+                
                 # 1. Guardar el reporte de stock en Control_Stock
                 for prod_nombre, cant in conteo_stock.items():
                     sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion}_{prod_nombre}", int(cant), str(emp), nota_stock])
@@ -394,4 +398,4 @@ elif menu == "⏰ Personal":
                 
                 st.success(f"✅ ¡Inventario {'inicial' if accion == 'Entrada' else 'final'} verificado y **{accion}** registrada correctamente para {emp} a las {hora_fichada}!")
             except Exception as e:
-                st.error(f"⚠️ Error al guardar en Google Sheets. Verifica que existan las pestañas 'Asistencia' y 'Control_Stock'. Detalle: {e}")
+                st.error(f"⚠️ Error al guardar en Google Sheets. Detalle: {e}")
