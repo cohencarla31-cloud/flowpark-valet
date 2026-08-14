@@ -5,7 +5,7 @@ import urllib.parse
 
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
-# --- CONEXIÓN OPTIMIZADA ---
+# --- 1. CONEXIÓN Y CACHÉ ---
 @st.cache_resource
 def init_connection():
     creds_dict = st.secrets["gcp_service_account"]
@@ -14,28 +14,27 @@ def init_connection():
 
 sh = init_connection()
 
-def hora_actual_uy():
-    return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
-
-# --- LECTURA SEGURA (MEMORIA CACHÉ) ---
 @st.cache_data(ttl=30)
 def obtener_datos():
-    if not sh: return [], {}, {}, [], []
-    # Leer todo en bloques para evitar error 429
+    if not sh: return [], {}, {}, [], [], []
+    # Leemos todo de una vez para evitar error 429
     conf = sh.worksheet("Configuracion").get_all_values()
     tarifas_raw = sh.worksheet("Tarifas").get_all_values()
     extras_raw = sh.worksheet("Extras").get_all_values()
     registro = sh.worksheet("Registro").get_all_values()
     quinquela = sh.worksheet("Respuestas de formulario 1").get_all_values()
+    clientes = sh.worksheet("Clientes_Frecuentes").get_all_values()
     
     empleados = [r[0] for r in conf[1:] if r[0]]
     tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
     extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-    return empleados, tarifas, extras, registro, quinquela
+    return empleados, tarifas, extras, registro, quinquela, clientes
 
-empleados, tarifas, extras, reg, q_data = obtener_datos()
+empleados, tarifas, extras, reg, q_data, clientes_data = obtener_datos()
 
-# --- LÓGICA DE CÁLCULO ---
+def hora_actual_uy():
+    return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+
 def calcular_mejor_precio(minutos, es_camioneta, tiene_q):
     tipo = "Camioneta" if es_camioneta else "Auto"
     m_cobro = max(0, minutos - (120 if tiene_q else 0))
@@ -44,59 +43,43 @@ def calcular_mejor_precio(minutos, es_camioneta, tiene_q):
     dia = tarifas.get("Dia_Completo", {}).get(tipo, 500)
     return min((m_cobro // 60 + 1) * hora, promo if m_cobro > 60 else 99999, dia)
 
-# --- INTERFAZ ---
+# --- 2. INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
 emp = st.selectbox("Empleado:", empleados)
 menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Quinquela", "🍾 Extras", "📤 Salida"])
 
-# 1. INGRESO
+# INGRESO
 if menu == "📥 Ingreso":
-    st.subheader("Registro de Ingreso")
-    # Capturamos la patente
     pat = st.text_input("Matrícula:", key="in_pat").upper().replace("-", "").replace(" ", "")
+    # Autocompletado
+    nombre_sug, cel_sug = "", "598"
+    for r in clientes_data[1:]:
+        if r[0].upper().replace("-", "").replace(" ", "") == pat:
+            nombre_sug, cel_sug = r[1], r[2]
     
-    # Buscamos en Clientes_Frecuentes (cargando los datos desde el caché)
-    nombre_cli = ""
-    cel_cli = "598"
-    
-    if pat:
-        # Obtenemos los clientes desde la hoja (agregué esto a obtener_datos en el código de abajo)
-        clientes_data = obtener_registros_seguros("Clientes_Frecuentes")
-        for rc in clientes_data:
-            # rc[0] es Patente, rc[1] es Cliente, rc[2] es Celular
-            if str(rc[0]).upper().replace("-", "").replace(" ", "") == pat:
-                nombre_cli = rc[1]
-                cel_cli = str(rc[2]).strip()
-                break
-
     tkt = st.text_input("N° Tarjeta:")
-    nombre_input = st.text_input("Nombre Cliente:", value=nombre_cli)
-    cel_input = st.text_input("Celular:", value=cel_cli)
+    cli = st.text_input("Nombre Cliente:", value=nombre_sug)
+    cel = st.text_input("Celular:", value=cel_sug)
     
-    if st.button("Registrar Ingreso"):
-        if tkt and pat:
-            # Validar duplicados
-            if any((r[0].strip() == tkt.strip() or r[1].upper() == pat) and not r[3] for r in reg[1:]):
-                st.error("❌ ¡Auto ya está en playa!")
-            else:
-                sh.worksheet("Registro").append_row([tkt, pat, hora_actual_uy(), "", f"Ingreso - {emp}", "", f"Cliente: {nombre_input}", ""])
-                # Guardar en Frecuentes si es nuevo
-                sh.worksheet("Clientes_Frecuentes").append_row([pat, nombre_input, cel_input])
-                st.success("✅ Ingresado")
-                msg = f"*FLOW PARK - INGRESO*\n🚗 {pat}\n🎫 #{tkt}\n¡Gracias {nombre_input}!"
-                st.code(msg)
-# 2. ACTIVOS
+    if st.button("Registrar"):
+        if any((r[0].strip() == tkt.strip() or r[1].upper() == pat) and not r[3] for r in reg[1:]):
+            st.error("❌ ¡Auto ya está en playa!")
+        else:
+            sh.worksheet("Registro").append_row([tkt, pat, hora_actual_uy(), "", f"Ingreso - {emp}", "", f"Cliente: {cli}", ""])
+            sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
+            st.success("✅ Ingresado")
+            st.code(f"*FLOW PARK*\n🚗 {pat}\n🎫 #{tkt}\n¡Gracias {cli}!")
+
+# ACTIVOS
 elif menu == "📊 Activos":
     for r in reversed(reg[1:]):
-        if not r[3] and r[0].upper() != "EXTRA":
-            st.info(f"🎫 #{r[0]} | 🚗 {r[1]} | 🕒 {r[2]}")
+        if not r[3] and r[0].upper() != "EXTRA": st.info(f"🎫 #{r[0]} | 🚗 {r[1]} | 🕒 {r[2]}")
 
-# 3. QUINQUELA
+# QUINQUELA
 elif menu == "🔔 Quinquela":
-    for q in reversed(q_data[1:]):
-        st.success(f"🕒 {q[0]} | 🍽️ {q[1]} | 🚗 {q[3]} | 🎫 #{q[2]}")
+    for q in reversed(q_data[1:]): st.success(f"🕒 {q[0]} | 🍽️ {q[1]} | 🚗 {q[3]} | 🎫 #{q[2]}")
 
-# 4. EXTRAS
+# EXTRAS
 elif menu == "🍾 Extras":
     tkt = st.text_input("Tarjeta:")
     prod = st.selectbox("Extra:", list(extras.keys()))
@@ -107,22 +90,21 @@ elif menu == "🍾 Extras":
                 st.success("✅ Extra cargado")
                 break
 
-# 5. SALIDA
+# SALIDA
 elif menu == "📤 Salida":
     activos = [r for r in reg[1:] if not r[3] and r[0].upper() != "EXTRA"]
-    sel = st.selectbox("Elegir:", [""] + [f"#{r[0]} - {r[1]}" for r in activos])
+    sel = st.selectbox("Elegir auto:", [""] + [f"#{r[0]} - {r[1]}" for r in activos])
     if sel:
         tkt = sel.split(" - ")[0].replace("#", "")
         datos = next(r for r in activos if r[0] == tkt)
+        cel = st.text_input("Celular:", value="598")
         if st.button("Generar Ticket"):
-            pat = datos[1]
-            ing = datetime.strptime(datos[2], "%Y-%m-%d %H:%M:%S")
+            pat, ing = datos[1], datetime.strptime(datos[2], "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             tiene_q = any(q[3].upper().replace("-","") == pat.upper() for q in q_data[1:])
             monto = calcular_mejor_precio(mins, "Camioneta" in datos[4], tiene_q)
-            msg = f"*FLOW PARK - EGRESO*\n🚗 {pat}\n💰 TOTAL: ${monto}\n¡Gracias {datos[6].split('Cliente: ')[-1]}, te esperamos!"
+            msg = f"*FLOW PARK - EGRESO*\n🚗 {pat}\n⏱️ Estadía: {mins//60}h {mins%60}m\n💰 TOTAL: ${monto}\n\n¡Gracias {datos[6].split('Cliente: ')[-1]}, te esperamos!"
             st.code(msg)
-            # Buscar fila y actualizar
             for i, row in enumerate(reg, start=1):
                 if row[0] == tkt and not row[3]:
                     sh.worksheet("Registro").update_cell(i, 4, hora_actual_uy())
