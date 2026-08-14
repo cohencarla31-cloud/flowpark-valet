@@ -51,21 +51,40 @@ menu = st.radio("Módulo:", ["📥 Ingreso", "📊 Activos", "🔔 Quinquela", "
 
 # 1. INGRESO
 if menu == "📥 Ingreso":
-    pat = st.text_input("Patente:").upper().replace("-", "").replace(" ", "")
+    st.subheader("Registro de Ingreso")
+    # Capturamos la patente
+    pat = st.text_input("Matrícula:", key="in_pat").upper().replace("-", "").replace(" ", "")
+    
+    # Buscamos en Clientes_Frecuentes (cargando los datos desde el caché)
+    nombre_cli = ""
+    cel_cli = "598"
+    
+    if pat:
+        # Obtenemos los clientes desde la hoja (agregué esto a obtener_datos en el código de abajo)
+        clientes_data = obtener_registros_seguros("Clientes_Frecuentes")
+        for rc in clientes_data:
+            # rc[0] es Patente, rc[1] es Cliente, rc[2] es Celular
+            if str(rc[0]).upper().replace("-", "").replace(" ", "") == pat:
+                nombre_cli = rc[1]
+                cel_cli = str(rc[2]).strip()
+                break
+
     tkt = st.text_input("N° Tarjeta:")
-    cli = st.text_input("Nombre Cliente:")
-    cel = st.text_input("Celular:", "598")
+    nombre_input = st.text_input("Nombre Cliente:", value=nombre_cli)
+    cel_input = st.text_input("Celular:", value=cel_cli)
     
     if st.button("Registrar Ingreso"):
-        # Validar duplicados (col 0: Tkt, col 1: Patente, col 3: Hora_Salida)
-        if any((r[0].strip() == tkt.strip() or r[1].upper() == pat) and not r[3] for r in reg[1:]):
-            st.error("❌ ¡Auto ya está en playa!")
-        else:
-            sh.worksheet("Registro").append_row([tkt, pat, hora_actual_uy(), "", f"Ingreso - {emp}", "", f"Cliente: {cli}", ""])
-            st.success("✅ Ingresado")
-            msg = f"*FLOW PARK - INGRESO*\n🚗 {pat}\n🎫 #{tkt}\n¡Gracias {cli}!"
-            st.code(msg)
-
+        if tkt and pat:
+            # Validar duplicados
+            if any((r[0].strip() == tkt.strip() or r[1].upper() == pat) and not r[3] for r in reg[1:]):
+                st.error("❌ ¡Auto ya está en playa!")
+            else:
+                sh.worksheet("Registro").append_row([tkt, pat, hora_actual_uy(), "", f"Ingreso - {emp}", "", f"Cliente: {nombre_input}", ""])
+                # Guardar en Frecuentes si es nuevo
+                sh.worksheet("Clientes_Frecuentes").append_row([pat, nombre_input, cel_input])
+                st.success("✅ Ingresado")
+                msg = f"*FLOW PARK - INGRESO*\n🚗 {pat}\n🎫 #{tkt}\n¡Gracias {nombre_input}!"
+                st.code(msg)
 # 2. ACTIVOS
 elif menu == "📊 Activos":
     for r in reversed(reg[1:]):
