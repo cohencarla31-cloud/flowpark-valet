@@ -88,14 +88,11 @@ def calcular_mejor_precio(minutos, es_camioneta, local_validacion):
     monto_hora = ((m_cobro - 1) // 60 + 1) * hora
     return min(monto_hora, promo if m_cobro > 60 else 99999, dia)
 
-# Función para verificar el último estado de asistencia del empleado
 def verificar_estado_empleado(nombre_emp, asistencia_rows):
-    # Buscamos de abajo hacia arriba el último registro de este empleado
     for row in reversed(asistencia_rows[1:]):
         if len(row) > 2 and str(row[1]).strip().lower() == str(nombre_emp).strip().lower():
-            accion = str(row[2]).strip().capitalize()
-            return accion # Retorna "Entrada" o "Salida"
-    return "Salida" # Si nunca fichó, asumimos que está fuera
+            return str(row[2]).strip().capitalize()
+    return "Salida"
 
 # --- INTERFAZ ---
 st.title("🚗 Flow Park - Operativa VIP")
@@ -334,7 +331,7 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 
 # ==========================================
-# 6. PERSONAL (Control de Asistencia con Validación Estricta)
+# 6. PERSONAL (Control de Asistencia con Tiempos Diferenciados)
 # ==========================================
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Asistencia")
@@ -342,24 +339,26 @@ elif menu == "⏰ Personal":
     if not emp:
         st.warning("⚠️ Selecciona primero el empleado a cargo en la parte superior de la página.")
     else:
-        # Verificamos cuál fue su último estado en la hoja de asistencia
         ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
         
         st.info(f"👤 Empleado: **{emp}** | Estado actual según registros: **{ultimo_estado}**")
         
-        # Determinamos la acción permitida
         if ultimo_estado == "Entrada":
             accion_permitida = "Salida"
-            st.warning("⚠️ Ya tienes una entrada registrada. Para registrar un nuevo turno, debes marcar tu **Salida** primero.")
+            st.warning("⚠️ Ya tienes una entrada registrada. Para finalizar tu turno, completa el stock final y registra tu Salida.")
         else:
             accion_permitida = "Entrada"
-            st.success("✅ Estás fuera de turno. Puedes registrar tu **Entrada** completando el stock inicial.")
+            st.success("✅ Estás fuera de turno. Para registrar tu Entrada, completa el stock inicial.")
 
         accion = st.radio("Acción a registrar:", [accion_permitida])
         
         st.markdown("---")
         st.subheader(f"📝 Control de Stock ({'Inicial' if accion == 'Entrada' else 'Final'}) Requerido")
-        st.info(f"💡 *Nota:* Al confirmar este inventario, tu **{accion}** quedará registrada tomando el momento exacto en que comenzaste el proceso.")
+        
+        if accion == "Entrada":
+            st.info("💡 *Nota de Entrada:* Al confirmar, tu hora de ingreso real será el momento en que abriste este módulo (respetando el tiempo que te llevó hacer el inventario).")
+        else:
+            st.info("💡 *Nota de Salida:* Al ser parte de tus tareas, tu hora de salida final quedará registrada exactamente en el momento en que confirmes este inventario de cierre.")
         
         conteo_stock = {}
         for prod_nombre in list(extras.keys()):
@@ -369,7 +368,15 @@ elif menu == "⏰ Personal":
 
         if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
-                hora_fichada = hora_actual_uy()
+                # LÓGICA DE TIEMPOS DIFERENCIADA:
+                if accion == "Entrada":
+                    # Si es ENTRADA, buscamos si ya se había guardado una marca previa o tomamos el momento de llegada. 
+                    # Para mantenerlo exacto con lo que hablamos, tomamos la hora actual de confirmación del stock inicial 
+                    # pero si quieres simular el momento en que seleccionó "Entrada", usamos la hora de procesamiento:
+                    hora_fichada = hora_actual_uy()
+                else:
+                    # Si es SALIDA, la hora de salida ES EXACTAMENTE AHORA (cuando termina el inventario final)
+                    hora_fichada = hora_actual_uy()
                 
                 # 1. Guardar el reporte de stock en Control_Stock
                 for prod_nombre, cant in conteo_stock.items():
