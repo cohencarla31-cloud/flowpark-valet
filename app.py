@@ -15,8 +15,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CONFIGURACIÓN DE TELÉFONOS DEL PARKING ---
-TEL_PARKING_1 = "59899123456" # <- REEMPLAZA POR EL CELULAR 1
-TEL_PARKING_2 = "59899654321" # <- REEMPLAZA POR EL CELULAR 2
+TEL_PARKING_1 = "59895280412" # <- REEMPLAZA POR EL CELULAR 1
+TEL_PARKING_2 = "59893343092" # <- REEMPLAZA POR EL CELULAR 2
 
 # --- CONEXIÓN Y CACHÉ ---
 @st.cache_resource
@@ -381,14 +381,16 @@ elif menu == "⏰ Personal":
             
         nota_stock = st.text_input("Observaciones del stock (Opcional):")
 
-if st.button(f"Confirmar Stock y Registrar {accion}"):
+        if st.button(f"Confirmar Stock y Registrar {accion}"):
             try:
                 hora_fichada = hora_actual_uy()
             
+                # 1. Guardar el reporte de stock en Control_Stock (La nota solo va en el primer producto para no repetir)
                 for index, (prod_nombre, cant) in enumerate(conteo_stock.items()):
                     obs_a_guardar = nota_stock if index == 0 else ""
                     sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion}_{prod_nombre}", int(cant), str(emp), obs_a_guardar])
                 
+                # 2. Registrar la asistencia en la pestaña 'Asistencia'
                 texto_asistencia = f"Inventario {accion} completado - Obs: {nota_stock}" if nota_stock else f"Inventario {accion} completado"
                 sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion, texto_asistencia])
                 
