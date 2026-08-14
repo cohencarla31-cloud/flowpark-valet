@@ -13,7 +13,7 @@ def init_connections():
     client = gspread.service_account_from_dict(creds_dict)
     
     # 1. Tu Planilla Maestra de Valet (REEMPLAZA TU LINK AQUÍ)
-    SHEET_VALET_URL = "https://docs.google.com/spreadsheets/d/1jknI7amSqutxGT_WAIBNhD0vezFE2AueTEzP7q5Rb1c/edit?gid=844746886#gid=844746886"
+    SHEET_VALET_URL = "https://docs.google.com/spreadsheets/d/1jknI7amSqutxGT_WAIBNhD0vezFE2AueTEzP7q5Rb1c/edit"
     sh_valet = client.open_by_url(SHEET_VALET_URL)
     
     # 2. Planilla del Formulario de Quinquela (Conectada directo por código)
