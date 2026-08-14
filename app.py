@@ -301,7 +301,7 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
             
-            # Como los extras ya se fueron sumando en la columna H (índice 7), solo los leemos de la fila
+            # Como los extras ya se sumaron en la columna H (índice 7) al cargarlos, los leemos de la fila del auto
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             
@@ -332,13 +332,12 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
-            # Actualización limpia en Google Sheets (Una sola línea por auto)
+            # Actualización limpia en Google Sheets (Usando 'row' correctamente)
             try:
                 for i, row in enumerate(reg, start=1):
-                    if row[0].strip() == tkt and not r[3]:
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida) # Hora Salida
+                    if row[0].strip() == tkt and (not row[3] or row[3].lower() == "nan"):
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida) # Hora Salida (Col D)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento)) # Parking Dinero (Col G)
-                        # El dinero de extras ya quedó guardado en la Columna H al agregarlo
                         break
             except Exception as e:
                 st.warning(f"Aviso de sincronización: {e}")
