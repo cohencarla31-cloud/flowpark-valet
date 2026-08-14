@@ -280,6 +280,23 @@ elif menu == "🍾 Extras":
 # ==========================================
 elif menu == "📤 Salida":
     st.subheader("Cómputo de Egreso y Ticket Final")
+    
+    # Visor de Historial del Turno Actual
+    with st.expander("🕒 Ver tickets emitidos en este turno"):
+        try:
+            ws_hist = sh.worksheet("Historial_Tickets")
+            registros_hist = ws_hist.get_all_values()
+            hoy = datetime.now().strftime("%Y-%m-%d")
+            tickets_del_dia = [r for r in registros_hist[1:] if hoy in r[0]]
+            
+            if tickets_del_dia:
+                df_hist = pd.DataFrame(tickets_del_dia, columns=["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+                st.dataframe(df_hist)
+            else:
+                st.info("No hay tickets emitidos todavía hoy.")
+        except Exception:
+            st.warning("No se pudo cargar el historial (asegúrate de tener la pestaña 'Historial_Tickets').")
+
     activos = [r for r in reg[1:] if not r[3] and r[0].upper() != "EXTRA"]
     sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos])
     
@@ -291,9 +308,7 @@ elif menu == "📤 Salida":
         
         cel_encontrado = next((str(c[2]).strip() for c in clientes[1:] if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", "")), "598")
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
-        
-        # Campo de observaciones por si el empleado cometió un error o quiere aclarar algo
-        obs_salida = st.text_input("Observaciones de Salida (Opcional - por si hubo algún error o aclaración):")
+        obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
         if st.button("Calcular y Generar Salida"):
             h_salida = hora_actual_uy()
@@ -334,7 +349,6 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
-            # Actualización y guardado estructurado con la observación incluida
             try:
                 for i, row in enumerate(reg, start=1):
                     if row[0].strip() == tkt and (not row[3] or row[3].lower() == "nan"):
@@ -342,7 +356,6 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         break
                 
-                # Respaldo limpio por columnas incluyendo la observación del empleado
                 sh.worksheet("Historial_Tickets").append_row([
                     h_salida, operador, patente, f"#{tkt}", float(monto_estacionamiento), float(total_extras), float(total_a_pagar), obs_salida if obs_salida else "Sin observaciones"
                 ])
