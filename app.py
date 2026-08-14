@@ -289,21 +289,21 @@ elif menu == "📤 Salida":
                 ws_hist = sh.worksheet("Historial_Tickets")
             except Exception:
                 ws_hist = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
-                ws_hist.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+                ws_hist.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs", "Validación"])
             
             registros_hist = ws_hist.get_all_values()
             hoy = datetime.now().strftime("%Y-%m-%d")
             tickets_del_dia = [r for r in registros_hist[1:] if len(r) > 0 and hoy in r[0]]
             
             if tickets_del_dia:
-                df_hist = pd.DataFrame(tickets_del_dia, columns=["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+                df_hist = pd.DataFrame(tickets_del_dia, columns=["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs", "Validación"])
                 st.dataframe(df_hist)
             else:
                 st.info("No hay tickets emitidos todavía hoy.")
         except Exception as e:
             st.warning(f"Aviso del visor: {e}")
 
-    # Lógica inteligente para filtrar duplicados: solo muestra el registro más reciente por ticket
+    # Lógica inteligente para filtrar duplicados
     temp_activos = {}
     for r in reg[1:]:
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA":
@@ -364,7 +364,6 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
             try:
                 for i, row in enumerate(reg, start=1):
-                    # Marcamos como salida todas las filas que coincidan con ese ticket
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
@@ -373,9 +372,15 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
                     ws_h = sh.worksheet("Historial_Tickets")
                 except:
                     ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
-                    ws_h.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs"])
+                    ws_h.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs", "Validación"])
                 
-                ws_h.append_row([h_salida, operador, patente, f"#{tkt}", float(monto_estacionamiento), float(total_extras), float(total_a_pagar), obs_salida if obs_salida else "Sin observaciones"])
+                # Guardado incluyendo la columna de Validación
+                ws_h.append_row([
+                    h_salida, operador, patente, f"#{tkt}", float(monto_estacionamiento), 
+                    float(total_extras), float(total_a_pagar), 
+                    obs_salida if obs_salida else "Sin observaciones", 
+                    local_val if local_val else "Sin validación"
+                ])
                 
             except Exception as e:
                 st.warning(f"Aviso de sincronización: {e}")
