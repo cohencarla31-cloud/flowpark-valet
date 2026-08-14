@@ -331,8 +331,7 @@ Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 
             st.success("Calculo y ticket generados con exito!")
             st.code(texto_ticket)
-            st.markdown(f"[Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")p](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
-
+            st.markdown(f"[Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 # ==========================================
 # 6. PERSONAL (Control de Asistencia con Tiempos Diferenciados)
 # ==========================================
