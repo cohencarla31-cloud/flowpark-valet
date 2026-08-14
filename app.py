@@ -5,9 +5,9 @@ import urllib.parse
 
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
-# --- CONEXIÓN A PLANILLAS ---
+# --- CONEXIÓN A LA PLANILLA MAESTRA ---
 @st.cache_resource
-def init_connections():
+def init_connection():
     creds_dict = st.secrets["gcp_service_account"]
     client = gspread.service_account_from_dict(creds_dict)
     
@@ -16,15 +16,10 @@ def init_connections():
     except Exception as e:
         st.error(f"❌ Error al abrir la planilla principal: {e}")
         sh_valet = None
-
-    try:
-        sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
-    except Exception:
-        sh_quinquela = None
         
-    return sh_valet, sh_quinquela
+    return sh_valet
 
-sh, sh_quinquela = init_connections()
+sh = init_connection()
 
 # --- HORA LOCAL URUGUAY (UTC -3) ---
 def hora_actual_uy():
@@ -75,7 +70,8 @@ if menu == "📥 Ingreso de Vehículo":
         try:
             ws_cli = sh.worksheet("Clientes_Frecuentes")
             for rc in ws_cli.get_all_records():
-                if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia:
+                pat_db = str(rc.get("Matrícula", rc.get("Matricula", ""))).upper().replace("-", "").replace(" ", "")
+                if pat_db == patente_limpia:
                     cliente_sugerido = rc.get("Cliente", "")
                     cel_db = str(rc.get("Celular", "")).strip()
                     if cel_db: celular_sugerido = cel_db
@@ -99,7 +95,6 @@ if menu == "📥 Ingreso de Vehículo":
                 registros = ws_reg.get_all_records()
                 t_clean = str(tarjeta).strip().lstrip("0")
                 
-                # Verificar si la tarjeta está activa
                 activo_existente = False
                 for r in registros:
                     t_val = str(r.get("Ticket", "")).strip().lstrip("0")
@@ -109,10 +104,8 @@ if menu == "📥 Ingreso de Vehículo":
                         break
                 
                 if activo_existente:
-                    st.error(f"❌ La tarjeta #{tarjeta} ya tiene un vehículo activo asignado.")
+                    st.error(f"❌ La tarjeta #{tarjeta} ya tiene un vehículo activo asignado. Debe dar salida primero.")
                 else:
-                    # Estructura estricta para asegurar que Matrícula y Ticket se guarden bien
-                    # ['Ticket', 'Matricula', 'Hora_Ingreso', 'Hora_Salida', 'Estado', 'Factura_Quinquela', 'Servicios_Extras', 'Total_Cobrado']
                     ws_reg.append_row([
                         str(tarjeta).strip(), 
                         patente_limpia, 
@@ -127,7 +120,7 @@ if menu == "📥 Ingreso de Vehículo":
                     try:
                         ws_cli = sh.worksheet("Clientes_Frecuentes")
                         rows_cli = ws_cli.get_all_records()
-                        existe = any(str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia for rc in rows_cli)
+                        existe = any(str(rc.get("Matrícula", rc.get("Matricula", ""))).upper().replace("-", "").replace(" ", "") == patente_limpia for rc in rows_cli)
                         if not existe and nombre_cliente:
                             ws_cli.append_row([patente_limpia, nombre_cliente, celular])
                     except:
@@ -184,34 +177,35 @@ elif menu == "📊 Panel de Control y Autos Activos":
         st.error(f"Error al cargar el panel de control: {e}")
 
 # ==========================================
-# 3. VALIDACIÓN EN VIVO QUINQUELA
+# 3. VALIDACIÓN EN VIVO QUINQUELA (Desde Form Responses)
 # ==========================================
 elif menu == "🔔 Validación en Vivo Quinquela":
     st.subheader("🔔 Panel de Validaciones del Salón Quinquela")
-    st.write("Monitoreo en tiempo real de las solicitudes enviadas por los mozos[cite: 1].")
+    st.write("Monitoreo en tiempo real de las validaciones enviadas por los mozos desde el formulario.")
     
-    if sh_quinquela:
-        try:
-            ws_q = sh_quinquela.worksheet("QUINQUELA - FLOW PARK")
-            datos_quinquela = ws_q.get_all_records()
+    try:
+        ws_q = sh.worksheet("Respuestas de formulario 1")
+        datos_quinquela = ws_q.get_all_records()
+        
+        if datos_quinquela:
+            st.markdown('<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
+            st.success(f"✅ Se detectaron {len(datos_quinquela)} validaciones registradas.")
             
-            if datos_quinquela:
-                st.markdown('<audio autoplay><source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg"></audio>', unsafe_allow_html=True)
-                st.success(f"✅ Conexión exitosa. Se detectaron {len(datos_quinquela)} validaciones registradas.")
+            for q_row in reversed(datos_quinquela):
+                mozo = q_row.get("MOZO - NOMBRE", "Desconocido")
+                patente_q = str(q_row.get("PATENTE", "")).upper().replace("-", "").replace(" ", "")
+                tkt_q = q_row.get("NUMERO DE TARJETA", "")
                 
-                for q_row in reversed(datos_quinquela):
-                    st.markdown(f"""
-                    <div style="padding: 12px; border: 2px solid #28a745; border-radius: 8px; background-color: #d4edda; margin-bottom: 10px;">
-                        🍽️ <b>Datos Quinquela:</b> {q_row} <br>
-                        <span style="background-color: #28a745; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">✔ BENEFICIO 2H APLICADO</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("La planilla de Quinquela está conectada, pero no hay registros todavía.")
-        except Exception as e:
-            st.warning(f"⚠️ No se pudo leer la pestaña 'QUINQUELA - FLOW PARK'. Asegúrate de compartir la planilla de Quinquela con el correo de tu cuenta de servicio: {e}")
-    else:
-        st.error("❌ No se pudo conectar a la planilla de Quinquela. Verifica el ID de la planilla externa en el código.")
+                st.markdown(f"""
+                <div style="padding: 12px; border: 2px solid #28a745; border-radius: 8px; background-color: #d4edda; margin-bottom: 10px;">
+                    🍽️ <b>Mozo:</b> {mozo} | 🚗 <b>Patente:</b> {patente_q} | 🎫 <b>Tarjeta:</b> #{tkt_q} <br>
+                    <span style="background-color: #28a745; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">✔ BENEFICIO 2H APLICADO</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("La pestaña 'Respuestas de formulario 1' está conectada, pero aún no hay registros.")
+    except Exception as e:
+        st.error(f"⚠️ Error al leer la pestaña 'Respuestas de formulario 1': {e}")
 
 # ==========================================
 # 4. EXTRAS Y CORRECCIÓN
@@ -250,7 +244,8 @@ elif menu == "🍾 Venta y Corrección de Extras":
                         patente_encontrada = fila_activa.get("Matricula", fila_activa.get("Matrícula", ""))
                         hora_act = hora_actual_uy()
                         
-                        sh.worksheet("Registro").append_row([
+                        ws_reg = sh.worksheet("Registro")
+                        ws_reg.append_row([
                             "EXTRA", 
                             patente_encontrada, 
                             hora_act, 
@@ -316,14 +311,13 @@ elif menu == "🍾 Venta y Corrección de Extras":
                 st.error(f"Error al buscar extras: {e}")
 
 # ==========================================
-# 5. SALIDA Y TICKET OFICIAL (Con Desplegable Inteligente)
+# 5. SALIDA Y TICKET OFICIAL
 # ==========================================
 elif menu == "📤 Salida y Cómputo Final":
     st.subheader("Cómputo de Egreso y Liquidación Automática")
     
     empleado_salida = st.selectbox("👤 Empleado que realiza el Cobro/Salida:", empleados, key="emp_salida")
     
-    # Cargamos la lista de vehículos activos para ponerlos en un desplegable
     autos_activos_opciones = []
     mapa_autos_activos = {}
     if sh:
@@ -336,19 +330,19 @@ elif menu == "📤 Salida y Cómputo Final":
                 if not h_sal or h_sal.lower() == "nan":
                     pat = r.get("Matricula", r.get("Matrícula", "S/D"))
                     etiqueta = f"Tarjeta #{tkt} - Patente: {pat}"
-                    autos_activos_opciones.append(etiqueta)
-                    mapa_autos_activos[etiqueta] = tkt
+                    if etiqueta not in mapa_autos_activos:
+                        autos_activos_opciones.append(etiqueta)
+                        mapa_autos_activos[etiqueta] = tkt
         except:
             pass
 
     tarjeta_salida = ""
     if autos_activos_opciones:
-        seleccion_auto = st.selectbox("🚗 Seleccionar Vehículo en Playa:", ["-- Seleccionar del listado --"] + autos_activos_opciones)
+        seleccion_auto = st.selectbox("🚗 Seleccionar Vehículo Activo en Playa:", ["-- Seleccionar del listado --"] + autos_activos_opciones)
         if seleccion_auto != "-- Seleccionar del listado --":
             tarjeta_salida = mapa_autos_activos[seleccion_auto]
     
-    # Permitir también tipear o verificar el número de tarjeta manualmente
-    tarjeta_salida = st.text_input("O ingresa N° de Tarjeta PVC:", value=tarjeta_salida, key="salida_tarjeta")
+    tarjeta_salida = st.text_input("O ingresa N° de Tarjeta PVC manualmente:", value=tarjeta_salida, key="salida_tarjeta")
     
     celular_sugerido = "598"
     nombre_cliente_sugerido = ""
@@ -370,7 +364,8 @@ elif menu == "📤 Salida y Cómputo Final":
             if patente_encontrada_auto:
                 ws_cli = sh.worksheet("Clientes_Frecuentes")
                 for rc in ws_cli.get_all_records():
-                    if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_encontrada_auto.upper().replace("-", "").replace(" ", ""):
+                    pat_db = str(rc.get("Matrícula", rc.get("Matricula", ""))).upper().replace("-", "").replace(" ", "")
+                    if pat_db == patente_encontrada_auto.upper().replace("-", "").replace(" ", ""):
                         cel_db = str(rc.get("Celular", "")).strip()
                         if cel_db: celular_sugerido = cel_db
                         if not nombre_cliente_sugerido:
@@ -416,10 +411,10 @@ elif menu == "📤 Salida y Cómputo Final":
                     minutos_totales = int((hora_salida_dt - hora_ingreso).total_seconds() / 60)
                     
                     tiene_quinquela = False
-                    if not es_mensualista and sh_quinquela:
+                    if not es_mensualista and sh:
                         try:
-                            ws_q = sh_quinquela.worksheet("QUINQUELA - FLOW PARK")
-                            patentes_q = [str(p).upper().replace("-", "").replace(" ", "") for p in ws_q.col_values(3)]
+                            ws_q = sh.worksheet("Respuestas de formulario 1")
+                            patentes_q = [str(p).upper().replace("-", "").replace(" ", "") for p in ws_q.col_values(4)] # Columna D: PATENTE
                             if patente_limpia in patentes_q:
                                 tiene_quinquela = True
                         except:
@@ -474,8 +469,8 @@ Gracias {nombre_saludo} por elegirnos. Flow Park le agradece por visitar Distrit
                     st.code(texto_ticket, language="markdown")
                     
                     ws_reg = sh.worksheet("Registro")
-                    ws_reg.update_cell(fila_ingreso_idx, 4, hora_salida_str) # Columna D (Hora_Salida)
-                    ws_reg.update_cell(fila_ingreso_idx, 8, total_a_pagar) # Columna H (Total_Cobrado)
+                    ws_reg.update_cell(fila_ingreso_idx, 4, hora_salida_str) # Hora_Salida
+                    ws_reg.update_cell(fila_ingreso_idx, 8, total_a_pagar) # Total_Cobrado
                     
                     for idx, r in enumerate(registros, start=2):
                         if str(r.get("Ticket", "")).upper() == "EXTRA" and r.get("Matrícula", r.get("Matrícula", "")) == patente_limpia:
