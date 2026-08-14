@@ -44,7 +44,7 @@ if sh:
     try:
         ws_tarifas = sh.worksheet("Tarifas_y_Extras")
         tarifas_data = ws_tarifas.get_all_records()
-        dict_tarifas = {str(row['Servicio']).strip(): int(row['Precio']) for row in tarifas_data if str(row['Servicio']).strip()}
+        dict_tarifas = {str(row.get('Servicios', row.get('Servicio', ''))).strip(): int(row.get('Precio', 0)) for row in tarifas_data if str(row.get('Servicios', row.get('Servicio', ''))).strip()}
     except: pass
 
 st.title("🚗 Flow Park - Operativa VIP")
@@ -52,7 +52,6 @@ if not sh: st.stop()
 
 empleado_actual = st.selectbox("👤 Empleado a cargo (Puerta / Turno):", empleados)
 
-# Menú principal con todos los módulos
 menu = st.radio("Módulo:", [
     "📥 Ingreso de Vehículo", 
     "📊 Panel de Control y Autos Activos", 
@@ -62,7 +61,7 @@ menu = st.radio("Módulo:", [
 ])
 
 # ==========================================
-# 1. INGRESO (Con autocompletado y prefijo 598)
+# 1. INGRESO
 # ==========================================
 if menu == "📥 Ingreso de Vehículo":
     st.subheader("Registro de Ingreso y Creación de Base de Clientes")
@@ -70,7 +69,6 @@ if menu == "📥 Ingreso de Vehículo":
     patente_input = st.text_input("Matrícula del Vehículo (Ej: SDL567)", key="ing_patente")
     patente_limpia = patente_input.upper().replace("-", "").replace(" ", "") if patente_input else ""
     
-    # Búsqueda automática en Clientes_Frecuentes si ya existe la patente
     cliente_sugerido = ""
     celular_sugerido = "598"
     if patente_limpia and sh:
@@ -80,15 +78,14 @@ if menu == "📥 Ingreso de Vehículo":
                 if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia:
                     cliente_sugerido = rc.get("Cliente", "")
                     cel_db = str(rc.get("Celular", "")).strip()
-                    if cel_db:
-                        celular_sugerido = cel_db
+                    if cel_db: celular_sugerido = cel_db
                     break
         except:
             pass
 
     tarjeta = st.text_input("N° de Tarjeta PVC (Ej: 045)", key="ing_tarjeta")
     nombre_cliente = st.text_input("Nombre y Apellido del Cliente:", value=cliente_sugerido, key="ing_nombre")
-    celular = st.text_input("Celular del cliente (Código de país editable):", value=celular_sugerido, key="ing_celular")
+    celular = st.text_input("Celular del cliente (Código editable):", value=celular_sugerido, key="ing_celular")
     tipo_cli = st.selectbox("Tipo de Cliente:", ["Estándar", "Mensualista VIP (Costo $0)"], key="ing_tipo")
     tipo_vehiculo = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"], key="ing_vehi")
     
@@ -97,32 +94,52 @@ if menu == "📥 Ingreso de Vehículo":
             hora_act = hora_actual_uy()
             estado_texto = f"{tipo_cli} ({tipo_vehiculo}) - Op: {empleado_actual}"
             
-            registros = sh.worksheet("Registro").get_all_records()
-            t_clean = str(tarjeta).strip().lstrip("0")
-            activo_existente = any(str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida") for r in registros)
-            
-            if activo_existente:
-                st.error(f"❌ La tarjeta #{tarjeta} ya tiene un vehículo activo asignado.")
-            else:
-                sh.worksheet("Registro").append_row([
-                    str(tarjeta).strip(), patente_limpia, hora_act, "", 
-                    estado_texto, "", f"Cliente: {nombre_cliente}", ""
-                ])
+            try:
+                ws_reg = sh.worksheet("Registro")
+                registros = ws_reg.get_all_records()
+                t_clean = str(tarjeta).strip().lstrip("0")
                 
-                try:
-                    ws_cli = sh.worksheet("Clientes_Frecuentes")
-                    rows_cli = ws_cli.get_all_records()
-                    existe = any(str(r.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia for r in rows_cli)
-                    if not existe and nombre_cliente:
-                        ws_cli.append_row([patente_limpia, nombre_cliente, celular])
-                except:
-                    pass
+                # Verificar si la tarjeta está activa
+                activo_existente = False
+                for r in registros:
+                    t_val = str(r.get("Ticket", "")).strip().lstrip("0")
+                    h_sal = str(r.get("Hora_Salida", "")).strip()
+                    if t_val == t_clean and (h_sal == "" or h_sal.lower() == "nan"):
+                        activo_existente = True
+                        break
+                
+                if activo_existente:
+                    st.error(f"❌ La tarjeta #{tarjeta} ya tiene un vehículo activo asignado.")
+                else:
+                    # Estructura estricta para asegurar que Matrícula y Ticket se guarden bien
+                    # ['Ticket', 'Matricula', 'Hora_Ingreso', 'Hora_Salida', 'Estado', 'Factura_Quinquela', 'Servicios_Extras', 'Total_Cobrado']
+                    ws_reg.append_row([
+                        str(tarjeta).strip(), 
+                        patente_limpia, 
+                        hora_act, 
+                        "", 
+                        estado_texto, 
+                        "", 
+                        f"Cliente: {nombre_cliente}", 
+                        ""
+                    ])
+                    
+                    try:
+                        ws_cli = sh.worksheet("Clientes_Frecuentes")
+                        rows_cli = ws_cli.get_all_records()
+                        existe = any(str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_limpia for rc in rows_cli)
+                        if not existe and nombre_cliente:
+                            ws_cli.append_row([patente_limpia, nombre_cliente, celular])
+                    except:
+                        pass
 
-                st.success(f"✅ Ingreso registrado: Patente {patente_limpia} | Tarjeta #{tarjeta} | Cliente: {nombre_cliente or 'No especificado'}")
-                
-                if celular:
-                    texto_wsp = f"¡Bienvenido a Distrito El Globo y Flow Park! Su vehículo {patente_limpia} ha sido registrado con éxito. Tarjeta #{tarjeta}. ¡Gracias por confiar en nosotros!"
-                    st.markdown(f"[📲 Enviar Ticket de Ingreso por WhatsApp](https://wa.me/{celular}?text={urllib.parse.quote(texto_wsp)})")
+                    st.success(f"✅ Ingreso registrado: Patente {patente_limpia} | Tarjeta #{tarjeta} | Cliente: {nombre_cliente or 'No especificado'}")
+                    
+                    if celular:
+                        texto_wsp = f"¡Bienvenido a Distrito El Globo y Flow Park! Su vehículo {patente_limpia} ha sido registrado con éxito. Tarjeta #{tarjeta}. ¡Gracias por confiar en nosotros!"
+                        st.markdown(f"[📲 Enviar Ticket de Ingreso por WhatsApp](https://wa.me/{celular}?text={urllib.parse.quote(texto_wsp)})")
+            except Exception as ex:
+                st.error(f"Error al guardar en Google Sheets: {ex}")
         else:
             st.warning("⚠️ Completa al menos el número de tarjeta y la matrícula.")
 
@@ -131,22 +148,22 @@ if menu == "📥 Ingreso de Vehículo":
 # ==========================================
 elif menu == "📊 Panel de Control y Autos Activos":
     st.subheader("📊 Panel General de Operaciones y Estado de Vehículos")
-    st.write("Resumen detallado en tiempo real de tarjetas, matrículas, horas de ingreso y estado de salida.")
+    st.write("Resumen detallado en tiempo real de tarjetas, matrículas, horas de ingreso y estado.")
     
     try:
         registros = sh.worksheet("Registro").get_all_records()
         if registros:
             for r in reversed(registros):
-                tkt = r.get("Ticket")
-                if tkt == "EXTRA": continue 
+                tkt = str(r.get("Ticket", ""))
+                if tkt.upper() == "EXTRA": continue 
                 
-                pat = r.get("Matrícula", "S/D")
+                pat = r.get("Matricula", r.get("Matrícula", "S/D"))
                 h_ing = r.get("Hora_Ingreso", "S/D")
-                h_sal = r.get("Hora_Salida", "")
+                h_sal = str(r.get("Hora_Salida", ""))
                 est = r.get("Estado", "Estándar")
                 serv = r.get("Servicios_Extras", "")
                 
-                if not h_sal or str(h_sal).strip() == "" or str(h_sal) == "nan":
+                if not h_sal or h_sal.strip() == "" or h_sal.lower() == "nan":
                     estado_visual = "🟢 En Estacionamiento (Activo)"
                     color_fondo = "#d4edda"
                 else:
@@ -192,7 +209,7 @@ elif menu == "🔔 Validación en Vivo Quinquela":
             else:
                 st.info("La planilla de Quinquela está conectada, pero no hay registros todavía.")
         except Exception as e:
-            st.error(f"⚠️ Error al leer la pestaña 'QUINQUELA - FLOW PARK'. Verifica que el nombre de la hoja sea exacto en Google Sheets: {e}")
+            st.warning(f"⚠️ No se pudo leer la pestaña 'QUINQUELA - FLOW PARK'. Asegúrate de compartir la planilla de Quinquela con el correo de tu cuenta de servicio: {e}")
     else:
         st.error("❌ No se pudo conectar a la planilla de Quinquela. Verifica el ID de la planilla externa en el código.")
 
@@ -219,12 +236,18 @@ elif menu == "🍾 Venta y Corrección de Extras":
                 try:
                     registros = sh.worksheet("Registro").get_all_records()
                     t_clean = str(tarjeta_extra).strip().lstrip("0")
-                    fila_activa = next((r for r in registros if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida")), None)
+                    fila_activa = None
+                    for r in registros:
+                        t_val = str(r.get("Ticket", "")).strip().lstrip("0")
+                        h_sal = str(r.get("Hora_Salida", "")).strip()
+                        if t_val == t_clean and (h_sal == "" or h_sal.lower() == "nan"):
+                            fila_activa = r
+                            break
                     
                     if not fila_activa:
                         st.error(f"❌ No se encontró un vehículo activo con la tarjeta #{tarjeta_extra}.")
                     else:
-                        patente_encontrada = fila_activa.get("Matrícula")
+                        patente_encontrada = fila_activa.get("Matricula", fila_activa.get("Matrícula", ""))
                         hora_act = hora_actual_uy()
                         
                         sh.worksheet("Registro").append_row([
@@ -258,16 +281,23 @@ elif menu == "🍾 Venta y Corrección de Extras":
                 all_rows = ws_reg.get_all_records()
                 t_clean = str(tarjeta_anular).strip().lstrip("0")
                 
-                fila_ingreso = next((r for r in all_rows if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida")), None)
+                patente_auto = ""
+                for r in all_rows:
+                    t_val = str(r.get("Ticket", "")).strip().lstrip("0")
+                    h_sal = str(r.get("Hora_Salida", "")).strip()
+                    if t_val == t_clean and (h_sal == "" or h_sal.lower() == "nan"):
+                        patente_auto = r.get("Matricula", r.get("Matrícula", ""))
+                        break
                 
-                if fila_ingreso:
-                    patente_auto = fila_ingreso.get("Matrícula")
+                if patente_auto:
                     st.info(f"Vehículo vinculado: **{patente_auto}** (Tarjeta #{tarjeta_anular})")
                     
                     extras_activos = []
                     for idx, r in enumerate(all_rows, start=2):
-                        if str(r.get("Ticket")) == "EXTRA" and r.get("Matrícula") == patente_auto and not r.get("Hora_Salida"):
-                            extras_activos.append((idx, r.get("Servicios_Extras"), r.get("Total_Cobrado"), r.get("Hora_Ingreso")))
+                        if str(r.get("Ticket", "")).upper() == "EXTRA" and r.get("Matrícula", r.get("Matrícula", "")) == patente_auto:
+                            h_sal = str(r.get("Hora_Salida", "")).strip()
+                            if h_sal == "" or h_sal.lower() == "nan":
+                                extras_activos.append((idx, r.get("Servicios_Extras"), r.get("Total_Cobrado"), r.get("Hora_Ingreso")))
                     
                     if extras_activos:
                         st.write("Selecciona el extra que deseas **eliminar/anular**:")
@@ -286,13 +316,39 @@ elif menu == "🍾 Venta y Corrección de Extras":
                 st.error(f"Error al buscar extras: {e}")
 
 # ==========================================
-# 5. SALIDA Y TICKET OFICIAL
+# 5. SALIDA Y TICKET OFICIAL (Con Desplegable Inteligente)
 # ==========================================
 elif menu == "📤 Salida y Cómputo Final":
     st.subheader("Cómputo de Egreso y Liquidación Automática")
     
     empleado_salida = st.selectbox("👤 Empleado que realiza el Cobro/Salida:", empleados, key="emp_salida")
-    tarjeta_salida = st.text_input("N° de Tarjeta PVC a devolver:", key="salida_tarjeta")
+    
+    # Cargamos la lista de vehículos activos para ponerlos en un desplegable
+    autos_activos_opciones = []
+    mapa_autos_activos = {}
+    if sh:
+        try:
+            reg_temp = sh.worksheet("Registro").get_all_records()
+            for r in reg_temp:
+                tkt = str(r.get("Ticket", ""))
+                if tkt.upper() == "EXTRA": continue
+                h_sal = str(r.get("Hora_Salida", "")).strip()
+                if not h_sal or h_sal.lower() == "nan":
+                    pat = r.get("Matricula", r.get("Matrícula", "S/D"))
+                    etiqueta = f"Tarjeta #{tkt} - Patente: {pat}"
+                    autos_activos_opciones.append(etiqueta)
+                    mapa_autos_activos[etiqueta] = tkt
+        except:
+            pass
+
+    tarjeta_salida = ""
+    if autos_activos_opciones:
+        seleccion_auto = st.selectbox("🚗 Seleccionar Vehículo en Playa:", ["-- Seleccionar del listado --"] + autos_activos_opciones)
+        if seleccion_auto != "-- Seleccionar del listado --":
+            tarjeta_salida = mapa_autos_activos[seleccion_auto]
+    
+    # Permitir también tipear o verificar el número de tarjeta manualmente
+    tarjeta_salida = st.text_input("O ingresa N° de Tarjeta PVC:", value=tarjeta_salida, key="salida_tarjeta")
     
     celular_sugerido = "598"
     nombre_cliente_sugerido = ""
@@ -302,8 +358,10 @@ elif menu == "📤 Salida y Cómputo Final":
             t_clean = str(tarjeta_salida).strip().lstrip("0")
             registros_temp = sh.worksheet("Registro").get_all_records()
             for r in registros_temp:
-                if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida") and str(r.get("Ticket")) != "EXTRA":
-                    patente_encontrada_auto = r.get("Matrícula")
+                t_val = str(r.get("Ticket", "")).strip().lstrip("0")
+                h_sal = str(r.get("Hora_Salida", "")).strip()
+                if t_val == t_clean and (h_sal == "" or h_sal.lower() == "nan"):
+                    patente_encontrada_auto = r.get("Matricula", r.get("Matrícula", ""))
                     serv_str = str(r.get("Servicios_Extras", ""))
                     if "Cliente: " in serv_str:
                         nombre_cliente_sugerido = serv_str.split("Cliente: ")[1]
@@ -314,8 +372,7 @@ elif menu == "📤 Salida y Cómputo Final":
                 for rc in ws_cli.get_all_records():
                     if str(rc.get("Matrícula")).upper().replace("-", "").replace(" ", "") == patente_encontrada_auto.upper().replace("-", "").replace(" ", ""):
                         cel_db = str(rc.get("Celular", "")).strip()
-                        if cel_db:
-                            celular_sugerido = cel_db
+                        if cel_db: celular_sugerido = cel_db
                         if not nombre_cliente_sugerido:
                             nombre_cliente_sugerido = rc.get("Cliente", "")
                         break
@@ -337,7 +394,9 @@ elif menu == "📤 Salida y Cómputo Final":
                 fila_ingreso_idx = None
                 fila_ingreso = None
                 for idx, r in enumerate(registros, start=2):
-                    if str(r.get("Ticket")).strip().lstrip("0") == t_clean and not r.get("Hora_Salida") and str(r.get("Ticket")) != "EXTRA":
+                    t_val = str(r.get("Ticket", "")).strip().lstrip("0")
+                    h_sal = str(r.get("Hora_Salida", "")).strip()
+                    if t_val == t_clean and (h_sal == "" or h_sal.lower() == "nan"):
                         fila_ingreso_idx = idx
                         fila_ingreso = r
                         break
@@ -345,7 +404,7 @@ elif menu == "📤 Salida y Cómputo Final":
                 if not fila_ingreso:
                     st.error("❌ No se encontró un vehículo activo con ese número de tarjeta.")
                 else:
-                    patente_limpia = fila_ingreso.get("Matrícula")
+                    patente_limpia = fila_ingreso.get("Matricula", fila_ingreso.get("Matrícula", ""))
                     hora_ingreso_str = fila_ingreso.get("Hora_Ingreso")
                     estado_ingreso = str(fila_ingreso.get("Estado", ""))
                     es_mensualista = "Mensualista VIP" in estado_ingreso
@@ -373,7 +432,12 @@ elif menu == "📤 Salida y Cómputo Final":
                     if not es_mensualista and minutos_a_cobrar > 0:
                         monto_estacionamiento = (minutos_a_cobrar // 30 + 1) * 150
 
-                    extras_auto = [r for r in registros if str(r.get("Ticket")) == "EXTRA" and r.get("Matrícula") == patente_limpia and not r.get("Hora_Salida")]
+                    extras_auto = []
+                    for r in registros:
+                        if str(r.get("Ticket", "")).upper() == "EXTRA" and r.get("Matrícula", r.get("Matrícula", "")) == patente_limpia:
+                            h_sal = str(r.get("Hora_Salida", "")).strip()
+                            if h_sal == "" or h_sal.lower() == "nan":
+                                extras_auto.append(r)
                     
                     detalle_extras_txt = "\n".join([f"• {r.get('Servicios_Extras')} (${r.get('Total_Cobrado')})" for r in extras_auto])
                     total_extras = sum([float(r.get("Total_Cobrado", 0)) for r in extras_auto])
@@ -410,12 +474,14 @@ Gracias {nombre_saludo} por elegirnos. Flow Park le agradece por visitar Distrit
                     st.code(texto_ticket, language="markdown")
                     
                     ws_reg = sh.worksheet("Registro")
-                    ws_reg.update_cell(fila_ingreso_idx, 4, hora_salida_str)
-                    ws_reg.update_cell(fila_ingreso_idx, 8, total_a_pagar)
+                    ws_reg.update_cell(fila_ingreso_idx, 4, hora_salida_str) # Columna D (Hora_Salida)
+                    ws_reg.update_cell(fila_ingreso_idx, 8, total_a_pagar) # Columna H (Total_Cobrado)
                     
                     for idx, r in enumerate(registros, start=2):
-                        if str(r.get("Ticket")) == "EXTRA" and r.get("Matrícula") == patente_limpia and not r.get("Hora_Salida"):
-                            ws_reg.update_cell(idx, 4, hora_salida_str)
+                        if str(r.get("Ticket", "")).upper() == "EXTRA" and r.get("Matrícula", r.get("Matrícula", "")) == patente_limpia:
+                            h_sal = str(r.get("Hora_Salida", "")).strip()
+                            if h_sal == "" or h_sal.lower() == "nan":
+                                ws_reg.update_cell(idx, 4, hora_salida_str)
 
                     link_wsp = f"https://wa.me/{celular}?text={urllib.parse.quote(texto_ticket)}"
                     st.markdown(f"### [📲 HAGA CLIC AQUÍ PARA ENVIAR EL TICKET POR WHATSAPP]({link_wsp})", unsafe_allow_html=True)
