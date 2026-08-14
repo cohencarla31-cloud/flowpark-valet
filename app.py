@@ -12,33 +12,28 @@ def init_connections():
     creds_dict = st.secrets["gcp_service_account"]
     client = gspread.service_account_from_dict(creds_dict)
     
-    # Intentar conectar con la principal
-    try:
-        sh_valet = client.open("FlowPark_Valet_DB")
-        st.write("✅ Conectado a FlowPark_Valet_DB")
-    except Exception as e:
-        st.error(f"❌ Error al abrir FlowPark_Valet_DB: {e}")
-        sh_valet = None
-
-    # Intentar conectar con Quinquela
-    try:
-        sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR10GBOwaM")
-        st.write("✅ Conectado a Planilla Quinquela")
-    except Exception as e:
-        st.error(f"❌ Error al abrir Quinquela: {e}")
-        sh_quinquela = None
-        
+    # 1. Planilla principal por nombre
+    sh_valet = client.open("FlowPark_Valet_DB")
+    
+    # 2. Planilla Quinquela POR ID (SOLO EL CÓDIGO)
+    # El ID es: 18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR1OGBOwaM
+    sh_quinquela = client.open_by_key("18ufUYyHmDbqAb74Cu2mS7i6L6JBRJZQyxoR1OGBOwaM")
+    
     return sh_valet, sh_quinquela
+
+# --- INICIALIZACIÓN ---
 try:
     sh, sh_quinquela = init_connections()
     
-    # Cargar empleados desde la pestaña 'Configuracion' de tu Excel
+    # Cargar empleados desde la pestaña 'Configuracion'
     ws_config = sh.worksheet("Configuracion")
     empleados = ws_config.col_values(1)[1:] 
     if not empleados:
         empleados = ["Valet 1", "Valet 2", "Encargado"]
 except Exception as e:
     st.error(f"Error al conectar con las planillas: {e}")
+    sh = None
+    sh_quinquela = None
     empleados = ["Valet 1", "Valet 2", "Encargado"]
 
 st.title("🚗 Flow Park - Operativa VIP")
