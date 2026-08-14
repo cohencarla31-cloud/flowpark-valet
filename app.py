@@ -3,65 +3,139 @@ import gspread
 from datetime import datetime
 import urllib.parse
 
-# --- CONEXIÓN CON GOOGLE SHEETS ---
-creds_dict = st.secrets["gcp_service_account"]
-client = gspread.service_account_from_dict(creds_dict)
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Flow Park - Valet & Gerencia", layout="centered")
 
-# 🔗 PEGA AQUÍ EL LINK DE TU GOOGLE SHEET ENTRE LAS COMILLAS
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1jknI7amSqutxGT_WAIBNhD0vezFE2AueTEzP7q5Rb1c/edit?gid=844746886#gid=844746886"
+# --- CONEXIÓN SEGURA CON GOOGLE SHEETS ---
+@st.cache_resource
+def init_connection():
+    creds_dict = st.secrets["gcp_service_account"]
+    client = gspread.service_account_from_dict(creds_dict)
+    # 🔗 REEMPLAZA ESTE LINK POR EL DE TU GOOGLE SHEET MAESTRO
+    SHEET_URL = "https://docs.google.com/spreadsheets/d/1jknI7amSqutxGT_WAIBNhD0vezFE2AueTEzP7q5Rb1c/edit?gid=1498869870#gid=1498869870"
+    return client.open_by_url(SHEET_URL)
 
-sh = client.open_by_url(SHEET_URL)
-ws = sh.sheet1
+try:
+    sh = init_connection()
+    # Cargar datos dinámicos desde las pestañas del Excel
+    ws_config = sh.worksheet("Configuracion")
+    empleados = ws_config.col_values(1)[1:] # Salta la cabecera
+    if not empleados:
+        empleados = ["Valet 1", "Valet 2", "Encargado"] # Fallback por seguridad
+except Exception as e:
+    st.error(f"Error al conectar con Google Sheets o leer pestañas: {e}")
+    empleados = ["Valet 1", "Valet 2", "Encargado"]
 
-st.set_page_config(page_title="Flow Park App", layout="centered")
 st.title("🚗 Flow Park - Operativa VIP")
 
-# 1. Identificación del empleado operativo
-empleado = st.selectbox("Selecciona tu usuario (Empleado):", ["Valet_1 (Tarde)", "Valet_2 (Noche)", "Encargado"])
+# --- SELECTOR DE EMPLEADO DINÁMICO ---
+empleado_actual = st.selectbox("👤 Selecciona tu usuario (Empleado):", empleados)
 
-# Menú principal basado en la arquitectura del ecosistema
-menu = st.radio("Selecciona un módulo:", ["📥 Módulo 1: Recepción e Ingreso", "🍾 Módulo 2: Upselling (Bebidas/Lavados)", "🖨️ Módulo 4: Salida y Ticket WSP"])
+# --- MENÚ PRINCIPAL ---
+menu = st.radio("Selecciona una opción operativa:", ["📥 Ingreso de Vehículo", "🍾 Venta de Extras / Lavados", "📤 Salida y Ticket WSP"])
 
-if menu == "📥 Módulo 1: Recepción e Ingreso":
+# ==========================================
+# MÓDULO 1: INGRESO DE VEHÍCULOS
+# ==========================================
+if menu == "📥 Ingreso de Vehículo":
     st.subheader("Registro de Ingreso en Puerta")
-    tarjeta = st.text_input("Número de Tarjeta PVC (ej: 045)")
-    patente = st.text_input("Matrícula del Vehículo (ej: SBA-1234)")
-    es_mensual = st.checkbox("¿Es un vehículo Mensualista VIP? (No paga estadía)")
     
-    if st.button("Registrar Ingreso en Base"):
-        if tarjeta and patente:
-            tipo_cliente = "Mensualista VIP (Costo $0)" if es_mensual else "Visitante Estándar"
-            # Envía los datos a Google Sheets
-            ws.append_row([datetime.now().strftime("%d/%m/%Y %H:%M"), tarjeta, patente.upper(), "Ingreso", tipo_cliente, empleado])
-            st.success(f"¡Vehículo {patente.upper()} vinculado a la tarjeta {tarjeta} y registrado por {empleado}!")
-        else:
-            st.warning("Por favor completa el número de tarjeta y la matrícula.")
+    # Uso de st.form para limpiar campos automáticamente al enviar
+    with st.form("form_ingreso", clear_on_submit=True):
+        tarjeta = st.text_input("N° de Tarjeta PVC (Ej: 045)")
+        patente = st.text_input("Matrícula del Vehículo (Ej: SBA-1234)")
+        tipo_vehiculo = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"])
+        
+        submitted_ingreso = st.form_submit_button("Registrar Ingreso")
+        
+        if submitted_ingreso:
+            if tarjeta and patente:
+                # Estandarización de matrícula (Mayúsculas, sin guiones ni espacios)
+                patente_limpia = patente.upper().replace("-", "").replace(" ", "")
+                hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Columnas de tu Excel: [Ticket, Matricula, Hora_Ingreso, Hora_Salida, Estado, Factura_Quinquela, Servicios_Extras, Total_Cobrado]
+                fila_datos = [
+                    tarjeta, 
+                    patente_limpia, 
+                    hora_actual, 
+                    "",               # Hora_Salida (vacía al ingresar)
+                    f"Ingresado ({tipo_vehiculo}) - Op: {empleado_actual}", 
+                    "",               # Factura_Quinquela
+                    "",               # Servicios_Extras
+                    ""                # Total_Cobrado (calculado por fórmula en Excel)
+                ]
+                
+                ws_registro = sh.worksheet("Registro")
+                ws_registro.append_row(fila_datos)
+                
+                st.success(f"✅ ¡Vehículo {patente_limpia} vinculado a tarjeta {tarjeta} con éxito!")
+                
+                # Mensaje de bienvenida simulado por WhatsApp
+                mensaje_wsp = f"Hola! Bienvenido a Distrito El Globo. Su vehículo {patente_limpia} ha sido ingresado correctamente bajo la tarjeta #{tarjeta}."
+                st.info(f"📋 Datos listos para el sistema. Operador a cargo: {empleado_actual}")
+            else:
+                st.warning("⚠️ Por favor completa el número de tarjeta y la matrícula.")
 
-elif menu == "🍾 Módulo 2: Upselling (Bebidas/Lavados)":
-    st.subheader("Venta de Extras y Consumibles")
-    patente_extra = st.text_input("Matrícula del vehículo al que se le asigna el extra")
-    extra = st.selectbox("Servicio o Producto:", ["Lavado Premium de Carrocería", "Bebida / Gaseosa", "Agua Cortesia", "Paraguas"])
-    precio = st.number_input("Precio ($ UYU):", min_value=0, value=250)
+# ==========================================
+# MÓDULO 2: EXTRAS Y LAVADOS
+# ==========================================
+elif menu == "🍾 Venta de Extras / Lavados":
+    st.subheader("Carga de Servicios Adicionales")
     
-    if st.button("Sumar Extra a la Cuenta"):
-        if patente_extra:
-            ws.append_row([datetime.now().strftime("%d/%m/%Y %H:%M"), "N/A", patente_extra.upper(), f"Extra: {extra}", f"${precio}", empleado])
-            st.success(f"Se registró '{extra}' por ${precio} para el auto {patente_extra.upper()}")
-        else:
-            st.warning("Debes indicar la matrícula del vehículo.")
+    with st.form("form_extras", clear_on_submit=True):
+        patente_extra = st.text_input("Matrícula del Vehículo:")
+        extra_tipo = st.selectbox("Servicio o Producto:", ["Lavado Premium de Carrocería", "Bebida / Gaseosa", "Agua Cortesía", "Paraguas"])
+        precio_extra = st.number_input("Precio ($ UYU):", min_value=0, value=250)
+        
+        submitted_extra = st.form_submit_button("Sumar Extra a la Cuenta")
+        
+        if submitted_extra:
+            if patente_extra:
+                patente_limpia = patente_extra.upper().replace("-", "").replace(" ", "")
+                hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Registramos el extra como una línea de consumo asociada
+                fila_extra = [
+                    "EXTRA", 
+                    patente_limpia, 
+                    hora_actual, 
+                    "", 
+                    f"Extra por {empleado_actual}", 
+                    "", 
+                    f"{extra_tipo} (${precio_extra})", 
+                    precio_extra
+                ]
+                
+                ws_registro = sh.worksheet("Registro")
+                ws_registro.append_row(fila_extra)
+                
+                st.success(f"✅ Se registró '{extra_tipo}' por ${precio_extra} para el vehículo {patente_limpia}.")
+            else:
+                st.warning("⚠️ Debes indicar la matrícula del vehículo.")
 
-elif menu == "🖨️ Módulo 4: Salida y Ticket WSP":
-    st.subheader("Cómputo de Salida y Envío de Ticket")
-    patente_salida = st.text_input("Matrícula que solicita egreso")
-    celular = st.text_input("Celular del cliente para el Ticket (Ej: 59899123456)")
+# ==========================================
+# MÓDULO 3: SALIDA Y TICKET WSP
+# ==========================================
+elif menu == "📤 Salida y Ticket WSP":
+    st.subheader("Cómputo de Egreso y Envío de Ticket")
     
-    if st.button("Generar Enlace de Ticket WhatsApp"):
-        if patente_salida and celular:
-            mensaje = f"Hola! Gracias por visitarnos en Distrito El Globo y Flow Park[cite: 2]. Su vehículo {patente_salida.upper()} ya está listo en rampa. ¡Buen viaje!"
-            link_wsp = f"https://wa.me/{celular}?text={urllib.parse.quote(mensaje)}"
-            
-            ws.append_row([datetime.now().strftime("%d/%m/%Y %H:%M"), "N/A", patente_salida.upper(), "Salida y Ticket", "N/A", empleado])
-            st.success("¡Ticket generado con éxito en el sistema!")
-            st.markdown(f"### [📲 Haz clic aquí para enviar el Ticket por WhatsApp al cliente]({link_wsp})", unsafe_allow_html=True)
-        else:
-            st.warning("Ingresa la matrícula y el número de celular del cliente.")
+    with st.form("form_salida", clear_on_submit=True):
+        patente_salida = st.text_input("Matrícula que solicita egreso:")
+        celular = st.text_input("Celular del cliente para el Ticket (Ej: 59899123456):")
+        
+        submitted_salida = st.form_submit_button("Generar Ticket y Enlace WSP")
+        
+        if submitted_salida:
+            if patente_salida and celular:
+                patente_limpia = patente_salida.upper().replace("-", "").replace(" ", "")
+                hora_salida = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Generador de enlace de WhatsApp automatizado
+                texto_ticket = f"Hola! Gracias por visitar Distrito El Globo y Flow Park. Su vehículo {patente_limpia} ya se encuentra listo en rampa. ¡Buen viaje!"
+                link_wsp = f"https://wa.me/{celular}?text={urllib.parse.quote(texto_ticket)}"
+                
+                st.success(f"✅ Egreso procesado para {patente_limpia} por {empleado_actual}.")
+                st.markdown(f"### [📲 HAGA CLIC AQUÍ PARA ENVIAR EL TICKET POR WHATSAPP AL CLIENTE]({link_wsp})", unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Ingresa la matrícula y el número de celular.")
