@@ -260,7 +260,7 @@ elif menu == "🍾 Extras":
             else:
                 st.error("❌ No se encontró un vehículo activo con esa tarjeta.")
 
-# ==========================================
+## ==========================================
 # 5. SALIDA
 # ==========================================
 elif menu == "📤 Salida":
@@ -270,9 +270,9 @@ elif menu == "📤 Salida":
     
     if sel:
         tkt = sel.split(" - ")[0].replace("#", "").strip()
-        datos = next(r for r in activos if r[0].strip() == tkt)
-        patente = datos[1]
-        h_ingreso = datos[2]
+        datos_auto = next(r for r in activos if r[0].strip() == tkt)
+        patente = datos_auto[1]
+        h_ingreso = datos_auto[2]
         
         cel_encontrado = next((str(c[2]).strip() for c in clientes[1:] if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", "")), "598")
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
@@ -283,21 +283,21 @@ elif menu == "📤 Salida":
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
-            es_camioneta = "Camioneta" in datos[4]
+            es_camioneta = "Camioneta" in datos_auto[4]
             monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
             
-            extras_auto = [r for r in reg[1:] if str(r[0]).upper() == "EXTRA" and str(r[1]).upper() == patente.upper() and not r[3]]
-            detalle_extras = "\n".join([f"* {r[6]} (${r[7]})" for r in extras_auto])
+            # --- CORRECCION: BUSCAMOS TODOS LOS EXTRAS DE ESTA PATENTE ---
+            todas_filas_patente = [r for r in reg[1:] if str(r[1]).upper() == patente.upper() and not r[3]]
+            extras_auto = [r for r in todas_filas_patente if str(r[0]).upper() == "EXTRA"]
+            
+            detalle_extras_lista = [f"* {r[6]} (${r[7]})" for r in extras_auto]
+            detalle_extras = "\n".join(detalle_extras_lista)
             total_extras = sum([float(r[7]) for r in extras_auto if r[7]])
             
             total_a_pagar = monto_estacionamiento + total_extras
             
-            if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% bonificado."
-            elif local_val: info_desc = f"Incluye 2.5h libres de cortesia por {local_val}."
-            else: info_desc = "Tarifa estandar aplicada."
-            
-            serv_str = str(datos[6])
-            nombre_cliente = serv_str.split("Cliente: ")[1] if "Cliente: " in serv_str else "estimado cliente"
+            # Buscamos quién fue el operador (tomamos el del registro del auto)
+            operador = datos_auto[4].split("Op: ")[1] if "Op: " in datos_auto[4] else "Desconocido"
             
             texto_ticket = f"""FLOW PARK - TICKET DE EGRESO
 ---------------------------------
@@ -312,20 +312,18 @@ Estacionamiento: ${monto_estacionamiento}
 Total Extras: ${total_extras}
 ---------------------------------
 TOTAL A PAGAR: ${total_a_pagar}
-Info: {info_desc}
+Operador: {operador}
 ---------------------------------
-Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
+Gracias por visitarnos!
 """
-            # Actualización en Google Sheets
             try:
+                # Actualizamos todas las filas encontradas
                 for i, row in enumerate(reg, start=1):
-                    if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
+                    if str(row[1]).upper() == patente.upper() and not row[3]:
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
-                        sh.worksheet("Registro").update_cell(i, 8, float(total_a_pagar))
-                
-                for i, row in enumerate(reg, start=1):
-                    if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
+                        # Solo escribimos el total en la fila del auto (no en los extras)
+                        if row[0].strip() == tkt:
+                            sh.worksheet("Registro").update_cell(i, 8, float(total_a_pagar))
             except Exception as e:
                 st.warning(f"Aviso de sincronizacion: {e}")
 
