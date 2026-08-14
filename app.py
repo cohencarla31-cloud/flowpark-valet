@@ -253,12 +253,26 @@ elif menu == "🍾 Extras":
             
             if patente_encontrada:
                 try:
-                    # Mantenemos compatibilidad escribiendo el registro auxiliar y actualizando el stock físico
-                    sh.worksheet("Registro").append_row(["EXTRA", patente_encontrada, hora_actual_uy(), "", f"Extra - {prod}", "EXTRA", f"{prod} x{cantidad}", total_extra])
+                    # Buscamos la fila del auto en el Excel para acumular el extra en LA MISMA FILA
+                    for i, row in enumerate(reg, start=1):
+                        if row[0].strip().lstrip("0") == tkt_elegido.lstrip("0") and not r[3]:
+                            # Columna H (8) es Extras_Dinero. Sumamos al valor anterior si ya tenía.
+                            actual_extras_dinero = float(row[7]) if len(row) > 7 and row[7] and row[7] != "" else 0
+                            nuevo_extras_dinero = actual_extras_dinero + total_extra
+                            
+                            # Columna F (6) es Detalle_Extras. Acumulamos el texto.
+                            actual_detalle = str(row[5]) if len(row) > 5 and row[5] else ""
+                            nuevo_detalle = f"{actual_detalle} | {prod} x{cantidad}".strip(" | ")
+                            
+                            sh.worksheet("Registro").update_cell(i, 8, float(nuevo_extras_dinero))
+                            sh.worksheet("Registro").update_cell(i, 6, nuevo_detalle)
+                            break
+                    
+                    # Registramos el movimiento en el stock físico de los empleados
                     sh.worksheet("Control_Stock").append_row([hora_actual_uy(), str(prod), int(cantidad), str(emp), str(patente_encontrada)])
                     st.success(f"✅ Se agregó {prod} x{cantidad} (${total_extra}) al vehículo {patente_encontrada}.")
                 except Exception as e:
-                    st.error(f"⚠️ Error al guardar. Verifica que exista la pestaña 'Control_Stock'. Detalle: {e}")
+                    st.error(f"⚠️ Error al guardar. Detalle: {e}")
             else:
                 st.error("❌ No se encontró un vehículo activo con esa tarjeta.")
 
@@ -288,13 +302,9 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val)
             
-            # Buscar todos los extras de esta patente en el registro
-            todas_filas_patente = [r for r in reg[1:] if str(r[1]).upper() == patente.upper() and not r[3]]
-            extras_auto = [r for r in todas_filas_patente if str(r[0]).upper() == "EXTRA"]
-            
-            detalle_extras_lista = [f"• {r[6]} (${r[7]})" for r in extras_auto]
-            detalle_extras = "\n".join(detalle_extras_lista)
-            total_extras = sum([float(r[7]) for r in extras_auto if r[7]])
+            # Como los extras ya se fueron sumando en la columna H (índice 7), solo los leemos de la fila
+            total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
+            detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             
             total_a_pagar = monto_estacionamiento + total_extras
             
@@ -314,7 +324,7 @@ elif menu == "📤 Salida":
 ⏱️ Estadía total: {mins//60}h {mins%60}m
 ---------------------------------
 📋 DETALLE:
-{detalle_extras if detalle_extras else "Sin extras consumidos."}
+{detalle_extras_txt}
 Estacionamiento: ${monto_estacionamiento}
 Total Extras: ${total_extras}
 ---------------------------------
@@ -323,32 +333,20 @@ Total Extras: ${total_extras}
 ---------------------------------
 Gracias {nombre_cliente} por visitarnos. ¡Te esperamos nuevamente!
 """
-            # Actualización en Google Sheets con separación de montos (G y H)
+            # Actualización limpia en Google Sheets (Una sola línea por auto)
             try:
-                # 1. Actualizamos fila principal del auto
                 for i, row in enumerate(reg, start=1):
-                    if row[0].strip() == tkt and not row[3] and row[0].upper() != "EXTRA":
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida) # Col D: Hora_Salida
-                        sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento)) # Col G: Parking
-                        sh.worksheet("Registro").update_cell(i, 8, float(total_extras)) # Col H: Extras
-                        
-                        # Si hubo extras, guardamos el detalle de nombres en la Columna F (6)
-                        if detalle_extras_lista:
-                            detalle_nombres = " | ".join([e.replace("• ", "") for e in detalle_extras_lista])
-                            sh.worksheet("Registro").update_cell(i, 6, detalle_nombres)
-
-                # 2. Cerramos las filas auxiliares de extras para que no queden activas
-                for i, row in enumerate(reg, start=1):
-                    if str(row[0]).upper() == "EXTRA" and str(row[1]).upper() == patente.upper() and not row[3]:
-                        sh.worksheet("Registro").update_cell(i, 4, h_salida)
-
+                    if row[0].strip() == tkt and not r[3]:
+                        sh.worksheet("Registro").update_cell(i, 4, h_salida) # Hora Salida
+                        sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento)) # Parking Dinero (Col G)
+                        # El dinero de extras ya quedó guardado en la Columna H al agregarlo
+                        break
             except Exception as e:
                 st.warning(f"Aviso de sincronización: {e}")
 
             st.success("✅ ¡Cálculo y ticket generados con éxito!")
             st.code(texto_ticket)
             st.markdown(f"[📲 Enviar Ticket Final por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
-
 # ==========================================
 # 6. PERSONAL (Control de Asistencia con Tiempos Diferenciados)
 # ==========================================
