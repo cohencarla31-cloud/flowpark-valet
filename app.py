@@ -24,7 +24,7 @@ TEL_PARKING_2 = "59893343092"
 def init_connection():
     creds_dict = st.secrets["gcp_service_account"]
     client = gspread.service_account_from_dict(creds_dict)
-    return client.open("FlowPark_Valet_DB (2)")
+    return client.open("FlowPark_Valet_DB")
 
 sh = init_connection()
 
