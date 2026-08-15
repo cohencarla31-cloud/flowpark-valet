@@ -1,3 +1,9 @@
+import streamlit as st
+import pandas as pd
+import gspread
+from datetime import datetime, timedelta
+import urllib.parse  # Por si usas la url de WhatsApp
+
 # ==========================================
 # 1. SISTEMA DE LOGIN Y ROLES
 # ==========================================
