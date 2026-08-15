@@ -26,7 +26,7 @@ if st.session_state.usuario is None:
         if pin_ingresado in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_ingresado]["nombre"]
             st.session_state.rol = usuarios_pins[pin_ingresado]["rol"]
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error("❌ PIN incorrecto o no autorizado.")
     st.stop() # Detiene la ejecución para que no vean nada más sin loguearse
