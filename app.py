@@ -107,6 +107,7 @@ if st.session_state.usuario is None:
             st.error("❌ PIN incorrecto o no autorizado.")
     st.stop() 
 
+
 # ==========================================
 # 2. BARRA LATERAL Y MENÚ DINÁMICO
 # ==========================================
@@ -119,7 +120,6 @@ st.sidebar.divider()
 
 # Construir menú según el rol
 opciones_menu = []
-
 if st.session_state.rol in ["Admin", "Valet"]:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
 
@@ -128,29 +128,37 @@ if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
 
+
 # ==========================================
 # 3. DESCARGA DE DATOS DESDE GOOGLE SHEETS
 # ==========================================
 @st.cache_data(ttl=15)
 def obtener_datos():
-    if not sh: return [], {}, {}, [], [], [], []
+    if not sh: return [], {}, {}, [], [], [], [], []
     conf = sh.worksheet("Configuracion").get_all_values()
     tarifas_raw = sh.worksheet("Tarifas").get_all_values()
     extras_raw = sh.worksheet("Extras").get_all_values()
     registro = sh.worksheet("Registro").get_all_values()
     q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
     cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
+    
     try: asistencia = sh.worksheet("Asistencia").get_all_values()
     except: asistencia = []
+    
+    # NUEVO: Descarga de la base de mensualistas
+    try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
+    except: mensualistas = []
     
     empleados = [r[0] for r in conf[1:] if r[0]]
     tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
     extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-    return empleados, tarifas, extras, registro, q_data, cli, asistencia
+    
+    return empleados, tarifas, extras, registro, q_data, cli, asistencia, mensualistas
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data = obtener_datos()
+# Cargamos las variables, agregando mensualistas_data al final
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data = obtener_datos()
 
-# Variable de empleado (El sistema sabe quién eres, pero por si acaso dejamos la variable 'emp')
+# Variable de empleado
 emp = st.session_state.usuario
 
 
@@ -159,41 +167,85 @@ emp = st.session_state.usuario
 # ==========================================
 
 # ------------------------------------------
-# INGRESO
+# INGRESO (HÍBRIDO: LPR + MANUAL)
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
-    pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
+
+    # --- SECCIÓN 1: INGRESOS POR CÁMARA (LPR) ---
+    st.markdown("### 📷 Ingresos Automáticos (Cámara)")
     
-    nombre_sug, cel_sug = "", "598"
-    if pat:
-        for rc in clientes[1:]:
-            if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat:
-                nombre_sug, cel_sug = rc[1], str(rc[2]).strip()
-                break
+    # Buscamos en el Excel los autos que entraron por cámara (dicen "LPR-") y aún no salieron
+    ingresos_lpr = [r for r in reg[1:] if len(r) > 3 and str(r[0]).startswith("LPR-") and (not r[3] or str(r[3]).lower() == "nan")]
     
-    tkt = st.text_input("N° Tarjeta PVC:")
-    cli = st.text_input("Nombre Cliente:", value=nombre_sug)
-    cel = st.text_input("Celular del cliente:", value=cel_sug)
-    tipo_vehi = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"])
-    
-    if st.button("Registrar Ingreso"):
-        if tkt and pat:
-            if any((r[0].strip().lstrip("0") == tkt.strip().lstrip("0") or r[1].upper() == pat) and (len(r)>3 and not r[3]) for r in reg[1:]):
-                st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
+    if ingresos_lpr:
+        st.info(f"🔔 Tienes {len(ingresos_lpr)} vehículo(s) detectado(s) por la cámara esperando validación de tarjeta.")
+        
+        opciones_lpr = [""] + [f"Patente: {r[1]} - Hora: {r[2]}" for r in ingresos_lpr]
+        sel_lpr = st.selectbox("Seleccionar vehículo de la cámara:", opciones_lpr)
+        
+        if sel_lpr:
+            pat_lpr = sel_lpr.split(" - ")[0].replace("Patente: ", "").strip()
+            
+            # El chofer/valet completa los datos físicos
+            tkt_pvc_lpr = st.text_input("Asignar N° Tarjeta PVC al vehículo:")
+            tipo_vehi_lpr = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"], key="tipo_lpr")
+            
+            if st.button("✅ Validar Ingreso de Cámara"):
+                if tkt_pvc_lpr:
+                    # Buscamos la fila en Google Sheets y la actualizamos
+                    for i, row in enumerate(reg, start=1):
+                        if row[1] == pat_lpr and str(row[0]).startswith("LPR-") and (not row[3] or str(row[3]).lower() == "nan"):
+                            estado_txt = f"Estándar ({tipo_vehi_lpr}) - Op: {emp}"
+                            # Reemplazamos el "LPR-MATRICULA" temporal por el ticket real de PVC
+                            sh.worksheet("Registro").update_cell(i, 1, str(tkt_pvc_lpr).strip())
+                            # Actualizamos el estado con el empleado y tipo de vehículo
+                            sh.worksheet("Registro").update_cell(i, 5, estado_txt)
+                            
+                            st.success(f"✅ ¡Vehículo {pat_lpr} validado con éxito al Ticket #{tkt_pvc_lpr}!")
+                            break
+                else:
+                    st.warning("⚠️ Debes ingresar el N° de Tarjeta PVC física para validar este ingreso.")
+    else:
+        st.success("✅ No hay ingresos de cámara pendientes por validar.")
+
+    st.divider()
+
+    # --- SECCIÓN 2: INGRESO MANUAL (PLAN B) ---
+    st.markdown("### ✍️ Carga Manual (Plan B)")
+    with st.expander("Abrir Carga Manual (Si falló la cámara)"):
+        pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
+        
+        nombre_sug, cel_sug = "", "598"
+        if pat:
+            for rc in clientes[1:]:
+                if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat:
+                    nombre_sug, cel_sug = rc[1], str(rc[2]).strip()
+                    break
+        
+        tkt = st.text_input("N° Tarjeta PVC:")
+        cli = st.text_input("Nombre Cliente:", value=nombre_sug)
+        cel = st.text_input("Celular del cliente:", value=cel_sug)
+        tipo_vehi = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"])
+        
+        if st.button("Registrar Ingreso Manual"):
+            if tkt and pat:
+                if any((r[0].strip().lstrip("0") == tkt.strip().lstrip("0") or r[1].upper() == pat) and (len(r)>3 and not r[3]) for r in reg[1:]):
+                    st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
+                else:
+                    h_ing = hora_actual_uy()
+                    estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
+                    # Guardado exacto de las 9 columnas: Ticket, Matricula, Hora_Ingreso, Hora_Salida, Estado, Detalle_Extras, Parking_Dinero, Extras_Dinero, Total_Cobrado
+                    sh.worksheet("Registro").append_row([str(tkt).strip(), pat, h_ing, "", estado_txt, "", 0, 0, 0])
+                    try: sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
+                    except: pass
+                    
+                    st.success(f"✅ Ingreso manual registrado: {pat} | Tarjeta #{tkt}")
+                    msg_ingreso = f"*FLOW PARK - TICKET INGRESO*\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias {cli} por elegirnos!"
+                    st.code(msg_ingreso)
+                    st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel}?text={urllib.parse.quote(msg_ingreso)})")
             else:
-                h_ing = hora_actual_uy()
-                estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                sh.worksheet("Registro").append_row([str(tkt).strip(), pat, h_ing, "", estado_txt, "", 0, 0])
-                try: sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
-                except: pass
-                
-                st.success(f"✅ Ingreso registrado: {pat} | Tarjeta #{tkt}")
-                msg_ingreso = f"*FLOW PARK - TICKET INGRESO*\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias {cli} por elegirnos!"
-                st.code(msg_ingreso)
-                st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel}?text={urllib.parse.quote(msg_ingreso)})")
-        else:
-            st.warning("Completa la tarjeta y la matrícula.")
+                st.warning("Completa la tarjeta y la matrícula.")
 
 # ------------------------------------------
 # ACTIVOS
@@ -231,7 +283,7 @@ elif menu == "✅ Validaciones":
         if len(r)>3:
             tkt = str(r[0]).strip()
             h_sal = str(r[3]).strip()
-            if tkt.upper() != "EXTRA" and (not h_sal or h_sal.lower() == "nan"):
+            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
                 pat = r[1]
                 h_ing = r[2]
                 if not obtener_validacion_local(pat, tkt, h_ing, q_data):
@@ -269,7 +321,6 @@ elif menu == "✅ Validaciones":
         else:
             st.error("Selecciona un vehículo de la lista.")
 
-
 # ------------------------------------------
 # EXTRAS
 # ------------------------------------------
@@ -278,7 +329,7 @@ elif menu == "🍔 Extras":
     
     temp_activos = {}
     for r in reg[1:]:
-        if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA":
+        if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
     activos = list(temp_activos.values())
     
@@ -319,9 +370,8 @@ elif menu == "🍔 Extras":
                         break
                 st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
 
-
 # ------------------------------------------
-# SALIDA
+# SALIDA (CON MENSUALISTAS)
 # ------------------------------------------
 elif menu == "📤 Salida":
     st.subheader("Cómputo de Egreso y Ticket Final")
@@ -347,10 +397,10 @@ elif menu == "📤 Salida":
 
     temp_activos = {}
     for r in reg[1:]:
-        if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA":
+        if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
     activos = list(temp_activos.values())
-
+    
     sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos])
     
     if sel:
@@ -368,21 +418,36 @@ elif menu == "📤 Salida":
             ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             
-            local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             es_camioneta = "Camioneta" in datos[4]
+            local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            # ATENCIÓN AQUÍ: Pasamos la variable tarifas a la función
-            monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
+            # --- NUEVA LÓGICA: DETECCIÓN DE MENSUALISTAS ---
+            es_mensual = False
+            nombre_men = ""
+            
+            for m in mensualistas_data[1:]:
+                if len(m) >= 2 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente:
+                    if str(m[1]).strip().upper() == "ACTIVO":
+                        es_mensual = True
+                        nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
+                        break
+            
+            if es_mensual:
+                monto_estacionamiento = 0
+                info_desc = f"🌟 Vehículo Mensualista: {nombre_men} (Parking 100% Bonificado)."
+            else:
+                monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
+                if local_val == "Rodrigo Bueno": 
+                    info_desc = "Estacionamiento 100% bonificado por Rodrigo Bueno."
+                elif local_val: 
+                    info_desc = f"Incluye cortesía por {local_val}."
+                else: 
+                    info_desc = "Tarifa estándar aplicada."
             
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             
             total_a_pagar = monto_estacionamiento + total_extras
-            
-            if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% bonificado por Rodrigo Bueno."
-            elif local_val: info_desc = f"Incluye cortesía por {local_val}."
-            else: info_desc = "Tarifa estándar aplicada."
-            
             operador = st.session_state.usuario 
             
             texto_ticket = f"""*FLOW PARK - TICKET DE EGRESO*
@@ -406,6 +471,7 @@ Op: {operador}
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
+                        sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
                 
                 try: ws_h = sh.worksheet("Historial_Tickets")
                 except: ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
@@ -419,7 +485,6 @@ Op: {operador}
                 
             except Exception as e:
                 st.warning(f"Error de sincronización: {e}")
-
             st.success("✅ ¡Ticket registrado con éxito!")
             with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
             st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
