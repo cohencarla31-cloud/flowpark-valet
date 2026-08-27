@@ -82,7 +82,6 @@ if "usuario" not in st.session_state:
     st.session_state.usuario = None
     st.session_state.rol = None
 
-# Base de datos de contraseñas
 usuarios_pins = {
     "1000": {"nombre": "Rodrigo", "rol": "Admin"},
     "2001": {"nombre": "Jony", "rol": "Valet"},
@@ -93,7 +92,6 @@ usuarios_pins = {
     "3002": {"nombre": "Number 18", "rol": "Local_Number18"}
 }
 
-# Pantalla de bloqueo
 if st.session_state.usuario is None:
     st.title("🔐 Acceso al Sistema - Flow Park")
     pin_ingresado = st.text_input("Ingrese su PIN de acceso:", type="password")
@@ -118,7 +116,6 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# Construir menú según el rol
 opciones_menu = []
 if st.session_state.rol in ["Admin", "Valet"]:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
@@ -145,7 +142,6 @@ def obtener_datos():
     try: asistencia = sh.worksheet("Asistencia").get_all_values()
     except: asistencia = []
     
-    # NUEVO: Descarga de la base de mensualistas
     try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
     except: mensualistas = []
     
@@ -155,10 +151,7 @@ def obtener_datos():
     
     return empleados, tarifas, extras, registro, q_data, cli, asistencia, mensualistas
 
-# Cargamos las variables, agregando mensualistas_data al final
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data = obtener_datos()
-
-# Variable de empleado
 emp = st.session_state.usuario
 
 
@@ -167,41 +160,31 @@ emp = st.session_state.usuario
 # ==========================================
 
 # ------------------------------------------
-# INGRESO (HÍBRIDO: LPR + MANUAL)
+# INGRESO
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
 
-    # --- SECCIÓN 1: INGRESOS POR CÁMARA (LPR) ---
     st.markdown("### 📷 Ingresos Automáticos (Cámara)")
-    
-    # Buscamos en el Excel los autos que entraron por cámara (dicen "LPR-") y aún no salieron
     ingresos_lpr = [r for r in reg[1:] if len(r) > 3 and str(r[0]).startswith("LPR-") and (not r[3] or str(r[3]).lower() == "nan")]
     
     if ingresos_lpr:
         st.info(f"🔔 Tienes {len(ingresos_lpr)} vehículo(s) detectado(s) por la cámara esperando validación de tarjeta.")
-        
         opciones_lpr = [""] + [f"Patente: {r[1]} - Hora: {r[2]}" for r in ingresos_lpr]
         sel_lpr = st.selectbox("Seleccionar vehículo de la cámara:", opciones_lpr)
         
         if sel_lpr:
             pat_lpr = sel_lpr.split(" - ")[0].replace("Patente: ", "").strip()
-            
-            # El chofer/valet completa los datos físicos
             tkt_pvc_lpr = st.text_input("Asignar N° Tarjeta PVC al vehículo:")
             tipo_vehi_lpr = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"], key="tipo_lpr")
             
             if st.button("✅ Validar Ingreso de Cámara"):
                 if tkt_pvc_lpr:
-                    # Buscamos la fila en Google Sheets y la actualizamos
                     for i, row in enumerate(reg, start=1):
                         if row[1] == pat_lpr and str(row[0]).startswith("LPR-") and (not row[3] or str(row[3]).lower() == "nan"):
                             estado_txt = f"Estándar ({tipo_vehi_lpr}) - Op: {emp}"
-                            # Reemplazamos el "LPR-MATRICULA" temporal por el ticket real de PVC
                             sh.worksheet("Registro").update_cell(i, 1, str(tkt_pvc_lpr).strip())
-                            # Actualizamos el estado con el empleado y tipo de vehículo
                             sh.worksheet("Registro").update_cell(i, 5, estado_txt)
-                            
                             st.success(f"✅ ¡Vehículo {pat_lpr} validado con éxito al Ticket #{tkt_pvc_lpr}!")
                             break
                 else:
@@ -211,7 +194,6 @@ if menu == "📥 Ingreso":
 
     st.divider()
 
-    # --- SECCIÓN 2: INGRESO MANUAL (PLAN B) ---
     st.markdown("### ✍️ Carga Manual (Plan B)")
     with st.expander("Abrir Carga Manual (Si falló la cámara)"):
         pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
@@ -235,7 +217,6 @@ if menu == "📥 Ingreso":
                 else:
                     h_ing = hora_actual_uy()
                     estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                    # Guardado exacto de las 9 columnas: Ticket, Matricula, Hora_Ingreso, Hora_Salida, Estado, Detalle_Extras, Parking_Dinero, Extras_Dinero, Total_Cobrado
                     sh.worksheet("Registro").append_row([str(tkt).strip(), pat, h_ing, "", estado_txt, "", 0, 0, 0])
                     try: sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
                     except: pass
@@ -371,7 +352,7 @@ elif menu == "🍔 Extras":
                 st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
 
 # ------------------------------------------
-# SALIDA (CON MENSUALISTAS)
+# SALIDA
 # ------------------------------------------
 elif menu == "📤 Salida":
     st.subheader("Cómputo de Egreso y Ticket Final")
@@ -421,7 +402,6 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            # --- NUEVA LÓGICA: DETECCIÓN DE MENSUALISTAS ---
             es_mensual = False
             nombre_men = ""
             
@@ -490,39 +470,57 @@ Op: {operador}
             st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
 
 # ------------------------------------------
-# PERSONAL
+# PERSONAL (CON INVENTARIO DE EFECTIVO)
 # ------------------------------------------
 elif menu == "⏰ Personal":
-    st.subheader("Control de Horarios y Asistencia")
+    st.subheader("Control de Horarios, Asistencia y Caja")
     
     ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
     
     if ultimo_estado == "Entrada":
         accion = "Salida"
-        st.warning("⚠️ Ya tienes entrada. Para finalizar el turno, completa el stock final.")
+        st.warning("⚠️ Ya tienes entrada. Para finalizar el turno, completa el stock final y el arqueo de caja.")
     else:
         accion = "Entrada"
-        st.success("✅ Estás fuera de turno. Para ingresar, completa el stock inicial.")
+        st.success("✅ Estás fuera de turno. Para ingresar, registra tu fondo fijo inicial y el stock.")
+    
+    accion_elegida = st.radio("Acción a registrar:", [accion])
     
     st.markdown("---")
-    st.subheader(f"📝 Inventario de {accion}")
+    st.subheader(f"💵 Arqueo de Efectivo ({'Fondo Fijo Inicial' if accion_elegida == 'Entrada' else 'Cierre de Caja Final'})")
+    
+    efectivo_caja = st.number_input(
+        f"Dinero en efectivo en la gaveta (${'al ingresar' if accion_elegida == 'Entrada' else 'al retirarte'}):", 
+        min_value=0, value=0, step=50, 
+        key=f"efectivo_{accion_elegida}"
+    )
+    
+    st.markdown("---")
+    st.subheader(f"📝 Inventario de Productos ({'Inicial' if accion_elegida == 'Entrada' else 'Final'})")
     
     conteo_stock = {}
     for prod_nombre in list(extras.keys()):
-        conteo_stock[prod_nombre] = st.number_input(f"Stock físico actual [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"stock_{accion}_{prod_nombre}")
+        conteo_stock[prod_nombre] = st.number_input(f"Stock físico actual [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"stock_{accion_elegida}_{prod_nombre}")
         
-    nota_stock = st.text_input("Observaciones (Opcional):")
-    if st.button(f"Confirmar Stock y Registrar {accion}"):
+    nota_stock = st.text_input("Observaciones del turno / caja (Opcional):")
+    
+    if st.button(f"Confirmar Caja, Stock y Registrar {accion_elegida}"):
         try:
             hora_fichada = hora_actual_uy()
+            
+            # 1. Guardar el reporte del efectivo en Control_Stock
+            tipo_mov_caja = "Fondo_Fijo_Entrada" if accion_elegida == "Entrada" else "Cierre_Caja_Salida"
+            sh.worksheet("Control_Stock").append_row([hora_fichada, tipo_mov_caja, int(efectivo_caja), str(emp), f"Efectivo declarado: ${efectivo_caja} - Obs: {nota_stock}"])
+            
+            # 2. Guardar el reporte de cada producto en Control_Stock
             for index, (prod_nombre, cant) in enumerate(conteo_stock.items()):
-                obs_a_guardar = nota_stock if index == 0 else ""
-                sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion}_{prod_nombre}", int(cant), str(emp), obs_a_guardar])
+                sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inventario_{accion_elegida}_{prod_nombre}", int(cant), str(emp), nota_stock if index == 0 else ""])
             
-            texto_asistencia = f"Inventario {accion} completado - Obs: {nota_stock}" if nota_stock else f"Inventario {accion} completado"
-            sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion, texto_asistencia])
+            # 3. Registrar la asistencia oficial en la pestaña 'Asistencia'
+            texto_asistencia = f"Inventario y Caja ({accion_elegida}) - Efectivo: ${efectivo_caja} - Obs: {nota_stock}"
+            sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion_elegida, texto_asistencia])
             
-            st.success(f"✅ ¡Inventario verificado y **{accion}** registrada para {emp}!")
+            st.success(f"✅ ¡Caja de ${efectivo_caja} e inventario verificados y **{accion_elegida}** registrada correctamente para {emp}!")
         except Exception as e:
             st.error(f"Error al guardar: {e}")
