@@ -516,3 +516,50 @@ elif menu == "📈 Reportes (Admin)":
             st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
+        st.markdown("---")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("#### 👤 Rendimiento por Valet")
+                if not df.empty:
+                    df_op = df.groupby('Op')['Total'].sum().reset_index()
+                    df_op.columns = ['Valet', 'Recaudación ($)']
+                    st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
+            with col_b:
+                st.markdown("#### 🏪 Uso de Validaciones")
+                if not df.empty:
+                    df_loc = df.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                    st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
+            
+            # --- NUEVO: DETALLE DIARIO DE VENTAS ---
+            st.markdown("---")
+            st.markdown("### 📅 Detalle de Ventas por Día")
+            if not df.empty:
+                # Extraemos solo la fecha (sin la hora)
+                df['Fecha'] = df['Hora'].dt.date
+                
+                # Agrupamos los datos por esa fecha
+                df_diario = df.groupby('Fecha', as_index=False).agg(
+                    Autos=('Total', 'count'),
+                    Parking=('Parking', 'sum'),
+                    Extras=('Extras', 'sum'),
+                    Total_Recaudado=('Total', 'sum')
+                )
+                
+                # Le ponemos nombres prolijos a las columnas
+                df_diario.rename(columns={
+                    'Autos': 'Cant. Autos',
+                    'Parking': 'Parking ($)',
+                    'Extras': 'Extras ($)',
+                    'Total_Recaudado': 'Total ($)'
+                }, inplace=True)
+                
+                # Ordenamos para que el día más reciente salga arriba
+                df_diario = df_diario.sort_values(by='Fecha', ascending=False)
+                
+                # Mostramos la tabla a pantalla completa
+                st.dataframe(df_diario, use_container_width=True)
+                
+        else:
+            st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
+    except Exception as e:
+        st.error(f"Error conectando con el historial: {e}")
