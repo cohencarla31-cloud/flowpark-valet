@@ -123,8 +123,12 @@ if st.session_state.rol in ["Admin", "Valet"]:
 if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
     opciones_menu.append("✅ Validaciones")
 
-menu = st.sidebar.radio("Módulo Principal", opciones_menu)
+# --- ESTO ES LO NUEVO PARA RODRIGO ---
+if st.session_state.rol == "Admin":
+    opciones_menu.append("📈 Reportes (Admin)")
+# -------------------------------------
 
+menu = st.sidebar.radio("Módulo Principal", opciones_menu)
 
 # ==========================================
 # 3. DESCARGA DE DATOS DESDE GOOGLE SHEETS
@@ -524,3 +528,68 @@ elif menu == "⏰ Personal":
             st.success(f"✅ ¡Caja de ${efectivo_caja} e inventario verificados y **{accion_elegida}** registrada correctamente para {emp}!")
         except Exception as e:
             st.error(f"Error al guardar: {e}")
+
+# ------------------------------------------
+# REPORTES (EXCLUSIVO ADMIN)
+# ------------------------------------------
+elif menu == "📈 Reportes (Admin)":
+    st.subheader("📊 Panel de Ventas y Estadísticas")
+    st.info("🔒 Módulo de acceso exclusivo para Administración.")
+    
+    try:
+        ws_hist = sh.worksheet("Historial_Tickets")
+        datos_hist = ws_hist.get_all_values()
+        
+        if len(datos_hist) > 1:
+            # Convertir a un formato analizable
+            df = pd.DataFrame(datos_hist[1:], columns=datos_hist[0])
+            
+            # Limpiar datos para poder sumar (convertir a números y fechas)
+            df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+            df['Parking'] = pd.to_numeric(df['Parking'], errors='coerce').fillna(0)
+            df['Extras'] = pd.to_numeric(df['Extras'], errors='coerce').fillna(0)
+            df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
+            
+            # Filtro de tiempo interactivo
+            filtro = st.radio("Filtro de tiempo:", ["Hoy", "Últimos 7 días", "Todo el historial"], horizontal=True)
+            
+            hoy_dt = datetime.utcnow() - timedelta(hours=3)
+            
+            if filtro == "Hoy":
+                df = df[df['Hora'].dt.date == hoy_dt.date()]
+            elif filtro == "Últimos 7 días":
+                df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                
+            st.markdown("### 💰 Resumen de Facturación")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Facturación Total", f"${df['Total'].sum():,.0f}")
+            c2.metric("Por Estacionamiento", f"${df['Parking'].sum():,.0f}")
+            c3.metric("Por Extras/Lavados", f"${df['Extras'].sum():,.0f}")
+            
+            st.markdown("### 🚗 Operativa")
+            c4, c5 = st.columns(2)
+            c4.metric("Vehículos Egresados", len(df))
+            ticket_promedio = df['Total'].mean() if len(df) > 0 else 0
+            c5.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
+            
+            st.markdown("---")
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown("#### 👤 Rendimiento por Valet")
+                if not df.empty:
+                    df_operadores = df.groupby('Op')['Total'].sum().reset_index()
+                    df_operadores.columns = ['Valet', 'Recaudación ($)']
+                    st.dataframe(df_operadores.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
+            
+            with col_b:
+                st.markdown("#### 🏪 Uso de Validaciones")
+                if not df.empty:
+                    df_locales = df.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                    st.dataframe(df_locales.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
+                    
+        else:
+            st.warning("⚠️ Todavía no hay tickets cerrados en el historial para generar estadísticas.")
+            
+    except Exception as e:
+        st.error(f"No se pudo cargar el historial. Es posible que aún no se haya emitido ninguna salida oficial. Error: {e}")
