@@ -459,11 +459,13 @@ elif menu == "📈 Reportes (Admin)":
         if patente_camara not in autos_manuales and patente_camara != "SIN_PATENTE":
             fugas.append(patente_camara)
             
-    if fugas:
+   if len(autos_camara) == 0:
+        st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy (o el parking está cerrado).")
+    elif fugas:
         st.error(f"🚨 ATENCIÓN: La cámara detectó hoy el ingreso de {len(fugas)} vehículo(s) que los valets NO han anotado en el sistema.")
         st.write("Patentes no registradas:", ", ".join(set(fugas)))
     else:
-        st.success("✅ Perfecto. Todos los vehículos detectados por la cámara de seguridad hoy fueron registrados por los valets.")
+        st.success(f"✅ Perfecto. La cámara detectó {len(autos_camara)} vehículos hoy y todos fueron registrados por los valets.")
 
     st.divider()
 
