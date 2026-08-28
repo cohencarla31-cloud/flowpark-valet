@@ -3,6 +3,7 @@ import gspread
 import pandas as pd
 from datetime import datetime, timedelta
 import urllib.parse
+import time
 
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
@@ -64,7 +65,6 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# LECTURA ESTRICTA DE LA BASE DE DATOS PARA EL LOGIN
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -111,12 +111,9 @@ if st.session_state.usuario is None:
             usuario_encontrado = None
             rol_encontrado = None
             
-            # Verificación estricta: El PIN debe coincidir exactamente con el empleado registrado en Google Sheets
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
-                
-                # Comprobamos que el nombre ingresado coincida con el de la base (permitiendo variaciones lógicas del primer nombre)
                 if nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
@@ -132,7 +129,6 @@ if st.session_state.usuario is None:
                 st.rerun()
     st.stop() 
 
-# Blindaje absoluto para Rodrigo Bueno
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
@@ -147,7 +143,8 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-@st.cache_data(ttl=60)
+# CARGA OPTIMIZADA DE DATOS
+@st.cache_data(ttl=30)
 def obtener_datos():
     if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
     conf = sh.worksheet("Configuracion").get_all_values()
@@ -163,9 +160,7 @@ def obtener_datos():
     except: mensualistas = []
     try: stock = sh.worksheet("Control_Stock").get_all_values()
     except: stock = []
-    try: 
-        ws_efectivo = sh.worksheet("Efectivo_Caja")
-        efectivo_data = ws_efectivo.get_all_values()
+    try: efectivo_data = sh.worksheet("Efectivo_Caja").get_all_values()
     except: efectivo_data = []
     try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
     except: auditoria = []
@@ -173,7 +168,7 @@ def obtener_datos():
     empleados = [r[0] for r in conf[1:] if r[0]]
     tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
     extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-    return empleados, tarifas, extras, registro, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria
+    return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data = obtener_datos()
 emp = st.session_state.usuario
@@ -193,6 +188,26 @@ if st.session_state.rol == "Admin" or es_admin_rodrigo:
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
+
+# Función para actualizar stock en la solapa Extras automáticamente
+def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
+    try:
+        ws_ex = sh.worksheet("Extras")
+        rows = ws_ex.get_all_values()
+        for idx, r in enumerate(rows[1:], start=2):
+            if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
+                # Columna 3 es Vendidos (índice 3), Columna 4 es Stock Actual (índice 4)
+                vendidos_actuales = float(r[3]) if r[3] and r[3] != "" else 0
+                stock_actual = float(r[4]) if r[4] and r[4] != "" else 0
+                
+                nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
+                nuevo_stock = stock_actual - float(cantidad_vendida)
+                
+                ws_ex.update_cell(idx, 4, nuevo_vendidos)
+                ws_ex.update_cell(idx, 5, nuevo_stock)
+                break
+    except Exception as e:
+        print(f"Error actualizando stock en Extras: {e}")
 
 # ------------------------------------------
 # INGRESO
@@ -253,6 +268,7 @@ if menu == "📥 Ingreso":
                 h_ing = hora_actual_uy()
                 estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
                 sh.worksheet("Registro").append_row([str(tkt).strip(), pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
+                time.sleep(1) # Pausa técnica para evitar error 429 de cuota de Google
                 
                 try: 
                     if cli_nom and not nombre_sug:
@@ -337,6 +353,7 @@ elif menu == "✅ Validaciones":
                 try:
                     fecha_val = hora_actual_uy()
                     sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
+                    time.sleep(1)
                     st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                     
                     msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
@@ -373,6 +390,8 @@ elif menu == "🍔 Extras":
             fecha_act = hora_actual_uy()
             if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
                 sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA"])
+                time.sleep(0.5)
+                actualizar_stock_en_extras(prod, cant)
                 st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
             else:
                 tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
@@ -380,6 +399,8 @@ elif menu == "🍔 Extras":
                 precio_unitario = extras.get(prod, 0)
                 total_dinero_extra = precio_unitario * cant
                 sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext])
+                time.sleep(0.5)
+                actualizar_stock_en_extras(prod, cant)
                 for i, row in enumerate(reg, start=1):
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                         texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
@@ -476,6 +497,7 @@ Op: {emp}
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
+                time.sleep(0.5)
                 try: ws_h = sh.worksheet("Historial_Tickets")
                 except: ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
                 ws_h.append_row([
@@ -503,7 +525,6 @@ elif menu == "⏰ Personal":
     if st.button("🔄 Actualizar Estado de Turno"):
         st.rerun()
 
-    # Recargamos asistencia fresca directo de la base para evitar desfasajes
     asistencia_actualizada = sh.worksheet("Asistencia").get_all_values()
     ultimo_estado = verificar_estado_empleado(emp, asistencia_actualizada)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
@@ -536,6 +557,7 @@ elif menu == "⏰ Personal":
                 try:
                     hora_fichada = hora_actual_uy()
                     sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Entrada", "Fichado inicial"])
+                    time.sleep(0.5)
                     st.session_state.cartel_entrada_msg = f"✅ Su entrada se consignó correctamente a las {hora_fichada}, pero para que quede registrada de manera definitiva deberá previamente completar el inventario."
                     st.rerun()
                 except Exception as e:
@@ -564,6 +586,8 @@ elif menu == "⏰ Personal":
                     
                     for prod, cant in conteo_stock.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
+                        actualizar_stock_en_extras(prod, 0) # Solo asegura registro físico
+                    time.sleep(0.5)
                     st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada} luego de realizar el inventario!")
                 except Exception as e: st.error(f"Error al guardar inventario: {e}")
 
@@ -597,12 +621,12 @@ elif menu == "⏰ Personal":
                     for prod, cant in conteo_stock_salida.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
                     sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida} - Obs: {nota_salida}"])
+                    time.sleep(0.5)
                     
                     st.session_state.cartel_salida_msg = f"🚪 SU SALIDA, LUEGO DE HABER REALIZADO EL INVENTARIO, ES A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
                     st.rerun()
                 except Exception as e: st.error(f"Error al registrar salida: {e}")
 
-    # CARTEL DESTACADO DE SALIDA EXITOSA
     if st.session_state.cartel_salida_msg != "":
         st.success(st.session_state.cartel_salida_msg)
         if st.button("🔄 Aceptar y Finalizar"):
@@ -641,16 +665,12 @@ elif menu == "📈 Reportes (Admin)":
             df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
             st.dataframe(df_ef.tail(10), use_container_width=True)
             
-            # Auditoría exacta entre turnos distintos: Comparamos el Cierre del turno anterior con la Entrada del turno siguiente
             if len(df_ef) >= 2:
-                # Buscamos el último registro de Salida y el último de Entrada
                 salidas = df_ef[df_ef['Tipo'] == "Salida"]
                 entradas = df_ef[df_ef['Tipo'] == "Entrada"]
                 if not salidas.empty and not entradas.empty:
                     ult_salida = salidas.iloc[-1]
                     ult_entrada = entradas.iloc[-1]
-                    
-                    # Si la entrada es posterior a la última salida, comparamos montos
                     if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
                         monto_cierre = float(ult_salida['Monto'])
                         monto_apertura = float(ult_entrada['Monto'])
