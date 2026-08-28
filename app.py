@@ -144,12 +144,6 @@ emp = st.session_state.usuario
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     
-    if st.session_state.exito_msg != "":
-        st.success(st.session_state.exito_msg)
-        st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
-        st.session_state.exito_msg = ""
-        st.session_state.exito_wp = ""
-    
     patentes_recientes = []
     for r in auditoria_data[1:]:
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
@@ -217,6 +211,14 @@ if menu == "📥 Ingreso":
                 st.rerun()
         else:
             st.warning("⚠️ Completa la tarjeta, la matrícula y el nombre y apellido.")
+
+    # --- MENSAJE DE ÉXITO MOVIDO AL FINAL ---
+    if st.session_state.exito_msg != "":
+        st.success(st.session_state.exito_msg)
+        st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
+        # Reseteamos las variables para que desaparezcan después del próximo clic
+        st.session_state.exito_msg = ""
+        st.session_state.exito_wp = ""
 
 # ------------------------------------------
 # ACTIVOS
