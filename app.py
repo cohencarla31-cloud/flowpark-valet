@@ -471,18 +471,27 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            es_mensual = False
+            # --- VALIDACIÓN DE ESTADOS MENSUALISTAS / AUTORIZADOS ---
+            estado_mensual_encontrado = None
             nombre_men = ""
             for m in mensualistas_data[1:]:
-                if len(m) >= 2 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente:
-                    if str(m[1]).strip().upper() == "ACTIVO":
-                        es_mensual = True
-                        nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
-                        break
+                if len(m) >= 2 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
+                    estado_mensual_encontrado = str(m[1]).strip().upper()
+                    nombre_men = str(m[2]).strip() if len(m) > 2 else "Titular"
+                    break
             
-            if es_mensual:
+            if estado_mensual_encontrado == "AUTORIZADO":
                 monto_estacionamiento = 0
-                info_desc = f"🌟 Cuenta Mensualista: {nombre_men} (Parking 100% Bonificado)."
+                info_desc = f"✅ Vehículo AUTORIZADO de {nombre_men}. No requiere cobro."
+                st.success(info_desc)
+            elif estado_mensual_encontrado == "AL DIA":
+                monto_estacionamiento = 0
+                info_desc = f"✅ Mensualista AL DÍA: {nombre_men}. Sin costo de estadía."
+                st.success(info_desc)
+            elif estado_mensual_encontrado == "DEUDOR":
+                monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
+                info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA de mensualidad. ¡Gestionar cobro!"
+                st.error(info_desc)
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
                 if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% libre por Rodrigo Bueno."
@@ -566,9 +575,6 @@ elif menu == "⏰ Personal":
 
     tab_entrada, tab_salida = st.tabs(["📥 ENTRADA", "📤 SALIDA"])
     
-    # ==========================
-    # PESTAÑA: ENTRADA (CON FORMULARIO ANTI-429)
-    # ==========================
     with tab_entrada:
         if ultimo_est_operador == "Entrada":
             st.info("ℹ️ Ya te encuentras con la **Entrada** registrada y el inventario completado. Debes registrar tu salida al terminar el turno.")
@@ -612,7 +618,7 @@ elif menu == "⏰ Personal":
                         st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
                     except Exception as e: st.error(f"Error al guardar inventario: {e}")
                 
-        else: # Estado Salida u otro
+        else:
             st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
             if st.button("⏰ Registrar Entrada Ahora"):
                 try:
@@ -627,9 +633,6 @@ elif menu == "⏰ Personal":
                 except Exception as e:
                     st.error(f"Error al registrar entrada: {e}")
 
-    # ==========================
-    # PESTAÑA: SALIDA (CON FORMULARIO ANTI-429)
-    # ==========================
     with tab_salida:
         if ultimo_est_operador == "Salida":
             st.info("ℹ️ No tienes una entrada activa en este momento para registrar salida.")
@@ -684,6 +687,39 @@ elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
+    # --- PANEL COMERCIAL: MENSUALISTAS Y MOROSIDAD ---
+    st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
+    try:
+        ws_men = sh.worksheet("Base_Mensualistas")
+        datos_m = ws_men.get_all_values()
+        if len(datos_m) > 1:
+            df_m = pd.DataFrame(datos_m[1:], columns=["Matrícula", "Estado", "Nombre"][:len(datos_m[0])])
+            df_m['Estado'] = df_m['Estado'].astype(str).str.strip().str.upper()
+            
+            total_autorizados = len(df_m[df_m['Estado'] == 'AUTORIZADO'])
+            total_al_dia = len(df_m[df_m['Estado'] == 'AL DIA'])
+            total_deudores = len(df_m[df_m['Estado'] == 'DEUDOR'])
+            total_comercial = total_al_dia + total_deudores
+            
+            c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+            c_m1.metric(label="Total Mensualistas", value=total_comercial, help="Clientes que pagan abono fijo")
+            c_m2.metric(label="✅ Pagos Al Día", value=total_al_dia)
+            c_m3.metric(label="🛑 Morosos", value=total_deudores, delta="- Deudores", delta_color="inverse")
+            c_m4.metric(label="Autorizados (Sin cargo)", value=total_autorizados)
+            
+            if total_deudores > 0:
+                st.error(f"⚠️ Hay {total_deudores} mensualistas pendientes de pago. Avisar en rampa:")
+                df_deudores = df_m[df_m['Estado'] == 'DEUDOR'][['Matrícula', 'Nombre']]
+                st.dataframe(df_deudores, use_container_width=True, hide_index=True)
+            else:
+                st.success("¡Excelente estado de cuenta! Todos los mensualistas están al día.")
+        else:
+            st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
+    except Exception as e:
+        st.info("ℹ️ Asegúrate de tener creada la pestaña 'Base_Mensualistas' en tu Google Sheet con las columnas Matrícula, Estado y Nombre.")
+
+    st.divider()
+
     st.markdown("### 🕒 Control de Asistencia y Horarios de Empleados")
     try:
         ws_asis = sh.worksheet("Asistencia")
