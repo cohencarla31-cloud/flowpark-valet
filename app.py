@@ -63,7 +63,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# Carga de pines con respaldo estricto para Rodrigo
+# Carga de pines dinámicos desde Google Sheets
 @st.cache_data(ttl=30)
 def cargar_usuarios_desde_db():
     pins_dict = {
@@ -79,9 +79,6 @@ def cargar_usuarios_desde_db():
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except:
         pass
-    
-    # Blindaje inquebrantable para Rodrigo Bueno
-    pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
     return pins_dict
 
 usuarios_pins = cargar_usuarios_desde_db()
@@ -103,13 +100,13 @@ if st.session_state.usuario is None:
     
     if st.button("Ingresar"):
         pin_clean = str(pin_ingresado).strip()
-        nombre_clean = str(nombre_ingresado).strip()
+        nombre_clean = str(nombre_ingresado).strip().lower()
         
-        # Acceso maestro directo por PIN 1000
-        if pin_clean == "1000" or nombre_clean.lower() == "rodrigo bueno" or nombre_clean.lower() == "rodrigo":
+        # BLINDAJE ABSOLUTO: Si usa el PIN 1000 o su nombre es Rodrigo, es ADMIN directo
+        if pin_clean == "1000" or "rodrigo" in nombre_clean:
             st.session_state.usuario = "Rodrigo Bueno"
             st.session_state.rol = "Admin"
-            st.session_state.pin_usado = "1000"
+            st.session_state.pin_usado = pin_clean if pin_clean else "1000"
             st.rerun()
         elif pin_clean in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
@@ -117,13 +114,17 @@ if st.session_state.usuario is None:
             st.session_state.pin_usado = pin_clean
             st.rerun() 
         elif nombre_clean:
-            st.session_state.usuario = nombre_clean.title()
+            st.session_state.usuario = nombre_ingresado.strip().title()
             st.session_state.rol = "Valet"
             st.session_state.pin_usado = pin_clean
             st.rerun()
         else:
             st.error("❌ PIN incorrecto o datos incompletos.")
     st.stop() 
+
+# BLINDAJE EXTRA EN TIEMPO DE EJECUCIÓN (Por si la sesión ya estaba abierta con rol viejo)
+if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
+    st.session_state.rol = "Admin"
 
 st.sidebar.markdown(f"👤 **Usuario:** {st.session_state.usuario}")
 if st.sidebar.button("Cerrar Sesión"):
@@ -133,16 +134,16 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# MENÚ PRINCIPAL BLINDADO PARA RODRIGO BUENO
+# MENÚ LATERAL CONFIGURADO PARA ADMINISTRADOR Y VALETS
 opciones_menu = []
-if st.session_state.rol in ["Admin", "Valet"] or st.session_state.usuario == "Rodrigo Bueno":
+if st.session_state.rol in ["Admin", "Valet"]:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
 
-if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin" or st.session_state.usuario == "Rodrigo Bueno":
+if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
     opciones_menu.append("✅ Validaciones")
 
-# ACCESO TOTAL GARANTIZADO A REPORTES PARA RODRIGO BUENO
-if st.session_state.rol == "Admin" or st.session_state.usuario == "Rodrigo Bueno" or st.session_state.pin_usado == "1000":
+# PANEL DE REPORTES EXCLUSIVO Y ASEGURADO PARA ADMIN
+if st.session_state.rol == "Admin":
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
