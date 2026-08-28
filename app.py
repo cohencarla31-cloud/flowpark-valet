@@ -145,7 +145,6 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     k = st.session_state.form_key_count
     
-    # 1. Cámara: Limpiamos repetidos y ponemos el más reciente primero
     patentes_recientes = []
     for r in auditoria_data[1:]:
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
@@ -153,7 +152,6 @@ if menu == "📥 Ingreso":
     patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
     patentes_recientes.reverse() 
     
-    # 2. Frecuentes: Formato Patente - Nombre y orden alfabético por patente
     lista_frec = []
     for rc in clientes[1:]:
         if len(rc) > 0 and rc[0].strip():
@@ -180,7 +178,6 @@ if menu == "📥 Ingreso":
     pat_final = pat_final.upper().replace("-", "").replace(" ", "")
     st.divider()
 
-    # Búsqueda del cliente para autocompletar
     nombre_sug, cel_sug = "", "598"
     if pat_final:
         for rc in clientes[1:]:
@@ -278,7 +275,6 @@ elif menu == "✅ Validaciones":
                 if not obtener_validacion_local(pat, tkt, h_ing, q_data):
                     activos_disponibles.append(r)
                     
-    # Desplegable ordenado por NÚMERO DE TICKET
     activos_disponibles = sorted(activos_disponibles, key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
     opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
     seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
@@ -321,7 +317,6 @@ elif menu == "🍔 Extras":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
             
-    # Desplegable ordenado por NÚMERO DE TICKET
     activos = sorted(list(temp_activos.values()), key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
     opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     
@@ -364,7 +359,6 @@ elif menu == "📤 Salida":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
             
-    # Desplegable ordenado por NÚMERO DE TICKET
     activos = sorted(list(temp_activos.values()), key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
     lista_salida_ordenada = [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     
@@ -486,12 +480,12 @@ elif menu == "⏰ Personal":
             for idx, (prod, cant) in enumerate(conteo_stock.items()):
                 sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_{accion_elegida}_{prod}", int(cant), str(emp), ""])
             sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion_elegida, f"Caja: ${efectivo_caja}"])
-            st.success(f"✅ **{accion_elegida}** registrada correctamente para {emp}!")
+            st.success(f"✅ **{accion_elegida}** registrada correctamente para el personal!")
         except Exception as e: st.error(f"Error al guardar: {e}")
 
 elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas y Auditoría")
-    st.info("🔒 Módulo de acceso exclusivo para Administración (Rodrigo Bueno).")
+    st.info("🔒 Módulo de acceso exclusivo para Administración.")
     
     st.markdown("### 💵 Auditoría de Caja (Fondo Fijo)")
     movimientos_caja = [r for r in stock_data if len(r) > 2 and r[1] in ["Fondo_Fijo_Entrada", "Cierre_Caja_Salida"]]
@@ -511,19 +505,40 @@ elif menu == "📈 Reportes (Admin)":
     else: st.info("No hay suficientes movimientos de caja.")
 
     st.divider()
+
+    # 2. AUDITORÍA DE CÁMARAS LPR VS EMPLEADOS (CORREGIDA)
     st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
     hoy_str = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
-    autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str in r[1]]
-    autos_manuales = [str(r[1]).strip().upper() for r in reg[1:] if len(r) > 2 and hoy_str in r[2]]
     
-    fugas = [pat for pat in autos_camara if pat not in autos_manuales and pat != "SIN_PATENTE"]
-    if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no registró ingresos hoy.")
+    # Patentes detectadas por la cámara hoy
+    autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str in r[1]]
+    autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
+    
+    # Patentes que actualmente están activas en la playa (sin importar de qué día sean)
+    patentes_activas_playa = []
+    for r in reg[1:]:
+        if len(r) > 3:
+            tkt = str(r[0]).strip()
+            h_sal = str(r[3]).strip()
+            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                patentes_activas_playa.append(str(r[1]).strip().upper())
+
+    # Fuga = Auto visto por la cámara hoy, pero que NO figura activo en la playa ni se le dio ingreso hoy
+    fugas = []
+    for patente_camara in autos_camara:
+        if patente_camara not in patentes_activas_playa:
+            fugas.append(patente_camara)
+            
+    if len(autos_camara) == 0:
+        st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
     elif fugas:
-        st.error(f"🚨 ATENCIÓN: La cámara detectó {len(fugas)} vehículo(s) sin registrar por los valets.")
-        st.write("Patentes no registradas:", ", ".join(set(fugas)))
-    else: st.success(f"✅ Perfecto. La cámara detectó {len(autos_camara)} vehículos y todos fueron registrados.")
+        st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
+        st.write("Patentes sin registrar:", ", ".join(set(fugas)))
+    else:
+        st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
 
     st.divider()
+
     try:
         ws_hist = sh.worksheet("Historial_Tickets")
         datos_hist = ws_hist.get_all_values()
