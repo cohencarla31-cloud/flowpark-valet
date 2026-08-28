@@ -148,7 +148,8 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-@st.cache_data(ttl=30)
+# CARGA OPTIMIZADA DE DATOS CON CACHÉ
+@st.cache_data(ttl=15)
 def obtener_datos():
     if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
     conf = sh.worksheet("Configuracion").get_all_values()
@@ -527,13 +528,13 @@ elif menu == "⏰ Personal":
     if st.button("🔄 Actualizar Estado de Turno"):
         st.rerun()
 
-    asistencia_actualizada = sh.worksheet("Asistencia").get_all_values()
-    ultimo_estado = verificar_estado_empleado(emp, asistencia_actualizada)
+    # Usamos la data en caché para evitar sobrecargar la API de Google (Error 429)
+    ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
     
     with st.expander("📋 Ver mi resumen de entradas y salidas recientes"):
         try:
-            mis_asistencias = [r for r in asistencia_actualizada[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
+            mis_asistencias = [r for r in asistencia_data[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
             if mis_asistencias:
                 df_mis_asis = pd.DataFrame(mis_asistencias[-5:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(mis_asistencias[0])])
                 st.dataframe(df_mis_asis, use_container_width=True)
