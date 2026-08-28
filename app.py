@@ -139,54 +139,49 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 
 # ------------------------------------------
-# INGRESO
+# INGRESO (CON BOTONES DE ORIGEN CLAROS)
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     
-    # 1. Armamos la lista de la cámara
-    patentes_recientes = []
-    for r in auditoria_data[1:]:
-        if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
-            patentes_recientes.append(r[0])
-    patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
-    opciones_pat = ["No está en cámara (Buscar/Escribir)..."] + patentes_recientes
-    
     k = st.session_state.form_key_count
     
-    # PASO 1: Elegir de la cámara
-    sel_pat = st.selectbox("📷 Patente detectada por Cámara:", opciones_pat, key=f"sel_pat_{k}")
+    # NUEVO SISTEMA: Tres botones claros para elegir de dónde sale la patente
+    origen_patente = st.radio("¿Cómo ingresar la patente?", ["📷 Cámara", "🔍 Frecuente", "✍️ Manual"], horizontal=True, key=f"origen_{k}")
     
     pat_final = ""
-    # PASO 2: Si no está en la cámara, abrimos el buscador de frecuentes
-    if sel_pat == "No está en cámara (Buscar/Escribir)...":
+    
+    if origen_patente == "📷 Cámara":
+        patentes_recientes = []
+        for r in auditoria_data[1:]:
+            if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
+                patentes_recientes.append(r[0])
+        patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
         
-        # Recopilamos todos los clientes frecuentes para el buscador
+        if patentes_recientes:
+            sel_pat = st.selectbox("Seleccione la patente detectada:", patentes_recientes, key=f"sel_pat_{k}")
+            pat_final = sel_pat.upper().replace("-", "").replace(" ", "") if sel_pat else ""
+        else:
+            st.info("No hay lecturas recientes de la cámara. Seleccione 'Frecuente' o 'Manual'.")
+            
+    elif origen_patente == "🔍 Frecuente":
         lista_frec = []
         for rc in clientes[1:]:
             if len(rc) > 0 and rc[0].strip():
                 p_cl = str(rc[0]).upper().replace("-", "").replace(" ", "")
                 n_cl = str(rc[1]).strip() if len(rc) > 1 else ""
-                # Lo mostramos como "SDL567 - Juan Perez"
                 mostrar = f"{p_cl} - {n_cl}" if n_cl else p_cl
                 lista_frec.append(mostrar)
-        
-        # Ordenamos alfabéticamente y quitamos duplicados visuales
         lista_frec = sorted(list(set(lista_frec)))
-        opciones_frec = ["➕ NUEVO VEHÍCULO (Escribir manual)..."] + lista_frec
         
-        sel_frec = st.selectbox("🔍 Buscar Frecuente (Escriba para filtrar):", opciones_frec, key=f"sel_frec_{k}")
-        
-        # PASO 3: Si tampoco es frecuente, mostramos el casillero libre
-        if sel_frec == "➕ NUEVO VEHÍCULO (Escribir manual)...":
-            pat_manual = st.text_input("📝 Escribir Patente Nueva (ej: SDL567):", key=f"pat_man_{k}")
-            pat_final = pat_manual.upper().replace("-", "").replace(" ", "")
-        else:
-            # Si eligió un frecuente, le recortamos el nombre y nos quedamos solo con la patente
+        sel_frec = st.selectbox("Escriba para buscar patente o nombre:", [""] + lista_frec, key=f"sel_frec_{k}")
+        if sel_frec:
             pat_final = sel_frec.split(" - ")[0].upper().replace("-", "").replace(" ", "")
-    else:
-        pat_final = sel_pat.upper().replace("-", "").replace(" ", "")
-    
+            
+    else: # Manual
+        pat_manual = st.text_input("📝 Escribir Patente Nueva (Ej: SDL567):", key=f"pat_man_{k}")
+        pat_final = pat_manual.upper().replace("-", "").replace(" ", "")
+
     # Búsqueda del cliente en la base (se auto-llena con la patente final)
     nombre_sug, cel_sug = "", "598"
     if pat_final:
@@ -233,7 +228,6 @@ if menu == "📥 Ingreso":
                 st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}"
                 st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
                 
-                # Avanzamos la llave y blanqueamos la patente para que la pantalla se limpie sola
                 st.session_state.form_key_count += 1
                 st.session_state.ultima_patente = "" 
                 st.rerun()
@@ -244,7 +238,6 @@ if menu == "📥 Ingreso":
     if st.session_state.exito_msg != "":
         st.success(st.session_state.exito_msg)
         st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
-        # Reseteamos las variables para que desaparezcan después del próximo clic
         st.session_state.exito_msg = ""
         st.session_state.exito_wp = ""
 
