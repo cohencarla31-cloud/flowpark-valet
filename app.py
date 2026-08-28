@@ -94,29 +94,41 @@ if "cartel_entrada_msg" not in st.session_state: st.session_state.cartel_entrada
 
 if st.session_state.usuario is None:
     st.title("🔐 Acceso al Sistema - Parking El Globo")
-    st.markdown("Ingrese sus datos de operador (Cédula y Nombre obligatorio):")
+    st.markdown("Ingrese sus datos de operador (Nombre y Cédula/PIN exactos):")
     
-    nombre_ingresado = st.text_input("👤 Nombre y Apellido (Obligatorio):")
+    nombre_ingresado = st.text_input("👤 Nombre y Apellido:")
     pin_ingresado = st.text_input("🔑 Cédula / PIN (Hasta 8 números):", type="password", max_chars=8)
     
     if st.button("Ingresar"):
         pin_clean = str(pin_ingresado).strip().replace(".0", "")
-        nombre_clean = str(nombre_ingresado).strip()
+        nombre_clean = str(nombre_ingresado).strip().lower()
         
-        if not nombre_clean:
-            st.error("⚠️ El nombre y apellido es obligatorio para ingresar.")
-        elif pin_clean in usuarios_pins:
-            st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
-            st.session_state.rol = usuarios_pins[pin_clean]["rol"]
-            st.session_state.pin_usado = pin_clean
-            st.rerun() 
-        elif nombre_clean:
-            st.session_state.usuario = nombre_clean.title()
-            st.session_state.rol = "Admin" if "rodrigo" in nombre_clean.lower() else "Valet"
-            st.session_state.pin_usado = pin_clean
-            st.rerun()
+        if not nombre_clean or not pin_clean:
+            st.error("⚠️ Debe completar obligatoriamente el nombre y la cédula/PIN.")
         else:
-            st.error("❌ Datos incompletos.")
+            # Validación estricta: El PIN debe coincidir con el usuario registrado en la base
+            usuario_encontrado = None
+            rol_encontrado = None
+            
+            # Caso especial Admin Maestro
+            if pin_clean == "1000" or "rodrigo" in nombre_clean:
+                usuario_encontrado = "Rodrigo Bueno"
+                rol_encontrado = "Admin"
+            elif pin_clean in usuarios_pins:
+                datos_u = usuarios_pins[pin_clean]
+                if nombre_clean in datos_u["nombre"].lower():
+                    usuario_encontrado = datos_u["nombre"]
+                    rol_encontrado = datos_u["rol"]
+                else:
+                    st.error("❌ El número de cédula/PIN no corresponde al nombre ingresado.")
+            else:
+                st.error("❌ Cédula o PIN no autorizado en el sistema.")
+                
+            if usuario_encontrado:
+                st.session_state.usuario = usuario_encontrado
+                st.session_state.rol = rol_encontrado
+                st.session_state.pin_usado = pin_clean
+                st.rerun()
     st.stop() 
 
 # Blindaje absoluto para Rodrigo Bueno
@@ -488,7 +500,6 @@ Op: {emp}
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
     
-    # Botón de Refresh directo para actualizar estado
     if st.button("🔄 Actualizar Estado de Turno"):
         st.rerun()
 
@@ -523,10 +534,13 @@ elif menu == "⏰ Personal":
                 try:
                     hora_fichada = hora_actual_uy()
                     sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Entrada", "Fichado inicial"])
-                    st.success(f"✅ Su entrada fue consignada a las {hora_fichada} pero quedará registrada de manera definitiva una vez que finalice el inventario.")
+                    st.session_state.cartel_entrada_msg = f"✅ Su entrada se consignó correctamente a las {hora_fichada}, pero para que quede registrada de manera definitiva deberá previamente completar el inventario."
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al registrar entrada: {e}")
+
+            if st.session_state.cartel_entrada_msg != "":
+                st.success(st.session_state.cartel_entrada_msg)
 
             st.markdown("### 📝 Inventario y Arqueo de Entrada")
             efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50, key="efectivo_entrada")
@@ -539,7 +553,7 @@ elif menu == "⏰ Personal":
                 
             nota_stock = st.text_input("Observaciones (Opcional):", key="obs_entrada")
             
-            if st.button("✅ Confirmar Inventario de Entrada"):
+            if st.button("✅ Confirmar Inventario y Finalizar Entrada"):
                 try:
                     hora_fichada = hora_actual_uy()
                     try: ws_ef = sh.worksheet("Efectivo_Caja")
