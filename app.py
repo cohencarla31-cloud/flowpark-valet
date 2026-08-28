@@ -683,7 +683,7 @@ elif menu == "📈 Reportes (Admin)":
                         if dif != 0:
                             st.error(f"🚨 **ALERTA DE EFECTIVO ENTRE TURNOS:** El empleado {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió el turno con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                         else:
-                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con le cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
         else:
             st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
     except Exception as e:
@@ -781,4 +781,3 @@ elif menu == "📈 Reportes (Admin)":
             st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
-                                       ^^^
