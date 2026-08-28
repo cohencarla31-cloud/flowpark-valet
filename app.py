@@ -63,51 +63,81 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
+# Carga dinámica de pines desde Google Sheets (Pestaña Configuracion)
+@st.cache_data(ttl=30)
+def cargar_usuarios_desde_db():
+    try:
+        conf = sh.worksheet("Configuracion").get_all_values()
+        pins_dict = {}
+        # Formato esperado en Configuracion: Col 0 = Nombre, Col 1 = PIN, Col 2 = Rol
+        for r in conf[1:]:
+            if len(r) >= 3 and r[0].strip() and r[1].strip():
+                nombre = r[0].strip()
+                pin = str(r[1]).strip()
+                rol = r[2].strip()
+                pins_dict[pin] = {"nombre": nombre, "rol": rol}
+        return pins_dict
+    except:
+        # Fallback de seguridad por si falla la hoja
+        return {
+            "1000": {"nombre": "Rodrigo Bueno", "rol": "Admin"},
+            "2001": {"nombre": "Jony", "rol": "Valet"},
+            "3001": {"nombre": "Quinquela", "rol": "Local_Quinquela"}
+        }
+
+usuarios_pins = cargar_usuarios_desde_db()
+
 # Inicialización de la memoria del sistema
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
+if "pin_usado" not in st.session_state: st.session_state.pin_usado = ""
 if "form_key_count" not in st.session_state: st.session_state.form_key_count = 0
 if "exito_msg" not in st.session_state: st.session_state.exito_msg = ""
 if "exito_wp" not in st.session_state: st.session_state.exito_wp = ""
 
-usuarios_pins = {
-    "1000": {"nombre": "Rodrigo", "rol": "Admin"},
-    "2001": {"nombre": "Jony", "rol": "Valet"},
-    "2002": {"nombre": "Matias", "rol": "Valet"},
-    "2003": {"nombre": "Juan", "rol": "Valet"},
-    "2004": {"nombre": "Raul", "rol": "Valet"},
-    "3001": {"nombre": "Quinquela", "rol": "Local_Quinquela"},
-    "3002": {"nombre": "Number 18", "rol": "Local_Number18"}
-}
-
 if st.session_state.usuario is None:
-    st.title("🔐 Acceso al Sistema")
-    pin_ingresado = st.text_input("Ingrese su PIN de acceso:", type="password")
+    st.title("🔐 Acceso al Sistema - Parking El Globo")
+    st.markdown("Ingrese sus datos de operador o su código PIN:")
+    
+    nombre_ingresado = st.text_input("👤 Nombre y Apellido (Opcional):")
+    pin_ingresado = st.text_input("🔑 Código PIN de acceso:", type="password")
+    
     if st.button("Ingresar"):
-        if pin_ingresado in usuarios_pins:
-            st.session_state.usuario = usuarios_pins[pin_ingresado]["nombre"]
-            st.session_state.rol = usuarios_pins[pin_ingresado]["rol"]
+        pin_clean = str(pin_ingresado).strip()
+        nombre_clean = str(nombre_ingresado).strip()
+        
+        if pin_clean in usuarios_pins:
+            st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
+            st.session_state.rol = usuarios_pins[pin_clean]["rol"]
+            st.session_state.pin_usado = pin_clean
             st.rerun() 
+        elif nombre_clean:
+            # Permite acceso dinámico registrando el nombre ingresado si el PIN no estuviera cargado estricto
+            st.session_state.usuario = nombre_clean.title()
+            st.session_state.rol = "Valet"
+            st.session_state.pin_usado = pin_clean
+            st.rerun()
         else:
-            st.error("❌ PIN incorrecto o no autorizado.")
+            st.error("❌ PIN incorrecto o datos incompletos.")
     st.stop() 
 
 st.sidebar.markdown(f"👤 **Usuario:** {st.session_state.usuario}")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.usuario = None
     st.session_state.rol = None
+    st.session_state.pin_usado = ""
     st.rerun()
 st.sidebar.divider()
 
 opciones_menu = []
-if st.session_state.rol in ["Admin", "Valet"] or st.session_state.usuario == "Rodrigo":
+if st.session_state.rol in ["Admin", "Valet"] or "Rodrigo" in st.session_state.usuario:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
 
-if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin" or st.session_state.usuario == "Rodrigo":
+if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin" or "Rodrigo" in st.session_state.usuario:
     opciones_menu.append("✅ Validaciones")
 
-# --- ACCESO DIRECTO PARA RODRIGO ---
-if st.session_state.usuario == "Rodrigo":
+# Acceso exclusivo para Rodrigo Bueno (Admin)
+if st.session_state.pin_usado == "1000" or "Rodrigo" in st.session_state.usuario:
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
