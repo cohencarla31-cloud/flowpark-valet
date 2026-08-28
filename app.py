@@ -67,7 +67,6 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-# Caché agregado al login para no saturar la API
 @st.cache_data(ttl=300)
 def cargar_usuarios_desde_db():
     pins_dict = {}
@@ -89,7 +88,6 @@ def cargar_usuarios_desde_db():
 
 usuarios_pins = cargar_usuarios_desde_db()
 
-# Inicialización de variables de sesión
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
 if "pin_usado" not in st.session_state: st.session_state.pin_usado = ""
@@ -156,7 +154,6 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# CACHÉ EXTENDIDO A 5 MINUTOS (ttl=300) PARA EVITAR ERROR 429
 @st.cache_data(ttl=300)
 def obtener_datos():
     if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
@@ -573,7 +570,6 @@ elif menu == "⏰ Personal":
             st.success(st.session_state.get('cartel_entrada_msg', "✅ Su hora de entrada inicial ha sido guardada."))
             st.warning("⚠️ Recuerde: su turno no quedará sellado de manera definitiva hasta que complete el Inventario debajo.")
             
-            # EL FORMULARIO BLOQUEA LAS RECARGAS AUTOMATICAS MIENTRAS SE LLENAN DATOS
             with st.form("form_inventario_entrada"):
                 st.markdown("### 📝 Inventario y Arqueo de Entrada")
                 efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50)
@@ -592,9 +588,7 @@ elif menu == "⏰ Personal":
                     try:
                         hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
                         
-                        try: ws_ef = sh.worksheet("Efectivo_Caja")
-                        except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
-                        ws_ef.append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                        sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
                         
                         filas_stock = []
                         for prod, cant in conteo_stock.items():
@@ -653,9 +647,7 @@ elif menu == "⏰ Personal":
                 if submit_salida:
                     try:
                         hora_fichada = hora_actual_uy()
-                        try: ws_ef = sh.worksheet("Efectivo_Caja")
-                        except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
-                        ws_ef.append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                        sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
                         
                         filas_stock = []
                         for prod, cant in conteo_stock_salida.items():
