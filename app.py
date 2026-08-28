@@ -139,17 +139,17 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 
 # ------------------------------------------
-# INGRESO (INTERFAZ EN LÍNEAS APILADAS)
+# INGRESO (INTERFAZ EN LÍNEAS APILADAS Y MAYÚSCULAS)
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     k = st.session_state.form_key_count
     
-    # 1. Preparamos las listas (Cámara y Frecuentes)
+    # 1. Preparamos las listas (Cámara y Frecuentes) forzando mayúsculas
     patentes_recientes = []
     for r in auditoria_data[1:]:
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
-            patentes_recientes.append(r[0])
+            patentes_recientes.append(str(r[0]).upper())
     patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
     
     lista_frec = []
@@ -157,7 +157,7 @@ if menu == "📥 Ingreso":
         if len(rc) > 0 and rc[0].strip():
             p_cl = str(rc[0]).upper().replace("-", "").replace(" ", "")
             n_cl = str(rc[1]).strip() if len(rc) > 1 else ""
-            mostrar = f"{p_cl} - {n_cl}" if n_cl else p_cl
+            mostrar = f"{n_cl} - {p_cl}" if n_cl else p_cl
             lista_frec.append(mostrar)
     lista_frec = sorted(list(set(lista_frec)))
 
@@ -167,16 +167,20 @@ if menu == "📥 Ingreso":
     sel_pat_frec = st.selectbox("⭐ 2. Buscar Cliente Frecuente:", [""] + lista_frec, key=f"frec_{k}")
     pat_manual = st.text_input("✍️ 3. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
     
-    # 3. Lógica de prioridad inteligente (Manual mata a Frecuente, Frecuente mata a Cámara)
+    # 3. Lógica de prioridad inteligente y mayúsculas automáticas
     if pat_manual.strip():
         pat_final = pat_manual.strip()
     elif sel_pat_frec:
-        pat_final = sel_pat_frec.split(" - ")[0]
+        if " - " in sel_pat_frec:
+            pat_final = sel_pat_frec.split(" - ")[-1].strip()
+        else:
+            pat_final = sel_pat_frec.strip()
     elif sel_pat_cam:
         pat_final = sel_pat_cam
     else:
         pat_final = ""
         
+    # ESTO FUERZA A QUE LA PATENTE SEA 100% MAYÚSCULAS Y SIN ESPACIOS
     pat_final = pat_final.upper().replace("-", "").replace(" ", "")
     st.divider()
 
@@ -218,10 +222,11 @@ if menu == "📥 Ingreso":
                 
                 try: 
                     if cli_nom and not nombre_sug:
-                        sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip(), cel_clean])
+                        # Si es nuevo, guarda nombre en formato "Título" (Ej: Juan Perez) y patente Mayúscula
+                        sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
                 except: pass
                 
-                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip()}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title()}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
                 
                 st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}"
                 st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
@@ -252,7 +257,7 @@ elif menu == "📊 Activos":
             tkt = str(r[0]).strip()
             h_sal = str(r[3]).strip()
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                pat = r[1]
+                pat = str(r[1]).upper()
                 h_ing = r[2]
                 local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
                 tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
@@ -276,12 +281,12 @@ elif menu == "✅ Validaciones":
             tkt = str(r[0]).strip()
             h_sal = str(r[3]).strip()
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                pat = r[1]
+                pat = str(r[1]).upper()
                 h_ing = r[2]
                 if not obtener_validacion_local(pat, tkt, h_ing, q_data):
                     activos_disponibles.append(r)
                     
-    opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos_disponibles]
+    opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
     seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", opciones_mozo)
     
     if local_seleccionado in ["Quinquela", "Number 18"]:
@@ -297,11 +302,11 @@ elif menu == "✅ Validaciones":
                 st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
             else:
                 tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
-                pat_val = next((r[1] for r in activos_disponibles if r[0].strip() == tkt_val), "")
+                pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                 try:
                     fecha_val = hora_actual_uy()
                     sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
-                    st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val.upper()}.")
+                    st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                     
                     msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
                     st.markdown("### 📲 Avisar a los Valets:")
@@ -322,7 +327,7 @@ elif menu == "🍔 Extras":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
     activos = list(temp_activos.values())
-    opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {r[1]}" for r in activos]
+    opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     sel_auto = st.selectbox("Seleccionar vehículo o Venta Directa:", opciones_autos)
     lista_prods = [""] + list(extras.keys())
     prod = st.selectbox("Producto / Servicio extra:", lista_prods)
@@ -337,7 +342,7 @@ elif menu == "🍔 Extras":
                 st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
             else:
                 tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
-                patente_ext = sel_auto.split("Patente: ")[1].strip()
+                patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
                 precio_unitario = extras.get(prod, 0)
                 total_dinero_extra = precio_unitario * cant
                 sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext])
@@ -361,18 +366,18 @@ elif menu == "📤 Salida":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
     activos = list(temp_activos.values())
-    sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {r[1]}" for r in activos])
+    sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos])
     
     if sel:
         tkt = sel.split(" - ")[0].replace("#", "").strip()
         datos = next(r for r in activos if r[0].strip() == tkt)
-        patente = datos[1]
+        patente = str(datos[1]).upper()
         h_ingreso = datos[2]
         
         nombre_cliente_encontrado = "Cliente"
         cel_encontrado = "598"
         for c in clientes[1:]:
-            if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.upper().replace("-", "").replace(" ", ""):
+            if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
                 nombre_cliente_encontrado = str(c[1]).strip()
                 cel_encontrado = str(c[2]).strip()
                 break
