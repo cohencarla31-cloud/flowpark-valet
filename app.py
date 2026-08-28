@@ -151,7 +151,7 @@ if menu == "📥 Ingreso":
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
             patentes_recientes.append(str(r[0]).upper())
     patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
-    patentes_recientes.reverse() # El último auto leído aparece primero en la lista
+    patentes_recientes.reverse() 
     
     # 2. Frecuentes: Formato Patente - Nombre y orden alfabético por patente
     lista_frec = []
@@ -171,7 +171,7 @@ if menu == "📥 Ingreso":
     if pat_manual.strip():
         pat_final = pat_manual.strip()
     elif sel_pat_frec:
-        pat_final = sel_pat_frec.split(" - ")[0].strip() # Ahora corta correctamente la patente primero
+        pat_final = sel_pat_frec.split(" - ")[0].strip()
     elif sel_pat_cam:
         pat_final = sel_pat_cam
     else:
@@ -278,9 +278,10 @@ elif menu == "✅ Validaciones":
                 if not obtener_validacion_local(pat, tkt, h_ing, q_data):
                     activos_disponibles.append(r)
                     
-    # Desplegable ordenado alfabéticamente por patente
-    opciones_mozo = sorted([f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles], key=lambda x: x.split("Patente: ")[1])
-    seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", [""] + opciones_mozo)
+    # Desplegable ordenado por NÚMERO DE TICKET
+    activos_disponibles = sorted(activos_disponibles, key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
+    opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
+    seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
     
     if local_seleccionado in ["Quinquela", "Number 18"]:
         mozo = st.text_input("Nombre del Mozo / Recepción:")
@@ -319,12 +320,12 @@ elif menu == "🍔 Extras":
     for r in reg[1:]:
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
-    activos = list(temp_activos.values())
+            
+    # Desplegable ordenado por NÚMERO DE TICKET
+    activos = sorted(list(temp_activos.values()), key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
+    opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     
-    # Desplegable ordenado alfabéticamente por patente
-    lista_autos_ordenada = sorted([f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos], key=lambda x: x.split("Patente: ")[1])
-    opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + lista_autos_ordenada
-    sel_auto = st.selectbox("Seleccionar vehículo o Venta Directa:", opciones_autos)
+    sel_auto = st.selectbox("Seleccionar vehículo (Ordenado por Ticket):", opciones_autos)
     
     lista_prods = [""] + list(extras.keys())
     prod = st.selectbox("Producto / Servicio extra:", lista_prods)
@@ -362,11 +363,12 @@ elif menu == "📤 Salida":
     for r in reg[1:]:
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
-    activos = list(temp_activos.values())
+            
+    # Desplegable ordenado por NÚMERO DE TICKET
+    activos = sorted(list(temp_activos.values()), key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
+    lista_salida_ordenada = [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     
-    # Desplegable ordenado alfabéticamente por patente
-    lista_salida_ordenada = sorted([f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos], key=lambda x: x.split("Patente: ")[1])
-    sel = st.selectbox("Elegir auto a retirar:", [""] + lista_salida_ordenada)
+    sel = st.selectbox("Elegir auto a retirar (Ordenado por Ticket):", [""] + lista_salida_ordenada)
     
     if sel:
         tkt = sel.split(" - ")[0].replace("#", "").strip()
