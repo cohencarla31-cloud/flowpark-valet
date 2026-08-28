@@ -63,10 +63,9 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# Inicialización de la memoria del sistema (Blindada)
+# Inicialización de la memoria del sistema
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
-if "pin_usado" not in st.session_state: st.session_state.pin_usado = ""
 if "form_key_count" not in st.session_state: st.session_state.form_key_count = 0
 if "exito_msg" not in st.session_state: st.session_state.exito_msg = ""
 if "exito_wp" not in st.session_state: st.session_state.exito_wp = ""
@@ -88,7 +87,6 @@ if st.session_state.usuario is None:
         if pin_ingresado in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_ingresado]["nombre"]
             st.session_state.rol = usuarios_pins[pin_ingresado]["rol"]
-            st.session_state.pin_usado = pin_ingresado
             st.rerun() 
         else:
             st.error("❌ PIN incorrecto o no autorizado.")
@@ -98,19 +96,18 @@ st.sidebar.markdown(f"👤 **Usuario:** {st.session_state.usuario}")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.usuario = None
     st.session_state.rol = None
-    st.session_state.pin_usado = ""
     st.rerun()
 st.sidebar.divider()
 
 opciones_menu = []
-if st.session_state.rol in ["Admin", "Valet"]:
+if st.session_state.rol in ["Admin", "Valet"] or st.session_state.usuario == "Rodrigo":
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
 
-if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
+if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin" or st.session_state.usuario == "Rodrigo":
     opciones_menu.append("✅ Validaciones")
 
-# --- REGLA ESTRICTA: SOLO PIN "1000" Y USUARIO "Rodrigo" (RODRIGO BUENO) ---
-if st.session_state.pin_usado == "1000" and st.session_state.usuario == "Rodrigo":
+# --- ACCESO DIRECTO PARA RODRIGO ---
+if st.session_state.usuario == "Rodrigo":
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
@@ -557,13 +554,46 @@ elif menu == "📈 Reportes (Admin)":
             st.markdown("### 💰 Resumen")
             c1, c2, c3 = st.columns(3)
             c1.metric("Facturación", f"${df['Total'].sum():,.0f}")
-            c2.metric("Parking", f"${df['Parking'].sum():,.0f}")
-            c3.metric("Extras", f"${df['Extras'].sum():,.0f}")
+            c2.metric("Por Estacionamiento", f"${df['Parking'].sum():,.0f}")
+            c3.metric("Por Extras/Lavados", f"${df['Extras'].sum():,.0f}")
+            
+            st.markdown("### 🚗 Operativa")
+            c4, c5 = st.columns(2)
+            c4.metric("Vehículos Egresados", len(df))
+            ticket_promedio = df['Total'].mean() if len(df) > 0 else 0
+            c5.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
             
             st.markdown("---")
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown("#### 👤 Rendimiento por Valet")
+                if not df.empty:
+                    df_op = df.groupby('Op')['Total'].sum().reset_index()
+                    df_op.columns = ['Valet', 'Recaudación ($)']
+                    st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
+            
+            with col_b:
+                st.markdown("#### 🏪 Uso de Validaciones")
+                if not df.empty:
+                    df_loc = df.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                    st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 📅 Detalle de Ventas por Día")
             if not df.empty:
                 df['Fecha'] = df['Hora'].dt.date
-                df_diario = df.groupby('Fecha', as_index=False).agg(Autos=('Total', 'count'), Parking=('Parking', 'sum'), Extras=('Extras', 'sum'), Total_Recaudado=('Total', 'sum'))
-                st.dataframe(df_diario.sort_values(by='Fecha', ascending=False), use_container_width=True)
-        else: st.warning("⚠️ Esperando la primera salida para generar reportes.")
-    except Exception as e: st.error(f"Error conectando con historial: {e}")
+                df_diario = df.groupby('Fecha', as_index=False).agg(
+                    Autos=('Total', 'count'),
+                    Parking=('Parking', 'sum'),
+                    Extras=('Extras', 'sum'),
+                    Total_Recaudado=('Total', 'sum')
+                )
+                df_diario.rename(columns={'Autos': 'Cant. Autos', 'Parking': 'Parking ($)', 'Extras': 'Extras ($)', 'Total_Recaudado': 'Total ($)'}, inplace=True)
+                df_diario = df_diario.sort_values(by='Fecha', ascending=False)
+                st.dataframe(df_diario, use_container_width=True)
+                
+        else:
+            st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
+    except Exception as e:
+        st.error(f"Error conectando con el historial: {e}")
