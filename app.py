@@ -63,12 +63,9 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# Carga de pines dinámicos desde Google Sheets
-@st.cache_data(ttl=30)
+# LECTURA FRESCA DIRECTO DEL GOOGLE SHEET (SIN CACHÉ VIEJA)
 def cargar_usuarios_desde_db():
-    pins_dict = {
-        "1000": {"nombre": "Rodrigo Bueno", "rol": "Admin"}
-    }
+    pins_dict = {}
     try:
         conf = sh.worksheet("Configuracion").get_all_values()
         for r in conf[1:]:
@@ -77,8 +74,13 @@ def cargar_usuarios_desde_db():
                 pin = str(r[1]).strip()
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
-    except:
-        pass
+    except Exception as e:
+        print(f"Error leyendo configuración: {e}")
+    
+    # Blindaje por si la hoja de cálculo estuviera vacía o fallara temporalmente
+    if "1000" not in pins_dict:
+        pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
+        
     return pins_dict
 
 usuarios_pins = cargar_usuarios_desde_db()
@@ -102,31 +104,40 @@ if st.session_state.usuario is None:
         pin_clean = str(pin_ingresado).strip()
         nombre_clean = str(nombre_ingresado).strip().lower()
         
-        # BLINDAJE ABSOLUTO: Si usa el PIN 1000 o su nombre es Rodrigo, es ADMIN directo
-        if pin_clean == "1000" or "rodrigo" in nombre_clean:
-            st.session_state.usuario = "Rodrigo Bueno"
-            st.session_state.rol = "Admin"
-            st.session_state.pin_usado = pin_clean if pin_clean else "1000"
-            st.rerun()
-        elif pin_clean in usuarios_pins:
+        # 1. Búsqueda exacta por PIN en el Google Sheet
+        if pin_clean in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
             st.session_state.rol = usuarios_pins[pin_clean]["rol"]
             st.session_state.pin_usado = pin_clean
             st.rerun() 
+        # 2. Búsqueda por Nombre si coincide con el Google Sheet
         elif nombre_clean:
-            st.session_state.usuario = nombre_ingresado.strip().title()
-            st.session_state.rol = "Valet"
-            st.session_state.pin_usado = pin_clean
-            st.rerun()
+            encontrado = False
+            for p, datos in usuarios_pins.items():
+                if nombre_clean in datos["nombre"].lower():
+                    st.session_state.usuario = datos["nombre"]
+                    st.session_state.rol = datos["rol"]
+                    st.session_state.pin_usado = p
+                    encontrado = True
+                    break
+            if encontrado:
+                st.rerun()
+            else:
+                # Si no existe en la hoja, entra como Valet por defecto
+                st.session_state.usuario = nombre_ingresado.strip().title()
+                st.session_state.rol = "Valet"
+                st.session_state.pin_usado = pin_clean
+                st.rerun()
         else:
             st.error("❌ PIN incorrecto o datos incompletos.")
     st.stop() 
 
-# BLINDAJE EXTRA EN TIEMPO DE EJECUCIÓN (Por si la sesión ya estaba abierta con rol viejo)
+# BLINDAJE ABSOLUTO EN TIEMPO DE EJECUCIÓN PARA EL PIN 1000 O RODRIGO
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
 st.sidebar.markdown(f"👤 **Usuario:** {st.session_state.usuario}")
+st.sidebar.markdown(f"🛡️ **Rol:** {st.session_state.rol}")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.usuario = None
     st.session_state.rol = None
@@ -134,7 +145,7 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# MENÚ LATERAL CONFIGURADO PARA ADMINISTRADOR Y VALETS
+# MENÚ LATERAL CONFIGURADO SEGÚN EL ROL DEL GOOGLE SHEET
 opciones_menu = []
 if st.session_state.rol in ["Admin", "Valet"]:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
@@ -142,7 +153,7 @@ if st.session_state.rol in ["Admin", "Valet"]:
 if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
     opciones_menu.append("✅ Validaciones")
 
-# PANEL DE REPORTES EXCLUSIVO Y ASEGURADO PARA ADMIN
+# PANEL DE REPORTES EXCLUSIVO PARA ROL ADMIN
 if st.session_state.rol == "Admin":
     opciones_menu.append("📈 Reportes (Admin)")
 
