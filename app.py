@@ -139,50 +139,48 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 
 # ------------------------------------------
-# INGRESO (CON BOTONES DE ORIGEN CLAROS)
+# INGRESO (INTERFAZ EN LÍNEAS APILADAS)
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
-    
     k = st.session_state.form_key_count
     
-    # NUEVO SISTEMA: Tres botones claros para elegir de dónde sale la patente
-    origen_patente = st.radio("¿Cómo ingresar la patente?", ["📷 Cámara", "🔍 Frecuente", "✍️ Manual"], horizontal=True, key=f"origen_{k}")
+    # 1. Preparamos las listas (Cámara y Frecuentes)
+    patentes_recientes = []
+    for r in auditoria_data[1:]:
+        if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
+            patentes_recientes.append(r[0])
+    patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
     
-    pat_final = ""
-    
-    if origen_patente == "📷 Cámara":
-        patentes_recientes = []
-        for r in auditoria_data[1:]:
-            if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
-                patentes_recientes.append(r[0])
-        patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
-        
-        if patentes_recientes:
-            sel_pat = st.selectbox("Seleccione la patente detectada:", patentes_recientes, key=f"sel_pat_{k}")
-            pat_final = sel_pat.upper().replace("-", "").replace(" ", "") if sel_pat else ""
-        else:
-            st.info("No hay lecturas recientes de la cámara. Seleccione 'Frecuente' o 'Manual'.")
-            
-    elif origen_patente == "🔍 Frecuente":
-        lista_frec = []
-        for rc in clientes[1:]:
-            if len(rc) > 0 and rc[0].strip():
-                p_cl = str(rc[0]).upper().replace("-", "").replace(" ", "")
-                n_cl = str(rc[1]).strip() if len(rc) > 1 else ""
-                mostrar = f"{p_cl} - {n_cl}" if n_cl else p_cl
-                lista_frec.append(mostrar)
-        lista_frec = sorted(list(set(lista_frec)))
-        
-        sel_frec = st.selectbox("Escriba para buscar patente o nombre:", [""] + lista_frec, key=f"sel_frec_{k}")
-        if sel_frec:
-            pat_final = sel_frec.split(" - ")[0].upper().replace("-", "").replace(" ", "")
-            
-    else: # Manual
-        pat_manual = st.text_input("📝 Escribir Patente Nueva (Ej: SDL567):", key=f"pat_man_{k}")
-        pat_final = pat_manual.upper().replace("-", "").replace(" ", "")
+    lista_frec = []
+    for rc in clientes[1:]:
+        if len(rc) > 0 and rc[0].strip():
+            p_cl = str(rc[0]).upper().replace("-", "").replace(" ", "")
+            n_cl = str(rc[1]).strip() if len(rc) > 1 else ""
+            mostrar = f"{p_cl} - {n_cl}" if n_cl else p_cl
+            lista_frec.append(mostrar)
+    lista_frec = sorted(list(set(lista_frec)))
 
-    # Búsqueda del cliente en la base (se auto-llena con la patente final)
+    # 2. Mostramos los 3 renglones simultáneos
+    st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
+    sel_pat_cam = st.selectbox("📷 1. Desde la Cámara:", [""] + patentes_recientes, key=f"cam_{k}")
+    sel_pat_frec = st.selectbox("⭐ 2. Buscar Cliente Frecuente:", [""] + lista_frec, key=f"frec_{k}")
+    pat_manual = st.text_input("✍️ 3. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
+    
+    # 3. Lógica de prioridad inteligente (Manual mata a Frecuente, Frecuente mata a Cámara)
+    if pat_manual.strip():
+        pat_final = pat_manual.strip()
+    elif sel_pat_frec:
+        pat_final = sel_pat_frec.split(" - ")[0]
+    elif sel_pat_cam:
+        pat_final = sel_pat_cam
+    else:
+        pat_final = ""
+        
+    pat_final = pat_final.upper().replace("-", "").replace(" ", "")
+    st.divider()
+
+    # Búsqueda del cliente en la base para rellenar nombre y teléfono
     nombre_sug, cel_sug = "", "598"
     if pat_final:
         for rc in clientes[1:]:
@@ -234,7 +232,7 @@ if menu == "📥 Ingreso":
         else:
             st.warning("⚠️ Completa la tarjeta, la matrícula y el nombre y apellido.")
 
-    # --- MENSAJE DE ÉXITO MOVIDO AL FINAL ---
+    # --- MENSAJE DE ÉXITO AL FINAL ---
     if st.session_state.exito_msg != "":
         st.success(st.session_state.exito_msg)
         st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
