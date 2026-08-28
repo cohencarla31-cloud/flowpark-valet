@@ -528,13 +528,13 @@ elif menu == "⏰ Personal":
     if st.button("🔄 Actualizar Estado de Turno"):
         st.rerun()
 
-    # Usamos la data en caché para evitar sobrecargar la API de Google (Error 429)
-    ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
+    asistencia_actualizada = sh.worksheet("Asistencia").get_all_values()
+    ultimo_estado = verificar_estado_empleado(emp, asistencia_actualizada)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
     
     with st.expander("📋 Ver mi resumen de entradas y salidas recientes"):
         try:
-            mis_asistencias = [r for r in asistencia_data[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
+            mis_asistencias = [r for r in asistencia_actualizada[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
             if mis_asistencias:
                 df_mis_asis = pd.DataFrame(mis_asistencias[-5:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(mis_asistencias[0])])
                 st.dataframe(df_mis_asis, use_container_width=True)
@@ -583,9 +583,7 @@ elif menu == "⏰ Personal":
             if st.button("✅ Confirmar Inventario y Finalizar Entrada"):
                 try:
                     hora_fichada = hora_actual_uy()
-                    try: ws_ef = sh.worksheet("Efectivo_Caja")
-                    except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
-                    ws_ef.append_row([hora_fichada, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
                     
                     for prod, cant in conteo_stock.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
@@ -617,9 +615,7 @@ elif menu == "⏰ Personal":
             if st.button("🚪 Registrar Salida Oficial"):
                 try:
                     hora_fichada = hora_actual_uy()
-                    try: ws_ef = sh.worksheet("Efectivo_Caja")
-                    except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
-                    ws_ef.append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
                     
                     for prod, cant in conteo_stock_salida.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
