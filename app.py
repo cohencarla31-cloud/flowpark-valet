@@ -165,17 +165,27 @@ if menu == "📥 Ingreso":
     pat_final = pat_manual if sel_pat == "Escribir manual..." else sel_pat
     pat_final = pat_final.upper().replace("-", "").replace(" ", "")
     
+    # Búsqueda del cliente en la base
     nombre_sug, cel_sug = "", "598"
     if pat_final:
         for rc in clientes[1:]:
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
+
+    # --- TRUCO DE MEMORIA PARA FORZAR EL AUTOCOMPLETADO EN PANTALLA ---
+    if "ultima_patente" not in st.session_state:
+        st.session_state.ultima_patente = ""
+        
+    if pat_final != st.session_state.ultima_patente:
+        st.session_state.ultima_patente = pat_final
+        st.session_state[f"cli_{k}"] = nombre_sug
+        st.session_state[f"cel_{k}"] = cel_sug
+    # ------------------------------------------------------------------
                 
     tkt = st.text_input("🎫 N° Tarjeta PVC:", key=f"tkt_{k}")
-    # ACÁ ESTÁ EL CAMBIO DE NOMBRE OBLIGATORIO
-    cli_nom = st.text_input("👤 Nombre y Apellido:", value=nombre_sug, key=f"cli_{k}")
-    cel = st.text_input("📱 Celular (Para comprobante):", value=cel_sug, key=f"cel_{k}")
+    cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
+    cel = st.text_input("📱 Celular (Para comprobante):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
     if st.button("✅ Registrar Ingreso"):
@@ -183,7 +193,6 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"):
             cel_clean = cel_clean[1:]
             
-        # ACÁ ESTÁ EL CANDADO: Pide tkt, patente Y el nombre
         if tkt and pat_final and cli_nom.strip():
             if any((str(r[0]).strip().lstrip("0") == str(tkt).strip().lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
                 st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
@@ -201,10 +210,12 @@ if menu == "📥 Ingreso":
                 
                 st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}"
                 st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
+                
+                # Avanzamos la llave y blanqueamos la patente para que la pantalla se limpie sola
                 st.session_state.form_key_count += 1
+                st.session_state.ultima_patente = "" 
                 st.rerun()
         else:
-            # EL AVISO AHORA INCLUYE EL NOMBRE Y APELLIDO
             st.warning("⚠️ Completa la tarjeta, la matrícula y el nombre y apellido.")
 
 # ------------------------------------------
