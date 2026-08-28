@@ -269,8 +269,8 @@ if menu == "📥 Ingreso":
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
                 
-    tkt = st.text_input("🎫 N° Tarjeta PVC:", key=f"tkt_{k}")
-    cli_nom = st.text_input("👤 Nombre y Apellido (Obligatorio):", key=f"cli_{k}")
+    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional para Frecuentes/Mensualistas):", key=f"tkt_{k}")
+    cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
@@ -279,24 +279,29 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"):
             cel_clean = cel_clean[1:]
             
-        if not tkt or not pat_final or not cli_nom.strip():
-            st.warning("⚠️ Debes completar obligatoriamente la Tarjeta PVC, la Patente y el Nombre y Apellido.")
+        # Si no pone número de tarjeta, le asignamos un identificador automático para que no dé error
+        tkt_final = str(tkt).strip()
+        if not tkt_final:
+            tkt_final = f"FREC-{pat_final}"
+
+        if not pat_final:
+            st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
         else:
-            if any((str(r[0]).strip().lstrip("0") == str(tkt).strip().lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
+            if any((str(r[0]).strip().lstrip("0") == tkt_final.lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
                 st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
             else:
                 h_ing = hora_actual_uy()
                 estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                sh.worksheet("Registro").append_row([str(tkt).strip(), pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
+                sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                 
                 try: 
                     if cli_nom and not nombre_sug:
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
                 except: pass
                 
-                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title()}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
                 
-                st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}"
+                st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt_final}"
                 st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
                 
                 st.session_state.form_key_count += 1
@@ -476,19 +481,17 @@ elif menu == "📤 Salida":
             nombre_men = ""
             for m in mensualistas_data[1:]:
                 if len(m) >= 2 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
-                    estado_mensual_encontrado = str(m[1]).strip().upper()
-                    nombre_men = str(m[2]).strip() if len(m) > 2 else "Titular"
+                    # Ajustado para leer correctamente las columnas de tu hoja actual
+                    col_estado_idx = 1 if len(m) > 1 else 0
+                    estado_mensual_encontrado = str(m[col_estado_idx]).strip().upper()
+                    nombre_men = str(m[2]).strip() if len(m) > 2 else str(m[1]).strip()
                     break
             
-            if estado_mensual_encontrado == "AUTORIZADO":
+            if estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] or "AUTORIZADO" in estado_mensual_encontrado or "DIA" in estado_mensual_encontrado:
                 monto_estacionamiento = 0
-                info_desc = f"✅ Vehículo AUTORIZADO de {nombre_men}. No requiere cobro."
+                info_desc = f"✅ Cliente Autorizado / Al Día ({nombre_men}). Sin costo de estadía."
                 st.success(info_desc)
-            elif estado_mensual_encontrado == "AL DIA":
-                monto_estacionamiento = 0
-                info_desc = f"✅ Mensualista AL DÍA: {nombre_men}. Sin costo de estadía."
-                st.success(info_desc)
-            elif estado_mensual_encontrado == "DEUDOR":
+            elif estado_mensual_encontrado == "DEUDA" or estado_mensual_encontrado == "DEUDOR":
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
                 info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA de mensualidad. ¡Gestionar cobro!"
                 st.error(info_desc)
@@ -696,27 +699,28 @@ elif menu == "📈 Reportes (Admin)":
             df_m = pd.DataFrame(datos_m[1:], columns=["Matrícula", "Estado", "Nombre"][:len(datos_m[0])])
             df_m['Estado'] = df_m['Estado'].astype(str).str.strip().str.upper()
             
-            total_autorizados = len(df_m[df_m['Estado'] == 'AUTORIZADO'])
-            total_al_dia = len(df_m[df_m['Estado'] == 'AL DIA'])
-            total_deudores = len(df_m[df_m['Estado'] == 'DEUDOR'])
-            total_comercial = total_al_dia + total_deudores
+            # Conteo flexible según lo que se encuentre en las celdas
+            total_autorizados = len(df_m[df_m['Estado'].str.contains("AUTORIZADO", na=False)])
+            total_al_dia = len(df_m[df_m['Estado'].str.contains("AL DIA|ACTIVO|PROSEGUR|MARCELO|QUINQUELA|GLOBAL|TDT|GOMEZ|TRANSAMERICAN|ESTAB", na=False) | ~df_m['Estado'].str.contains("DEUDA|DEUDOR", na=False)])
+            total_deudores = len(df_m[df_m['Estado'].str.contains("DEUDA|DEUDOR", na=False)])
+            total_comercial = len(df_m)
             
             c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-            c_m1.metric(label="Total Mensualistas", value=total_comercial, help="Clientes que pagan abono fijo")
-            c_m2.metric(label="✅ Pagos Al Día", value=total_al_dia)
-            c_m3.metric(label="🛑 Morosos", value=total_deudores, delta="- Deudores", delta_color="inverse")
-            c_m4.metric(label="Autorizados (Sin cargo)", value=total_autorizados)
+            c_m1.metric(label="Total Registrados", value=total_comercial)
+            c_m2.metric(label="✅ Al Día / Autorizados", value=total_comercial - total_deudores)
+            c_m3.metric(label="🛑 Morosos / Deuda", value=total_deudores, delta="- Deudores", delta_color="inverse")
+            c_m4.metric(label="Total Base", value=len(df_m))
             
             if total_deudores > 0:
-                st.error(f"⚠️ Hay {total_deudores} mensualistas pendientes de pago. Avisar en rampa:")
-                df_deudores = df_m[df_m['Estado'] == 'DEUDOR'][['Matrícula', 'Nombre']]
+                st.error(f"⚠️ Hay {total_deudores} mensualistas marcados con deuda:")
+                df_deudores = df_m[df_m['Estado'].str.contains("DEUDA|DEUDOR", na=False)][['Matrícula', 'Estado', 'Nombre']]
                 st.dataframe(df_deudores, use_container_width=True, hide_index=True)
             else:
-                st.success("¡Excelente estado de cuenta! Todos los mensualistas están al día.")
+                st.success("¡Excelente estado de cuenta! No se registran deudores marcados.")
         else:
             st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
     except Exception as e:
-        st.info("ℹ️ Asegúrate de tener creada la pestaña 'Base_Mensualistas' en tu Google Sheet con las columnas Matrícula, Estado y Nombre.")
+        st.info(f"ℹ️ Error leyendo la base de mensualistas: {e}")
 
     st.divider()
 
@@ -827,14 +831,14 @@ elif menu == "📈 Reportes (Admin)":
             col_a, col_b = st.columns(2)
             
             with col_a:
-                st.markdown("#### 👤 Rendimiento por Valet")
+                st.markdown("### 👤 Rendimiento por Valet")
                 if not df.empty:
                     df_op = df.groupby('Op')['Total'].sum().reset_index()
                     df_op.columns = ['Valet', 'Recaudación ($)']
                     st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
             
             with col_b:
-                st.markdown("#### 🏪 Uso de Validaciones")
+                st.markdown("### 🏪 Uso de Validaciones")
                 if not df.empty:
                     df_loc = df.groupby('Validación').size().reset_index(name='Cantidad de Autos')
                     st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
