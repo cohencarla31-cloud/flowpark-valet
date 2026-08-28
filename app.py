@@ -106,6 +106,7 @@ if st.session_state.rol in ["Admin", "Valet"]:
 if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
     opciones_menu.append("✅ Validaciones")
 
+# --- ACÁ ESTABA EL ERROR: RESTAURADO EL ACCESO EXCLUSIVO PARA ADMIN ---
 if st.session_state.rol == "Admin":
     opciones_menu.append("📈 Reportes (Admin)")
 
@@ -506,15 +507,12 @@ elif menu == "📈 Reportes (Admin)":
 
     st.divider()
 
-    # 2. AUDITORÍA DE CÁMARAS LPR VS EMPLEADOS (CORREGIDA)
     st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
     hoy_str = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
     
-    # Patentes detectadas por la cámara hoy
     autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str in r[1]]
     autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
     
-    # Patentes que actualmente están activas en la playa (sin importar de qué día sean)
     patentes_activas_playa = []
     for r in reg[1:]:
         if len(r) > 3:
@@ -523,7 +521,6 @@ elif menu == "📈 Reportes (Admin)":
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
                 patentes_activas_playa.append(str(r[1]).strip().upper())
 
-    # Fuga = Auto visto por la cámara hoy, pero que NO figura activo en la playa ni se le dio ingreso hoy
     fugas = []
     for patente_camara in autos_camara:
         if patente_camara not in patentes_activas_playa:
