@@ -236,12 +236,31 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     k = st.session_state.form_key_count
     
+    # 1. Recopilar patentes de la cámara
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
-    patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and rc[0].strip()]
-    patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec)))
+    
+    # 2. Recopilar patentes de Clientes Frecuentes
+    patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
+    
+    # 3. Recopilar patentes de la Base de Mensualistas / Autorizados
+    patentes_mensualistas = []
+    nombres_mensualistas_map = {}
+    try:
+        for m in mensualistas_data[1:]:
+            if len(m) > 0 and str(m[0]).strip():
+                pat_m = str(m[0]).strip().upper().replace("-", "").replace(" ", "")
+                patentes_mensualistas.append(pat_m)
+                # Guardamos el nombre o descripción para autocompletar (columna C o la que corresponda)
+                nom_m = str(m[2]).strip() if len(m) > 2 and str(m[2]).strip() else (str(m[1]).strip() if len(m) > 1 else "Mensualista/Autorizado")
+                nombres_mensualistas_map[pat_m] = nom_m
+    except:
+        pass
+
+    # Unificar todas las fuentes de patentes sin repetir
+    patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec + patentes_mensualistas)))
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
-    sel_pat_cam = st.selectbox("📷 1. Seleccionar Patente (Cámara y Clientes Frecuentes):", [""] + patentes_unificadas, key=f"cam_{k}")
+    sel_pat_cam = st.selectbox("📷 1. Seleccionar Patente (Cámara, Frecuentes y Mensualistas):", [""] + patentes_unificadas, key=f"cam_{k}")
     pat_manual = st.text_input("✍️ 2. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
     
     if pat_manual.strip():
@@ -254,12 +273,17 @@ if menu == "📥 Ingreso":
     pat_final = pat_final.upper().replace("-", "").replace(" ", "")
     st.divider()
 
+    # Buscar sugerencias de nombre tanto en Clientes Frecuentes como en Mensualistas
     nombre_sug, cel_sug = "", "598"
     if pat_final:
+        # Primero buscamos en Frecuentes
         for rc in clientes[1:]:
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
+        # Si no está en frecuentes, buscamos en el mapa de mensualistas
+        if not nombre_sug and pat_final in nombres_mensualistas_map:
+            nombre_sug = nombres_mensualistas_map[pat_final]
 
     if "ultima_patente" not in st.session_state:
         st.session_state.ultima_patente = ""
@@ -269,7 +293,7 @@ if menu == "📥 Ingreso":
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
                 
-    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional para Frecuentes/Mensualistas):", key=f"tkt_{k}")
+    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional para Mensualistas):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
@@ -279,10 +303,9 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"):
             cel_clean = cel_clean[1:]
             
-        # Si no pone número de tarjeta, le asignamos un identificador automático para que no dé error
         tkt_final = str(tkt).strip()
         if not tkt_final:
-            tkt_final = f"FREC-{pat_final}"
+            tkt_final = f"AUT-{pat_final}"
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -299,7 +322,7 @@ if menu == "📥 Ingreso":
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
                 except: pass
                 
-                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or 'Autorizado'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
                 
                 st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt_final}"
                 st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
@@ -314,7 +337,6 @@ if menu == "📥 Ingreso":
         st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
         st.session_state.exito_msg = ""
         st.session_state.exito_wp = ""
-
 # ------------------------------------------
 # ACTIVOS
 # ------------------------------------------
