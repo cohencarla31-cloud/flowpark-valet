@@ -48,7 +48,6 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
 def calcular_mejor_precio(minutos, es_camioneta, local_validacion, tarifas):
     tipo = "Camioneta" if es_camioneta else "Auto"
     if local_validacion == "Rodrigo Bueno": return 0
-    # 150 minutos de descuento = 2.5 horas gratis para Quinquela y R18
     descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
     m_cobro = max(0, minutos - descuento)
     if m_cobro <= 0: return 0
@@ -137,40 +136,62 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 
 # ------------------------------------------
-# INGRESO
+# INGRESO (CON AUTOCOMPLETADO Y REFRESH)
 # ------------------------------------------
 if menu == "📥 Ingreso":
-    st.subheader("Registro de Ingreso (Manual)")
-    pat = st.text_input("Matrícula (Ej: SDL567):", key="in_pat").upper().replace("-", "").replace(" ", "")
+    st.subheader("Registro de Ingreso")
     
-    nombre_sug, cel_sug = "", "598"
-    if pat:
-        for rc in clientes[1:]:
-            if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat:
-                nombre_sug, cel_sug = rc[1], str(rc[2]).strip()
-                break
+    # 1. Buscamos las últimas patentes que vio la cámara para armar la lista
+    patentes_recientes = []
+    for r in auditoria_data[1:]:
+        if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
+            patentes_recientes.append(r[0])
+    # Limpiamos duplicados y nos quedamos con las últimas 15
+    patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
+    opciones_pat = ["Escribir manual..."] + patentes_recientes
     
-    tkt = st.text_input("N° Tarjeta PVC:")
-    cli = st.text_input("Nombre Cliente (Opcional):", value=nombre_sug)
-    cel = st.text_input("Celular (Para comprobante):", value=cel_sug)
-    tipo_vehi = st.selectbox("Tipo de Vehículo:", ["Auto", "Camioneta"])
-    
-    if st.button("Registrar Ingreso"):
-        if tkt and pat:
-            if any((r[0].strip().lstrip("0") == tkt.strip().lstrip("0") or r[1].upper() == pat) and (len(r)>3 and not r[3]) for r in reg[1:]):
-                st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
-            else:
-                h_ing = hora_actual_uy()
-                estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                sh.worksheet("Registro").append_row([str(tkt).strip(), pat, h_ing, "", estado_txt, "", 0, 0, 0])
-                try: sh.worksheet("Clientes_Frecuentes").append_row([pat, cli, cel])
-                except: pass
+    # 2. El Formulario que borra todo al apretar el botón
+    with st.form(key="formulario_ingreso", clear_on_submit=True):
+        sel_pat = st.selectbox("🚗 Patente detectada por Cámara:", opciones_pat)
+        pat_manual = st.text_input("📝 O escribir manual (si no la leyó la cámara, ej: SDL567):")
+        
+        tkt = st.text_input("🎫 N° Tarjeta PVC:")
+        cli_nom = st.text_input("👤 Nombre Cliente (Opcional):")
+        cel = st.text_input("📱 Celular (Para comprobante):", value="598")
+        tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"])
+        
+        boton_guardar = st.form_submit_button("✅ Registrar Ingreso")
+        
+        if boton_guardar:
+            # Definimos si usamos la de la cámara o la manual
+            pat_final = pat_manual if sel_pat == "Escribir manual..." else sel_pat
+            pat_final = pat_final.upper().replace("-", "").replace(" ", "")
+            
+            # Limpiamos el celular (si arranca con 0 se lo sacamos)
+            cel_clean = str(cel).strip()
+            if cel_clean.startswith("0"):
+                cel_clean = cel_clean[1:]
                 
-                st.success(f"✅ Ingreso registrado: {pat} | Tarjeta #{tkt}")
-                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli if cli else 'No registrado'}\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
-                st.markdown(f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel}?text={urllib.parse.quote(msg_ingreso)})")
-        else:
-            st.warning("Completa la tarjeta y la matrícula.")
+            if tkt and pat_final:
+                # Verificamos si ya está en playa
+                if any((str(r[0]).strip().lstrip("0") == str(tkt).strip().lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
+                    st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
+                else:
+                    h_ing = hora_actual_uy()
+                    estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
+                    sh.worksheet("Registro").append_row([str(tkt).strip(), pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
+                    
+                    try: 
+                        if cli_nom: sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom, cel_clean])
+                    except: pass
+                    
+                    st.success(f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}")
+                    
+                    # CAMBIO A PARKING EL GLOBO
+                    msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom if cli_nom else 'No registrado'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                    st.markdown(f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})")
+            else:
+                st.warning("⚠️ Completa la tarjeta y la matrícula.")
 
 # ------------------------------------------
 # ACTIVOS
@@ -236,7 +257,6 @@ elif menu == "✅ Validaciones":
                     sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                     st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val.upper()}.")
                     
-                    # BOTONES DE WHATSAPP PARA AVISAR A LOS VALETS
                     msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
                     st.markdown("### 📲 Avisar a los Valets:")
                     st.markdown(f"[➡️ Notificar al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})", unsafe_allow_html=True)
@@ -343,6 +363,7 @@ elif menu == "📤 Salida":
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             total_a_pagar = monto_estacionamiento + total_extras
             
+            # CAMBIO A PARKING EL GLOBO
             texto_ticket = f"""*PARKING EL GLOBO - TICKET DE EGRESO*
 ---------------------------------
 👤 Cliente: {nombre_cliente_encontrado}
@@ -379,7 +400,13 @@ Op: {emp}
             except Exception as e: st.warning(f"Error: {e}")
             st.success("✅ ¡Ticket registrado con éxito!")
             with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
-            st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida}?text={urllib.parse.quote(texto_ticket)})")
+            
+            # LIMPIAMOS EL CELULAR PARA LA SALIDA TAMBIÉN
+            cel_salida_clean = str(cel_salida).strip()
+            if cel_salida_clean.startswith("0"):
+                cel_salida_clean = cel_salida_clean[1:]
+                
+            st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
 
 # ------------------------------------------
 # PERSONAL
