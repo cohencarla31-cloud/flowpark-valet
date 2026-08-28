@@ -63,7 +63,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# LECTURA FRESCA DIRECTO DEL GOOGLE SHEET (SIN CACHÉ VIEJA)
+# LECTURA ROBUSTA DIRECTA DE LA CONFIGURACIÓN DEL GOOGLE SHEET
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -71,13 +71,13 @@ def cargar_usuarios_desde_db():
         for r in conf[1:]:
             if len(r) >= 3 and r[0].strip() and r[1].strip():
                 nombre = r[0].strip()
-                pin = str(r[1]).strip()
+                pin = str(r[1]).strip().replace(".0", "")
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except Exception as e:
         print(f"Error leyendo configuración: {e}")
     
-    # Blindaje por si la hoja de cálculo estuviera vacía o fallara temporalmente
+    # Blindaje por si falta el 1000
     if "1000" not in pins_dict:
         pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
         
@@ -101,16 +101,16 @@ if st.session_state.usuario is None:
     pin_ingresado = st.text_input("🔑 Código PIN de acceso:", type="password")
     
     if st.button("Ingresar"):
-        pin_clean = str(pin_ingresado).strip()
+        pin_clean = str(pin_ingresado).strip().replace(".0", "")
         nombre_clean = str(nombre_ingresado).strip().lower()
         
-        # 1. Búsqueda exacta por PIN en el Google Sheet
+        # 1. Búsqueda exacta por PIN
         if pin_clean in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
             st.session_state.rol = usuarios_pins[pin_clean]["rol"]
             st.session_state.pin_usado = pin_clean
             st.rerun() 
-        # 2. Búsqueda por Nombre si coincide con el Google Sheet
+        # 2. Búsqueda por Nombre Parcial
         elif nombre_clean:
             encontrado = False
             for p, datos in usuarios_pins.items():
@@ -123,7 +123,6 @@ if st.session_state.usuario is None:
             if encontrado:
                 st.rerun()
             else:
-                # Si no existe en la hoja, entra como Valet por defecto
                 st.session_state.usuario = nombre_ingresado.strip().title()
                 st.session_state.rol = "Valet"
                 st.session_state.pin_usado = pin_clean
@@ -132,7 +131,7 @@ if st.session_state.usuario is None:
             st.error("❌ PIN incorrecto o datos incompletos.")
     st.stop() 
 
-# BLINDAJE ABSOLUTO EN TIEMPO DE EJECUCIÓN PARA EL PIN 1000 O RODRIGO
+# BLINDAJE ABSOLUTO: Si el PIN es 1000 o el nombre es Rodrigo, es Administrador sí o sí
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
@@ -145,7 +144,7 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# MENÚ LATERAL CONFIGURADO SEGÚN EL ROL DEL GOOGLE SHEET
+# MENÚ LATERAL CONFIGURADO SEGÚN EL ROL
 opciones_menu = []
 if st.session_state.rol in ["Admin", "Valet"]:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
@@ -153,7 +152,6 @@ if st.session_state.rol in ["Admin", "Valet"]:
 if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
     opciones_menu.append("✅ Validaciones")
 
-# PANEL DE REPORTES EXCLUSIVO PARA ROL ADMIN
 if st.session_state.rol == "Admin":
     opciones_menu.append("📈 Reportes (Admin)")
 
@@ -593,7 +591,8 @@ elif menu == "📈 Reportes (Admin)":
             df['Extras'] = pd.to_numeric(df['Extras'], errors='coerce').fillna(0)
             df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
             
-            filtro = st.radio("Filtro de tiempo:", ["Hoy", "Últimos 7 días", "Todo el historial"], horizontal=True)
+            # FILTRO CONFIGURADO POR DEFECTO EN "Todo el historial" PARA QUE NUNCA SALGA VACÍO
+            filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
             if filtro == "Hoy": df = df[df['Hora'].dt.date == hoy_dt.date()]
             elif filtro == "Últimos 7 días": df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
