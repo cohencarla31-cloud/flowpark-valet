@@ -139,52 +139,48 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 
 # ------------------------------------------
-# INGRESO (INTERFAZ EN LÍNEAS APILADAS Y MAYÚSCULAS)
+# INGRESO
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     k = st.session_state.form_key_count
     
-    # 1. Preparamos las listas (Cámara y Frecuentes) forzando mayúsculas
+    # 1. Cámara: Limpiamos repetidos y ponemos el más reciente primero
     patentes_recientes = []
     for r in auditoria_data[1:]:
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
             patentes_recientes.append(str(r[0]).upper())
     patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
+    patentes_recientes.reverse() # El último auto leído aparece primero en la lista
     
+    # 2. Frecuentes: Formato Patente - Nombre y orden alfabético por patente
     lista_frec = []
     for rc in clientes[1:]:
         if len(rc) > 0 and rc[0].strip():
             p_cl = str(rc[0]).upper().replace("-", "").replace(" ", "")
             n_cl = str(rc[1]).strip() if len(rc) > 1 else ""
-            mostrar = f"{n_cl} - {p_cl}" if n_cl else p_cl
+            mostrar = f"{p_cl} - {n_cl}" if n_cl else p_cl
             lista_frec.append(mostrar)
     lista_frec = sorted(list(set(lista_frec)))
 
-    # 2. Mostramos los 3 renglones simultáneos
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
-    sel_pat_cam = st.selectbox("📷 1. Desde la Cámara:", [""] + patentes_recientes, key=f"cam_{k}")
-    sel_pat_frec = st.selectbox("⭐ 2. Buscar Cliente Frecuente:", [""] + lista_frec, key=f"frec_{k}")
+    sel_pat_cam = st.selectbox("📷 1. Desde la Cámara (Más reciente primero):", [""] + patentes_recientes, key=f"cam_{k}")
+    sel_pat_frec = st.selectbox("⭐ 2. Buscar Cliente Frecuente (A-Z por Patente):", [""] + lista_frec, key=f"frec_{k}")
     pat_manual = st.text_input("✍️ 3. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
     
-    # 3. Lógica de prioridad inteligente y mayúsculas automáticas
     if pat_manual.strip():
         pat_final = pat_manual.strip()
     elif sel_pat_frec:
-        if " - " in sel_pat_frec:
-            pat_final = sel_pat_frec.split(" - ")[-1].strip()
-        else:
-            pat_final = sel_pat_frec.strip()
+        pat_final = sel_pat_frec.split(" - ")[0].strip() # Ahora corta correctamente la patente primero
     elif sel_pat_cam:
         pat_final = sel_pat_cam
     else:
         pat_final = ""
         
-    # ESTO FUERZA A QUE LA PATENTE SEA 100% MAYÚSCULAS Y SIN ESPACIOS
     pat_final = pat_final.upper().replace("-", "").replace(" ", "")
     st.divider()
 
-    # Búsqueda del cliente en la base para rellenar nombre y teléfono
+    # Búsqueda del cliente para autocompletar
     nombre_sug, cel_sug = "", "598"
     if pat_final:
         for rc in clientes[1:]:
@@ -192,7 +188,6 @@ if menu == "📥 Ingreso":
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
 
-    # --- TRUCO DE MEMORIA PARA FORZAR EL AUTOCOMPLETADO EN PANTALLA ---
     if "ultima_patente" not in st.session_state:
         st.session_state.ultima_patente = ""
         
@@ -200,7 +195,6 @@ if menu == "📥 Ingreso":
         st.session_state.ultima_patente = pat_final
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
-    # ------------------------------------------------------------------
                 
     tkt = st.text_input("🎫 N° Tarjeta PVC:", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
@@ -222,7 +216,6 @@ if menu == "📥 Ingreso":
                 
                 try: 
                     if cli_nom and not nombre_sug:
-                        # Si es nuevo, guarda nombre en formato "Título" (Ej: Juan Perez) y patente Mayúscula
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
                 except: pass
                 
@@ -237,7 +230,6 @@ if menu == "📥 Ingreso":
         else:
             st.warning("⚠️ Completa la tarjeta, la matrícula y el nombre y apellido.")
 
-    # --- MENSAJE DE ÉXITO AL FINAL ---
     if st.session_state.exito_msg != "":
         st.success(st.session_state.exito_msg)
         st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
@@ -286,8 +278,9 @@ elif menu == "✅ Validaciones":
                 if not obtener_validacion_local(pat, tkt, h_ing, q_data):
                     activos_disponibles.append(r)
                     
-    opciones_mozo = [""] + [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
-    seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", opciones_mozo)
+    # Desplegable ordenado alfabéticamente por patente
+    opciones_mozo = sorted([f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles], key=lambda x: x.split("Patente: ")[1])
+    seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa:", [""] + opciones_mozo)
     
     if local_seleccionado in ["Quinquela", "Number 18"]:
         mozo = st.text_input("Nombre del Mozo / Recepción:")
@@ -327,8 +320,12 @@ elif menu == "🍔 Extras":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
     activos = list(temp_activos.values())
-    opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
+    
+    # Desplegable ordenado alfabéticamente por patente
+    lista_autos_ordenada = sorted([f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos], key=lambda x: x.split("Patente: ")[1])
+    opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + lista_autos_ordenada
     sel_auto = st.selectbox("Seleccionar vehículo o Venta Directa:", opciones_autos)
+    
     lista_prods = [""] + list(extras.keys())
     prod = st.selectbox("Producto / Servicio extra:", lista_prods)
     cant = st.number_input("Cantidad:", min_value=1, step=1)
@@ -366,7 +363,10 @@ elif menu == "📤 Salida":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
     activos = list(temp_activos.values())
-    sel = st.selectbox("Elegir auto a retirar:", [""] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos])
+    
+    # Desplegable ordenado alfabéticamente por patente
+    lista_salida_ordenada = sorted([f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos], key=lambda x: x.split("Patente: ")[1])
+    sel = st.selectbox("Elegir auto a retirar:", [""] + lista_salida_ordenada)
     
     if sel:
         tkt = sel.split(" - ")[0].replace("#", "").strip()
