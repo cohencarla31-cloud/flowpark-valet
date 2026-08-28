@@ -138,18 +138,6 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-opciones_menu = []
-if st.session_state.rol in ["Admin", "Valet"]:
-    opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
-
-if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
-    opciones_menu.append("✅ Validaciones")
-
-if st.session_state.rol == "Admin":
-    opciones_menu.append("📈 Reportes (Admin)")
-
-menu = st.sidebar.radio("Módulo Principal", opciones_menu)
-
 @st.cache_data(ttl=60)
 def obtener_datos():
     if not sh: return [], {}, {}, [], [], [], [], [], [], []
@@ -176,6 +164,27 @@ def obtener_datos():
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, auditoria_data = obtener_datos()
 emp = st.session_state.usuario
+
+# VERIFICACIÓN DE ESTADO DE ASISTENCIA PARA VALETS
+estado_empleado_actual = verificar_estado_empleado(emp, asistencia_data)
+
+opciones_menu = []
+if st.session_state.rol in ["Admin", "Valet"]:
+    if estado_empleado_actual == "Entrada":
+        opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida"])
+    opciones_menu.append("⏰ Personal")
+
+if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
+    opciones_menu.append("✅ Validaciones")
+
+if st.session_state.rol == "Admin":
+    opciones_menu.append("📈 Reportes (Admin)")
+
+menu = st.sidebar.radio("Módulo Principal", opciones_menu)
+
+# Bloqueo operativo si no marcó entrada y está intentando operar sin el inventario obligatorio
+if st.session_state.rol == "Valet" and estado_empleado_actual == "Salida" and menu != "⏰ Personal":
+    st.warning(f"⚠️ **Hola {emp}:** Debes registrar obligatoriamente tu **Entrada** realizando el arqueo de caja e inventario de productos para habilitar la operativa.")
 
 # ------------------------------------------
 # INGRESO
@@ -233,7 +242,7 @@ if menu == "📥 Ingreso":
         st.session_state[f"cel_{k}"] = cel_sug
                 
     tkt = st.text_input("🎫 N° Tarjeta PVC:", key=f"tkt_{k}")
-    cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
+    cli_nom = st.text_input("👤 Nombre y Apellido (Obligatorio):", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
@@ -242,7 +251,9 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"):
             cel_clean = cel_clean[1:]
             
-        if tkt and pat_final and cli_nom.strip():
+        if not tkt or not pat_final or not cli_nom.strip():
+            st.warning("⚠️ Debes completar obligatoriamente la Tarjeta PVC, la Patente y el Nombre y Apellido.")
+        else:
             if any((str(r[0]).strip().lstrip("0") == str(tkt).strip().lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
                 st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
             else:
@@ -263,8 +274,6 @@ if menu == "📥 Ingreso":
                 st.session_state.form_key_count += 1
                 st.session_state.ultima_patente = "" 
                 st.rerun()
-        else:
-            st.warning("⚠️ Completa la tarjeta, la matrícula y el nombre y apellido.")
 
     if st.session_state.exito_msg != "":
         st.success(st.session_state.exito_msg)
@@ -493,39 +502,73 @@ Op: {emp}
             st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
 
 # ------------------------------------------
-# PERSONAL Y REPORTES
+# PERSONAL (CONTROL DE ASISTENCIA Y CAJA)
 # ------------------------------------------
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
     ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
-    accion = "Salida" if ultimo_estado == "Entrada" else "Entrada"
-    accion_elegida = st.radio("Acción a registrar:", [accion])
     
-    st.subheader(f"💵 Arqueo de Efectivo ({'Inicial' if accion_elegida == 'Entrada' else 'Final'})")
-    efectivo_caja = st.number_input(f"Efectivo en gaveta:", min_value=0, value=0, step=50, key=f"efectivo_{accion_elegida}")
-    
-    st.subheader(f"📝 Inventario de Productos")
-    conteo_stock = {}
-    for prod_nombre in list(extras.keys()):
-        conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1)
+    if ultimo_estado == "Salida":
+        st.markdown("### 📥 Registrar Entrada (Requiere Arqueo e Inventario)")
+        efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50, key="efectivo_entrada")
         
-    nota_stock = st.text_input("Observaciones (Opcional):")
-    if st.button(f"Registrar {accion_elegida}"):
-        try:
-            hora_fichada = hora_actual_uy()
-            tipo_mov = "Fondo_Fijo_Entrada" if accion_elegida == "Entrada" else "Cierre_Caja_Salida"
-            sh.worksheet("Control_Stock").append_row([hora_fichada, tipo_mov, int(efectivo_caja), str(emp), f"Obs: {nota_stock}"])
-            for idx, (prod, cant) in enumerate(conteo_stock.items()):
-                sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_{accion_elegida}_{prod}", int(cant), str(emp), ""])
-            sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), accion_elegida, f"Caja: ${efectivo_caja}"])
-            st.success(f"✅ **{accion_elegida}** registrada correctamente para el personal!")
-        except Exception as e: st.error(f"Error al guardar: {e}")
+        st.markdown("📝 **Inventario inicial de productos:**")
+        conteo_stock = {}
+        for prod_nombre in list(extras.keys()):
+            conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"inv_ent_{prod_nombre}")
+            
+        nota_stock = st.text_input("Observaciones (Opcional):", key="obs_entrada")
+        
+        if st.button("✅ Registrar Entrada"):
+            try:
+                hora_fichada = hora_actual_uy()
+                sh.worksheet("Control_Stock").append_row([hora_fichada, "Fondo_Fijo_Entrada", int(efectivo_caja), str(emp), f"Obs: {nota_stock}"])
+                for prod, cant in conteo_stock.items():
+                    sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
+                sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Entrada", f"Caja: ${efectivo_caja} - Obs: {nota_stock}"])
+                st.success(f"✅ ¡Entrada registrada con éxito para {emp} a las {hora_fichada}!")
+                st.rerun()
+            except Exception as e: st.error(f"Error al registrar entrada: {e}")
+            
+    else:
+        st.markdown("### 📤 Registrar Salida")
+        efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta:", min_value=0, value=0, step=50, key="efectivo_salida")
+        nota_salida = st.text_input("Observaciones de Cierre (Opcional):", key="obs_salida")
+        
+        if st.button("🚪 Registrar Salida"):
+            try:
+                hora_fichada = hora_actual_uy()
+                sh.worksheet("Control_Stock").append_row([hora_fichada, "Cierre_Caja_Salida", int(efectivo_caja_salida), str(emp), f"Obs: {nota_salida}"])
+                sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida} - Obs: {nota_salida}"])
+                st.success(f"✅ ¡Salida registrada correctamente para {emp} a las {hora_fichada}!")
+                st.rerun()
+            except Exception as e: st.error(f"Error al registrar salida: {e}")
 
+# ------------------------------------------
+# REPORTES (ADMIN)
+# ------------------------------------------
 elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
+    # 1. PANEL DE CONTROL DE ASISTENCIA Y EMPLEADOS
+    st.markdown("### 🕒 Control de Asistencia y Horarios de Empleados")
+    try:
+        ws_asis = sh.worksheet("Asistencia")
+        datos_asis = ws_asis.get_all_values()
+        if len(datos_asis) > 1:
+            df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
+            df_asis['Hora'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+            df_asis = df_asis.sort_values(by='Hora', ascending=False)
+            st.dataframe(df_asis.head(15), use_container_width=True)
+        else:
+            st.info("ℹ️ Aún no hay registros de asistencia.")
+    except Exception as e:
+        st.error(f"Error cargando asistencia: {e}")
+
+    st.divider()
+
     st.markdown("### 💵 Auditoría de Caja (Fondo Fijo)")
     movimientos_caja = [r for r in stock_data if len(r) > 2 and r[1] in ["Fondo_Fijo_Entrada", "Cierre_Caja_Salida"]]
     if len(movimientos_caja) >= 2:
