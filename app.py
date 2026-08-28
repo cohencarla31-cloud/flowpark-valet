@@ -13,12 +13,12 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
-    /* Ocultar elementos flotantes y marca de agua de Streamlit */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display:none;}
-    div[data-testid="stStatusWidget"] {visibility: hidden;}
+    /* Ocultar barra de herramientas y badge flotante inferior */
+    footer {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    .viewerBadge_container__1QSob {display: none !important;}
+    div[data-testid="stToolbar"] {display: none !important;}
+    iframe[title="streamlitApp"] {display: none !important;}
     </style>
 """, unsafe_allow_html=True)
 
