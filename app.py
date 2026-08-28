@@ -164,26 +164,23 @@ def obtener_datos():
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data = obtener_datos()
 emp = st.session_state.usuario
+es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
 
-# Verificamos estado inicial del empleado al cargar la app
-estado_empleado_actual = verificar_estado_empleado(emp, asistencia_data)
+# MENÚ PRINCIPAL: RODRIGO NO TIENE PERSONAL, LOS VALETS SÍ
+opciones_menu = []
+if not es_admin_rodrigo and st.session_state.rol == "Valet":
+    opciones_menu.append("⏰ Personal")
 
-# MENÚ PRINCIPAL: HACEMOS QUE "⏰ Personal" SEA LA PRIMERA OPCIÓN SI EL VALET NO HA MARCADO ENTRADA
-opciones_menu = ["⏰ Personal"]
-if st.session_state.rol in ["Admin", "Valet"] or "rodrigo" in emp.lower():
+if st.session_state.rol in ["Admin", "Valet"] or es_admin_rodrigo:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida"])
 
-if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin" or "rodrigo" in emp.lower():
+if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin" or es_admin_rodrigo:
     opciones_menu.append("✅ Validaciones")
 
-if st.session_state.rol == "Admin" or "rodrigo" in emp.lower():
+if st.session_state.rol == "Admin" or es_admin_rodrigo:
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
-
-# Alerta flotante si el valet entra y no marcó entrada
-if st.session_state.rol == "Valet" and estado_empleado_actual == "Salida" and menu != "⏰ Personal":
-    st.warning("⚠️ **¡ATENCIÓN! No olvides registrar tu ENTRADA en el módulo Personal.**")
 
 # ------------------------------------------
 # INGRESO
@@ -192,10 +189,8 @@ if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     k = st.session_state.form_key_count
     
-    # Unificamos cámara y clientes frecuentes en una sola lista limpia y sin repetidos
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and rc[0].strip()]
-    
     patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec)))
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
@@ -492,10 +487,14 @@ Op: {emp}
 # ------------------------------------------
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
+    
+    # Botón de Refresh directo para actualizar estado
+    if st.button("🔄 Actualizar Estado de Turno"):
+        st.rerun()
+
     ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
     
-    # Cuadrito resumen de asistencias del empleado actual
     with st.expander("📋 Ver mi resumen de entradas y salidas recientes"):
         try:
             mis_asistencias = [r for r in asistencia_data[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
@@ -509,7 +508,6 @@ elif menu == "⏰ Personal":
 
     st.divider()
 
-    # Pestañas separadas para Entrada y Salida
     tab_entrada, tab_salida = st.tabs(["📥 ENTRADA", "📤 SALIDA"])
     
     # ==========================
@@ -517,7 +515,7 @@ elif menu == "⏰ Personal":
     # ==========================
     with tab_entrada:
         if ultimo_estado == "Entrada":
-            st.info("ℹ️ Ya te encuentras con la **Entrada** registrada en este turno.")
+            st.info("ℹ️ Ya te encuentras con la **Entrada** registrada y activa en este turno.")
         else:
             st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
             
@@ -525,7 +523,7 @@ elif menu == "⏰ Personal":
                 try:
                     hora_fichada = hora_actual_uy()
                     sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Entrada", "Fichado inicial"])
-                    st.success(f"✅ Su entrada se consignó correctamente a las {hora_fichada}. A continuación, complete el inventario.")
+                    st.success(f"✅ Su entrada fue consignada a las {hora_fichada} pero quedará registrada de manera definitiva una vez que finalice el inventario.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al registrar entrada: {e}")
@@ -550,7 +548,7 @@ elif menu == "⏰ Personal":
                     
                     for prod, cant in conteo_stock.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
-                    st.success(f"✅ ¡Su entrada ya quedó registrada correctamente y el inventario fue guardado a las {hora_fichada}!")
+                    st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada} luego de realizar el inventario!")
                 except Exception as e: st.error(f"Error al guardar inventario: {e}")
 
     # ==========================
@@ -602,7 +600,6 @@ elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
-    # 1. PANEL DE CONTROL DE ASISTENCIA Y EMPLEADOS
     st.markdown("### 🕒 Control de Asistencia y Horarios de Empleados")
     try:
         ws_asis = sh.worksheet("Asistencia")
