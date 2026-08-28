@@ -63,13 +63,12 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# Inicialización de la memoria del sistema
-if "usuario" not in st.session_state:
-    st.session_state.usuario = None
-    st.session_state.rol = None
-    st.session_state.form_key_count = 0
-    st.session_state.exito_msg = ""
-    st.session_state.exito_wp = ""
+# Inicialización de la memoria del sistema (Blindada)
+if "usuario" not in st.session_state: st.session_state.usuario = None
+if "rol" not in st.session_state: st.session_state.rol = None
+if "form_key_count" not in st.session_state: st.session_state.form_key_count = 0
+if "exito_msg" not in st.session_state: st.session_state.exito_msg = ""
+if "exito_wp" not in st.session_state: st.session_state.exito_wp = ""
 
 usuarios_pins = {
     "1000": {"nombre": "Rodrigo", "rol": "Admin"},
