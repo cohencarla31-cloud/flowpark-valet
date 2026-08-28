@@ -65,7 +65,6 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# LECTURA ESTRICTA Y LIMPIA DE USUARIOS DESDE LA BD
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -73,7 +72,6 @@ def cargar_usuarios_desde_db():
         for r in conf[1:]:
             if len(r) >= 3 and r[0].strip() and r[1].strip():
                 nombre = r[0].strip()
-                # Limpieza estricta de PINs (remueve .0 y espacios)
                 pin = str(r[1]).strip()
                 if "." in pin:
                     pin = pin.split(".")[0]
@@ -117,12 +115,10 @@ if st.session_state.usuario is None:
             usuario_encontrado = None
             rol_encontrado = None
             
-            # Validación rigurosa de doble factor (Nombre + PIN exactos)
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
                 
-                # Comparamos estrictamente que el nombre ingresado pertenezca al usuario del PIN
                 if nombre_clean == nombre_bd or nombre_clean in nombre_bd or nombre_bd in nombre_clean:
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
@@ -138,7 +134,6 @@ if st.session_state.usuario is None:
                 st.rerun()
     st.stop() 
 
-# Blindaje absoluto para Rodrigo Bueno
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
@@ -153,14 +148,13 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# CARGA OPTIMIZADA DE DATOS
 @st.cache_data(ttl=30)
 def obtener_datos():
     if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
     conf = sh.worksheet("Configuracion").get_all_values()
     tarifas_raw = sh.worksheet("Tarifas").get_all_values()
     extras_raw = sh.worksheet("Extras").get_all_values()
-    registro = sh.worksheet("Registro").get_all_values()
+    reg = sh.worksheet("Registro").get_all_values()
     q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
     cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
     
@@ -629,7 +623,6 @@ elif menu == "⏰ Personal":
                     for prod, cant in conteo_stock_salida.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
                     
-                    # Escritura limpia y directa en la solapa Asistencia
                     ws_asis = sh.worksheet("Asistencia")
                     ws_asis.append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida} - Obs: {nota_salida}"])
                     time.sleep(0.5)
@@ -690,7 +683,7 @@ elif menu == "📈 Reportes (Admin)":
                         if dif != 0:
                             st.error(f"🚨 **ALERTA DE EFECTIVO ENTRE TURNOS:** El empleado {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió el turno con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                         else:
-                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con le cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
         else:
             st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
     except Exception as e:
@@ -788,3 +781,4 @@ elif menu == "📈 Reportes (Admin)":
             st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
+                                       ^^^
