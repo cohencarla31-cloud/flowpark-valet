@@ -66,6 +66,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
 # Inicialización de la memoria del sistema (Blindada)
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
+if "pin_usado" not in st.session_state: st.session_state.pin_usado = ""
 if "form_key_count" not in st.session_state: st.session_state.form_key_count = 0
 if "exito_msg" not in st.session_state: st.session_state.exito_msg = ""
 if "exito_wp" not in st.session_state: st.session_state.exito_wp = ""
@@ -87,6 +88,7 @@ if st.session_state.usuario is None:
         if pin_ingresado in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_ingresado]["nombre"]
             st.session_state.rol = usuarios_pins[pin_ingresado]["rol"]
+            st.session_state.pin_usado = pin_ingresado
             st.rerun() 
         else:
             st.error("❌ PIN incorrecto o no autorizado.")
@@ -96,6 +98,7 @@ st.sidebar.markdown(f"👤 **Usuario:** {st.session_state.usuario}")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.usuario = None
     st.session_state.rol = None
+    st.session_state.pin_usado = ""
     st.rerun()
 st.sidebar.divider()
 
@@ -106,8 +109,8 @@ if st.session_state.rol in ["Admin", "Valet"]:
 if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
     opciones_menu.append("✅ Validaciones")
 
-# --- ACÁ ESTABA EL ERROR: RESTAURADO EL ACCESO EXCLUSIVO PARA ADMIN ---
-if st.session_state.rol == "Admin":
+# --- REGLA ESTRICTA: SOLO PIN "1000" Y USUARIO "Rodrigo" (RODRIGO BUENO) ---
+if st.session_state.pin_usado == "1000" and st.session_state.usuario == "Rodrigo":
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
