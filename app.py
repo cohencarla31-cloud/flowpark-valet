@@ -63,9 +63,13 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
+# Inicialización de la memoria del sistema
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
     st.session_state.rol = None
+    st.session_state.form_key_count = 0
+    st.session_state.exito_msg = ""
+    st.session_state.exito_wp = ""
 
 usuarios_pins = {
     "1000": {"nombre": "Rodrigo", "rol": "Admin"},
@@ -136,62 +140,73 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 
 # ------------------------------------------
-# INGRESO (CON AUTOCOMPLETADO Y REFRESH)
+# INGRESO
 # ------------------------------------------
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     
-    # 1. Buscamos las últimas patentes que vio la cámara para armar la lista
+    if st.session_state.exito_msg != "":
+        st.success(st.session_state.exito_msg)
+        st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
+        st.session_state.exito_msg = ""
+        st.session_state.exito_wp = ""
+    
     patentes_recientes = []
     for r in auditoria_data[1:]:
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
             patentes_recientes.append(r[0])
-    # Limpiamos duplicados y nos quedamos con las últimas 15
     patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
     opciones_pat = ["Escribir manual..."] + patentes_recientes
     
-    # 2. El Formulario que borra todo al apretar el botón
-    with st.form(key="formulario_ingreso", clear_on_submit=True):
-        sel_pat = st.selectbox("🚗 Patente detectada por Cámara:", opciones_pat)
-        pat_manual = st.text_input("📝 O escribir manual (si no la leyó la cámara, ej: SDL567):")
-        
-        tkt = st.text_input("🎫 N° Tarjeta PVC:")
-        cli_nom = st.text_input("👤 Nombre Cliente (Opcional):")
-        cel = st.text_input("📱 Celular (Para comprobante):", value="598")
-        tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"])
-        
-        boton_guardar = st.form_submit_button("✅ Registrar Ingreso")
-        
-        if boton_guardar:
-            # Definimos si usamos la de la cámara o la manual
-            pat_final = pat_manual if sel_pat == "Escribir manual..." else sel_pat
-            pat_final = pat_final.upper().replace("-", "").replace(" ", "")
-            
-            # Limpiamos el celular (si arranca con 0 se lo sacamos)
-            cel_clean = str(cel).strip()
-            if cel_clean.startswith("0"):
-                cel_clean = cel_clean[1:]
+    k = st.session_state.form_key_count
+    
+    sel_pat = st.selectbox("🚗 Patente detectada por Cámara:", opciones_pat, key=f"sel_pat_{k}")
+    pat_manual = st.text_input("📝 O escribir manual (ej: SDL567):", key=f"pat_man_{k}")
+    
+    pat_final = pat_manual if sel_pat == "Escribir manual..." else sel_pat
+    pat_final = pat_final.upper().replace("-", "").replace(" ", "")
+    
+    nombre_sug, cel_sug = "", "598"
+    if pat_final:
+        for rc in clientes[1:]:
+            if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
+                nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
+                break
                 
-            if tkt and pat_final:
-                # Verificamos si ya está en playa
-                if any((str(r[0]).strip().lstrip("0") == str(tkt).strip().lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
-                    st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
-                else:
-                    h_ing = hora_actual_uy()
-                    estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                    sh.worksheet("Registro").append_row([str(tkt).strip(), pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
-                    
-                    try: 
-                        if cli_nom: sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom, cel_clean])
-                    except: pass
-                    
-                    st.success(f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}")
-                    
-                    # CAMBIO A PARKING EL GLOBO
-                    msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom if cli_nom else 'No registrado'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
-                    st.markdown(f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})")
+    tkt = st.text_input("🎫 N° Tarjeta PVC:", key=f"tkt_{k}")
+    # ACÁ ESTÁ EL CAMBIO DE NOMBRE OBLIGATORIO
+    cli_nom = st.text_input("👤 Nombre y Apellido:", value=nombre_sug, key=f"cli_{k}")
+    cel = st.text_input("📱 Celular (Para comprobante):", value=cel_sug, key=f"cel_{k}")
+    tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
+    
+    if st.button("✅ Registrar Ingreso"):
+        cel_clean = str(cel).strip()
+        if cel_clean.startswith("0"):
+            cel_clean = cel_clean[1:]
+            
+        # ACÁ ESTÁ EL CANDADO: Pide tkt, patente Y el nombre
+        if tkt and pat_final and cli_nom.strip():
+            if any((str(r[0]).strip().lstrip("0") == str(tkt).strip().lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
+                st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
             else:
-                st.warning("⚠️ Completa la tarjeta y la matrícula.")
+                h_ing = hora_actual_uy()
+                estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
+                sh.worksheet("Registro").append_row([str(tkt).strip(), pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
+                
+                try: 
+                    if cli_nom and not nombre_sug:
+                        sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip(), cel_clean])
+                except: pass
+                
+                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip()}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                
+                st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt}"
+                st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
+                st.session_state.form_key_count += 1
+                st.rerun()
+        else:
+            # EL AVISO AHORA INCLUYE EL NOMBRE Y APELLIDO
+            st.warning("⚠️ Completa la tarjeta, la matrícula y el nombre y apellido.")
 
 # ------------------------------------------
 # ACTIVOS
@@ -363,7 +378,6 @@ elif menu == "📤 Salida":
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             total_a_pagar = monto_estacionamiento + total_extras
             
-            # CAMBIO A PARKING EL GLOBO
             texto_ticket = f"""*PARKING EL GLOBO - TICKET DE EGRESO*
 ---------------------------------
 👤 Cliente: {nombre_cliente_encontrado}
@@ -401,7 +415,6 @@ Op: {emp}
             st.success("✅ ¡Ticket registrado con éxito!")
             with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
             
-            # LIMPIAMOS EL CELULAR PARA LA SALIDA TAMBIÉN
             cel_salida_clean = str(cel_salida).strip()
             if cel_salida_clean.startswith("0"):
                 cel_salida_clean = cel_salida_clean[1:]
@@ -409,7 +422,7 @@ Op: {emp}
             st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
 
 # ------------------------------------------
-# PERSONAL
+# PERSONAL Y REPORTES
 # ------------------------------------------
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
@@ -438,69 +451,44 @@ elif menu == "⏰ Personal":
             st.success(f"✅ **{accion_elegida}** registrada correctamente para {emp}!")
         except Exception as e: st.error(f"Error al guardar: {e}")
 
-# ------------------------------------------
-# REPORTES (EXCLUSIVO ADMIN)
-# ------------------------------------------
 elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas y Auditoría")
     st.info("🔒 Módulo de acceso exclusivo para Administración (Rodrigo Bueno).")
     
-    # 1. AUDITORÍA DE EFECTIVO (NOCHE VS MAÑANA)
     st.markdown("### 💵 Auditoría de Caja (Fondo Fijo)")
     movimientos_caja = [r for r in stock_data if len(r) > 2 and r[1] in ["Fondo_Fijo_Entrada", "Cierre_Caja_Salida"]]
     if len(movimientos_caja) >= 2:
         ultimo = movimientos_caja[-1]
         penultimo = movimientos_caja[-2]
-        
         if ultimo[1] == "Fondo_Fijo_Entrada" and penultimo[1] == "Cierre_Caja_Salida":
-            plata_mañana = int(ultimo[2])
-            plata_noche = int(penultimo[2])
-            
+            plata_mañana, plata_noche = int(ultimo[2]), int(penultimo[2])
             c1, c2 = st.columns(2)
-            c1.metric(f"Cierre de Noche ({penultimo[3]})", f"${plata_noche}")
-            c2.metric(f"Apertura de Mañana ({ultimo[3]})", f"${plata_mañana}")
-            
+            c1.metric(f"Cierre Noche ({penultimo[3]})", f"${plata_noche}")
+            c2.metric(f"Apertura Mañana ({ultimo[3]})", f"${plata_mañana}")
             if plata_mañana != plata_noche:
-                diferencia = plata_mañana - plata_noche
-                st.error(f"🚨 ALERTA: Diferencia de caja detectada de ${diferencia}. El dinero declarado esta mañana no coincide con el cierre de la noche anterior.")
+                st.error(f"🚨 ALERTA: Diferencia de caja de ${plata_mañana - plata_noche}.")
             else:
-                st.success("✅ La caja cuadró perfectamente entre el cierre de anoche y la apertura de hoy.")
-        else:
-            st.info("Esperando el próximo cierre de turno y apertura para comparar cajas.")
-    else:
-        st.info("No hay suficientes movimientos de caja registrados para comparar.")
+                st.success("✅ La caja cuadró perfectamente.")
+        else: st.info("Esperando próximo cierre y apertura para comparar.")
+    else: st.info("No hay suficientes movimientos de caja.")
 
     st.divider()
-
-    # 2. AUDITORÍA DE CÁMARAS LPR VS EMPLEADOS
     st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
     hoy_str = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
-    
-    # Extraemos patentes vistas por la cámara hoy
     autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str in r[1]]
-    # Extraemos patentes ingresadas manualmente hoy
     autos_manuales = [str(r[1]).strip().upper() for r in reg[1:] if len(r) > 2 and hoy_str in r[2]]
     
-    fugas = []
-    for patente_camara in autos_camara:
-        if patente_camara not in autos_manuales and patente_camara != "SIN_PATENTE":
-            fugas.append(patente_camara)
-            
-    if len(autos_camara) == 0:
-        st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy (o el parking está cerrado).")
+    fugas = [pat for pat in autos_camara if pat not in autos_manuales and pat != "SIN_PATENTE"]
+    if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no registró ingresos hoy.")
     elif fugas:
-        st.error(f"🚨 ATENCIÓN: La cámara detectó hoy el ingreso de {len(fugas)} vehículo(s) que los valets NO han anotado en el sistema.")
+        st.error(f"🚨 ATENCIÓN: La cámara detectó {len(fugas)} vehículo(s) sin registrar por los valets.")
         st.write("Patentes no registradas:", ", ".join(set(fugas)))
-    else:
-        st.success(f"✅ Perfecto. La cámara detectó {len(autos_camara)} vehículos hoy y todos fueron registrados por los valets.")
+    else: st.success(f"✅ Perfecto. La cámara detectó {len(autos_camara)} vehículos y todos fueron registrados.")
 
     st.divider()
-
-    # 3. REPORTES TRADICIONALES DE FACTURACIÓN
     try:
         ws_hist = sh.worksheet("Historial_Tickets")
         datos_hist = ws_hist.get_all_values()
-        
         if len(datos_hist) > 1 and "Total" in datos_hist[0]:
             df = pd.DataFrame(datos_hist[1:], columns=datos_hist[0])
             df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
@@ -510,53 +498,19 @@ elif menu == "📈 Reportes (Admin)":
             
             filtro = st.radio("Filtro de tiempo:", ["Hoy", "Últimos 7 días", "Todo el historial"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
-            
             if filtro == "Hoy": df = df[df['Hora'].dt.date == hoy_dt.date()]
             elif filtro == "Últimos 7 días": df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
                 
-            st.markdown("### 💰 Resumen de Facturación")
+            st.markdown("### 💰 Resumen")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Facturación Total", f"${df['Total'].sum():,.0f}")
-            c2.metric("Por Estacionamiento", f"${df['Parking'].sum():,.0f}")
-            c3.metric("Por Extras/Lavados", f"${df['Extras'].sum():,.0f}")
-            
-            st.markdown("### 🚗 Operativa")
-            c4, c5 = st.columns(2)
-            c4.metric("Vehículos Egresados", len(df))
-            ticket_promedio = df['Total'].mean() if len(df) > 0 else 0
-            c5.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
+            c1.metric("Facturación", f"${df['Total'].sum():,.0f}")
+            c2.metric("Parking", f"${df['Parking'].sum():,.0f}")
+            c3.metric("Extras", f"${df['Extras'].sum():,.0f}")
             
             st.markdown("---")
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                st.markdown("#### 👤 Rendimiento por Valet")
-                if not df.empty:
-                    df_op = df.groupby('Op')['Total'].sum().reset_index()
-                    df_op.columns = ['Valet', 'Recaudación ($)']
-                    st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
-            
-            with col_b:
-                st.markdown("#### 🏪 Uso de Validaciones")
-                if not df.empty:
-                    df_loc = df.groupby('Validación').size().reset_index(name='Cantidad de Autos')
-                    st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
-            
-            st.markdown("---")
-            st.markdown("### 📅 Detalle de Ventas por Día")
             if not df.empty:
                 df['Fecha'] = df['Hora'].dt.date
-                df_diario = df.groupby('Fecha', as_index=False).agg(
-                    Autos=('Total', 'count'),
-                    Parking=('Parking', 'sum'),
-                    Extras=('Extras', 'sum'),
-                    Total_Recaudado=('Total', 'sum')
-                )
-                df_diario.rename(columns={'Autos': 'Cant. Autos', 'Parking': 'Parking ($)', 'Extras': 'Extras ($)', 'Total_Recaudado': 'Total ($)'}, inplace=True)
-                df_diario = df_diario.sort_values(by='Fecha', ascending=False)
-                st.dataframe(df_diario, use_container_width=True)
-                
-        else:
-            st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
-    except Exception as e:
-        st.error(f"Error conectando con el historial: {e}")
+                df_diario = df.groupby('Fecha', as_index=False).agg(Autos=('Total', 'count'), Parking=('Parking', 'sum'), Extras=('Extras', 'sum'), Total_Recaudado=('Total', 'sum'))
+                st.dataframe(df_diario.sort_values(by='Fecha', ascending=False), use_container_width=True)
+        else: st.warning("⚠️ Esperando la primera salida para generar reportes.")
+    except Exception as e: st.error(f"Error conectando con historial: {e}")
