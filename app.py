@@ -144,22 +144,50 @@ emp = st.session_state.usuario
 if menu == "📥 Ingreso":
     st.subheader("Registro de Ingreso")
     
+    # 1. Armamos la lista de la cámara
     patentes_recientes = []
     for r in auditoria_data[1:]:
         if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]:
             patentes_recientes.append(r[0])
     patentes_recientes = list(dict.fromkeys(patentes_recientes))[-15:]
-    opciones_pat = ["Escribir manual..."] + patentes_recientes
+    opciones_pat = ["No está en cámara (Buscar/Escribir)..."] + patentes_recientes
     
     k = st.session_state.form_key_count
     
-    sel_pat = st.selectbox("🚗 Patente detectada por Cámara:", opciones_pat, key=f"sel_pat_{k}")
-    pat_manual = st.text_input("📝 O escribir manual (ej: SDL567):", key=f"pat_man_{k}")
+    # PASO 1: Elegir de la cámara
+    sel_pat = st.selectbox("📷 Patente detectada por Cámara:", opciones_pat, key=f"sel_pat_{k}")
     
-    pat_final = pat_manual if sel_pat == "Escribir manual..." else sel_pat
-    pat_final = pat_final.upper().replace("-", "").replace(" ", "")
+    pat_final = ""
+    # PASO 2: Si no está en la cámara, abrimos el buscador de frecuentes
+    if sel_pat == "No está en cámara (Buscar/Escribir)...":
+        
+        # Recopilamos todos los clientes frecuentes para el buscador
+        lista_frec = []
+        for rc in clientes[1:]:
+            if len(rc) > 0 and rc[0].strip():
+                p_cl = str(rc[0]).upper().replace("-", "").replace(" ", "")
+                n_cl = str(rc[1]).strip() if len(rc) > 1 else ""
+                # Lo mostramos como "SDL567 - Juan Perez"
+                mostrar = f"{p_cl} - {n_cl}" if n_cl else p_cl
+                lista_frec.append(mostrar)
+        
+        # Ordenamos alfabéticamente y quitamos duplicados visuales
+        lista_frec = sorted(list(set(lista_frec)))
+        opciones_frec = ["➕ NUEVO VEHÍCULO (Escribir manual)..."] + lista_frec
+        
+        sel_frec = st.selectbox("🔍 Buscar Frecuente (Escriba para filtrar):", opciones_frec, key=f"sel_frec_{k}")
+        
+        # PASO 3: Si tampoco es frecuente, mostramos el casillero libre
+        if sel_frec == "➕ NUEVO VEHÍCULO (Escribir manual)...":
+            pat_manual = st.text_input("📝 Escribir Patente Nueva (ej: SDL567):", key=f"pat_man_{k}")
+            pat_final = pat_manual.upper().replace("-", "").replace(" ", "")
+        else:
+            # Si eligió un frecuente, le recortamos el nombre y nos quedamos solo con la patente
+            pat_final = sel_frec.split(" - ")[0].upper().replace("-", "").replace(" ", "")
+    else:
+        pat_final = sel_pat.upper().replace("-", "").replace(" ", "")
     
-    # Búsqueda del cliente en la base
+    # Búsqueda del cliente en la base (se auto-llena con la patente final)
     nombre_sug, cel_sug = "", "598"
     if pat_final:
         for rc in clientes[1:]:
