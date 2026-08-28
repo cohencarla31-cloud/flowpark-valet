@@ -167,7 +167,7 @@ if menu == "📥 Ingreso":
                 except: pass
                 
                 st.success(f"✅ Ingreso registrado: {pat} | Tarjeta #{tkt}")
-                msg_ingreso = f"*FLOW PARK - TICKET INGRESO*\n👤 Cliente: {cli if cli else 'No registrado'}\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli if cli else 'No registrado'}\n🚗 Vehículo: {pat}\n🎫 Tarjeta: #{tkt}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
                 st.markdown(f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel}?text={urllib.parse.quote(msg_ingreso)})")
         else:
             st.warning("Completa la tarjeta y la matrícula.")
@@ -343,7 +343,7 @@ elif menu == "📤 Salida":
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras consumidos."
             total_a_pagar = monto_estacionamiento + total_extras
             
-            texto_ticket = f"""*FLOW PARK - TICKET DE EGRESO*
+            texto_ticket = f"""*PARKING EL GLOBO - TICKET DE EGRESO*
 ---------------------------------
 👤 Cliente: {nombre_cliente_encontrado}
 🚗 Vehículo: {patente} | Tkt: #{tkt}
