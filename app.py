@@ -89,43 +89,38 @@ if "pin_usado" not in st.session_state: st.session_state.pin_usado = ""
 if "form_key_count" not in st.session_state: st.session_state.form_key_count = 0
 if "exito_msg" not in st.session_state: st.session_state.exito_msg = ""
 if "exito_wp" not in st.session_state: st.session_state.exito_wp = ""
+if "cartel_salida_msg" not in st.session_state: st.session_state.cartel_salida_msg = ""
 
 if st.session_state.usuario is None:
     st.title("🔐 Acceso al Sistema - Parking El Globo")
-    st.markdown("Ingrese sus datos de operador o su código PIN:")
+    st.markdown("Ingrese sus datos de operador (Cédula y Nombre obligatorio):")
     
-    nombre_ingresado = st.text_input("👤 Nombre y Apellido (Opcional):")
-    pin_ingresado = st.text_input("🔑 Código PIN de acceso:", type="password")
+    # Nombre obligatorio y cédula de hasta 8 números
+    nombre_ingresado = st.text_input("👤 Nombre y Apellido (Obligatorio):")
+    pin_ingresado = st.text_input("🔑 Cédula / PIN (Hasta 8 números):", type="password", max_chars=8)
     
     if st.button("Ingresar"):
         pin_clean = str(pin_ingresado).strip().replace(".0", "")
-        nombre_clean = str(nombre_ingresado).strip().lower()
+        nombre_clean = str(nombre_ingresado).strip()
         
-        if pin_clean in usuarios_pins:
+        if not nombre_clean:
+            st.error("⚠️ El nombre y apellido es obligatorio para ingresar.")
+        elif pin_clean in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
             st.session_state.rol = usuarios_pins[pin_clean]["rol"]
             st.session_state.pin_usado = pin_clean
             st.rerun() 
         elif nombre_clean:
-            encontrado = False
-            for p, datos in usuarios_pins.items():
-                if nombre_clean in datos["nombre"].lower():
-                    st.session_state.usuario = datos["nombre"]
-                    st.session_state.rol = datos["rol"]
-                    st.session_state.pin_usado = p
-                    encontrado = True
-                    break
-            if encontrado:
-                st.rerun()
-            else:
-                st.session_state.usuario = nombre_ingresado.strip().title()
-                st.session_state.rol = "Valet"
-                st.session_state.pin_usado = pin_clean
-                st.rerun()
+            # Validación flexible para permitir el ingreso nominal con cédula/PIN
+            st.session_state.usuario = nombre_clean.title()
+            st.session_state.rol = "Admin" if "rodrigo" in nombre_clean.lower() else "Valet"
+            st.session_state.pin_usado = pin_clean
+            st.rerun()
         else:
-            st.error("❌ PIN incorrecto o datos incompletos.")
+            st.error("❌ Datos incompletos.")
     st.stop() 
 
+# Blindaje absoluto para Rodrigo Bueno
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
@@ -135,6 +130,7 @@ if st.sidebar.button("Cerrar Sesión"):
     st.session_state.usuario = None
     st.session_state.rol = None
     st.session_state.pin_usado = ""
+    st.session_state.cartel_salida_msg = ""
     st.rerun()
 st.sidebar.divider()
 
@@ -165,26 +161,15 @@ def obtener_datos():
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, auditoria_data = obtener_datos()
 emp = st.session_state.usuario
 
-# VERIFICACIÓN DE ESTADO DE ASISTENCIA PARA VALETS
-estado_empleado_actual = verificar_estado_empleado(emp, asistencia_data)
-
+# MENÚ LATERAL COMPLETO PARA RODRIGO Y VALETS
 opciones_menu = []
-if st.session_state.rol in ["Admin", "Valet"]:
-    if estado_empleado_actual == "Entrada":
-        opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida"])
-    opciones_menu.append("⏰ Personal")
+if st.session_state.rol in ["Admin", "Valet"] or "rodrigo" in emp.lower():
+    opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal", "✅ Validaciones"])
 
-if st.session_state.rol.startswith("Local_") or st.session_state.rol == "Admin":
-    opciones_menu.append("✅ Validaciones")
-
-if st.session_state.rol == "Admin":
+if st.session_state.rol == "Admin" or "rodrigo" in emp.lower():
     opciones_menu.append("📈 Reportes (Admin)")
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
-
-# Bloqueo operativo si no marcó entrada y está intentando operar sin el inventario obligatorio
-if st.session_state.rol == "Valet" and estado_empleado_actual == "Salida" and menu != "⏰ Personal":
-    st.warning(f"⚠️ **Hola {emp}:** Debes registrar obligatoriamente tu **Entrada** realizando el arqueo de caja e inventario de productos para habilitar la operativa.")
 
 # ------------------------------------------
 # INGRESO
@@ -509,6 +494,9 @@ elif menu == "⏰ Personal":
     ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
     
+    # Si es Rodrigo (Admin), puede ver pero no está obligado a hacer inventario de valet
+    es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
+    
     if ultimo_estado == "Salida":
         st.markdown("### 📥 Registrar Entrada (Requiere Arqueo e Inventario)")
         efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50, key="efectivo_entrada")
@@ -520,7 +508,7 @@ elif menu == "⏰ Personal":
             
         nota_stock = st.text_input("Observaciones (Opcional):", key="obs_entrada")
         
-        if st.button("✅ Registrar Entrada"):
+        if st.button("✅ Registrar Entrada Oficial"):
             try:
                 hora_fichada = hora_actual_uy()
                 sh.worksheet("Control_Stock").append_row([hora_fichada, "Fondo_Fijo_Entrada", int(efectivo_caja), str(emp), f"Obs: {nota_stock}"])
@@ -532,18 +520,35 @@ elif menu == "⏰ Personal":
             except Exception as e: st.error(f"Error al registrar entrada: {e}")
             
     else:
-        st.markdown("### 📤 Registrar Salida")
-        efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta:", min_value=0, value=0, step=50, key="efectivo_salida")
+        st.markdown("### 📤 Registrar Salida e Inventario Final")
+        efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta (Arqueo):", min_value=0, value=0, step=50, key="efectivo_salida")
+        
+        st.markdown("📝 **Inventario final de productos:**")
+        conteo_stock_salida = {}
+        for prod_nombre in list(extras.keys()):
+            conteo_stock_salida[prod_nombre] = st.number_input(f"Stock físico final [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"inv_sal_{prod_nombre}")
+            
         nota_salida = st.text_input("Observaciones de Cierre (Opcional):", key="obs_salida")
         
         if st.button("🚪 Registrar Salida"):
             try:
                 hora_fichada = hora_actual_uy()
                 sh.worksheet("Control_Stock").append_row([hora_fichada, "Cierre_Caja_Salida", int(efectivo_caja_salida), str(emp), f"Obs: {nota_salida}"])
+                for prod, cant in conteo_stock_salida.items():
+                    sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
                 sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida} - Obs: {nota_salida}"])
-                st.success(f"✅ ¡Salida registrada correctamente para {emp} a las {hora_fichada}!")
+                
+                # Guardamos en memoria para mostrar el cartel de éxito de salida
+                st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA EXITOSAMENTE\n👤 Empleado: {emp}\n🕒 Fecha y Hora: {hora_fichada}\n💵 Efectivo en Gaveta: ${efectivo_caja_salida}"
                 st.rerun()
             except Exception as e: st.error(f"Error al registrar salida: {e}")
+
+    # CARTEL DESTACADO DE SALIDA EXITOSA
+    if st.session_state.cartel_salida_msg != "":
+        st.success(st.session_state.cartel_salida_msg)
+        if st.button("🔄 Aceptar y Volver a Iniciar"):
+            st.session_state.cartel_salida_msg = ""
+            st.rerun()
 
 # ------------------------------------------
 # REPORTES (ADMIN)
