@@ -67,6 +67,8 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
+# Caché agregado al login para no saturar la API
+@st.cache_data(ttl=300)
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -96,7 +98,6 @@ if "exito_msg" not in st.session_state: st.session_state.exito_msg = ""
 if "exito_wp" not in st.session_state: st.session_state.exito_wp = ""
 if "cartel_salida_msg" not in st.session_state: st.session_state.cartel_salida_msg = ""
 if "cartel_entrada_msg" not in st.session_state: st.session_state.cartel_entrada_msg = ""
-# Variables locales para evitar leer la BD al cambiar de estado
 if "local_emp" not in st.session_state: st.session_state.local_emp = ""
 if "local_estado" not in st.session_state: st.session_state.local_estado = ""
 if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaje_temporal = ""
@@ -155,8 +156,8 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# Caché con tiempo de vida para que la app no colapse por consultas (15 segs)
-@st.cache_data(ttl=15)
+# CACHÉ EXTENDIDO A 5 MINUTOS (ttl=300) PARA EVITAR ERROR 429
+@st.cache_data(ttl=300)
 def obtener_datos():
     if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
     conf = sh.worksheet("Configuracion").get_all_values()
@@ -186,7 +187,6 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
 
-# Leemos el estado del empleado. Si acaba de guardar algo en esta sesión, leemos su memoria local.
 ultimo_est_operador = verificar_estado_empleado(emp, asistencia_data)
 if st.session_state.local_emp == emp and st.session_state.local_estado != "":
     ultimo_est_operador = st.session_state.local_estado
@@ -195,7 +195,6 @@ opciones_menu = []
 if not es_admin_rodrigo and st.session_state.rol == "Valet":
     opciones_menu.append("⏰ Personal")
 
-# LÓGICA DE MENÚ CORREGIDA: Si fichaste (Fichaje) o completaste inventario (Entrada), se habilitan los módulos
 if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "Valet") or es_admin_rodrigo:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida"])
 
@@ -207,7 +206,6 @@ if es_admin_rodrigo:
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
 
-# Alerta flotante
 if st.session_state.rol == "Valet" and ultimo_est_operador == "Salida" and menu != "⏰ Personal":
     st.warning("⚠️ **¡ATENCIÓN! No olvides registrar tu ENTRADA en el módulo Personal para habilitar el sistema operativo.**")
 
@@ -299,6 +297,7 @@ if menu == "📥 Ingreso":
                 
                 st.session_state.form_key_count += 1
                 st.session_state.ultima_patente = "" 
+                obtener_datos.clear() 
                 st.rerun()
 
     if st.session_state.exito_msg != "":
@@ -377,6 +376,7 @@ elif menu == "✅ Validaciones":
                     st.markdown("### 📲 Avisar a los Valets:")
                     st.markdown(f"[➡️ Notificar al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})", unsafe_allow_html=True)
                     st.markdown(f"[➡️ Notificar al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})", unsafe_allow_html=True)
+                    obtener_datos.clear()
                 except Exception as e:
                     st.error(f"Error: {e}")
         else:
@@ -409,6 +409,7 @@ elif menu == "🍔 Extras":
                 sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA"])
                 actualizar_stock_en_extras(prod, cant)
                 st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
+                obtener_datos.clear()
             else:
                 tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
                 patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
@@ -425,6 +426,7 @@ elif menu == "🍔 Extras":
                         sh.worksheet("Registro").update_cell(i, 8, dinero_actual + total_dinero_extra)
                         break
                 st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
+                obtener_datos.clear()
 
 # ------------------------------------------
 # SALIDA
@@ -521,7 +523,9 @@ Op: {emp}
                     obs_salida if obs_salida else "-", 
                     local_val if local_val else "Ninguna"
                 ])
+                obtener_datos.clear() 
             except Exception as e: st.warning(f"Error: {e}")
+            
             st.success("✅ ¡Ticket registrado con éxito!")
             with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
             
@@ -559,7 +563,7 @@ elif menu == "⏰ Personal":
     tab_entrada, tab_salida = st.tabs(["📥 ENTRADA", "📤 SALIDA"])
     
     # ==========================
-    # PESTAÑA: ENTRADA
+    # PESTAÑA: ENTRADA (CON FORMULARIO ANTI-429)
     # ==========================
     with tab_entrada:
         if ultimo_est_operador == "Entrada":
@@ -569,41 +573,43 @@ elif menu == "⏰ Personal":
             st.success(st.session_state.get('cartel_entrada_msg', "✅ Su hora de entrada inicial ha sido guardada."))
             st.warning("⚠️ Recuerde: su turno no quedará sellado de manera definitiva hasta que complete el Inventario debajo.")
             
-            st.markdown("### 📝 Inventario y Arqueo de Entrada")
-            efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50, key="efectivo_entrada")
-            
-            st.markdown("📝 **Inventario inicial de productos:**")
-            conteo_stock = {}
-            for prod_nombre in list(extras.keys()):
-                if "lavado" not in prod_nombre.lower():
-                    conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"inv_ent_{prod_nombre}")
+            # EL FORMULARIO BLOQUEA LAS RECARGAS AUTOMATICAS MIENTRAS SE LLENAN DATOS
+            with st.form("form_inventario_entrada"):
+                st.markdown("### 📝 Inventario y Arqueo de Entrada")
+                efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50)
                 
-            nota_stock = st.text_input("Observaciones (Opcional):", key="obs_entrada")
-            
-            if st.button("✅ Confirmar Inventario y Finalizar Entrada"):
-                try:
-                    # Usamos la hora exacta en la que hizo el Fichaje temporal para asentar la entrada final
-                    hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
+                st.markdown("📝 **Inventario inicial de productos:**")
+                conteo_stock = {}
+                for prod_nombre in list(extras.keys()):
+                    if "lavado" not in prod_nombre.lower():
+                        conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1)
                     
-                    try: ws_ef = sh.worksheet("Efectivo_Caja")
-                    except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
-                    ws_ef.append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
-                    
-                    filas_stock = []
-                    for prod, cant in conteo_stock.items():
-                        filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
-                    if filas_stock:
-                        sh.worksheet("Control_Stock").append_rows(filas_stock)
+                nota_stock = st.text_input("Observaciones (Opcional):")
+                
+                submit_entrada = st.form_submit_button("✅ Confirmar Inventario y Finalizar Entrada")
+                
+                if submit_entrada:
+                    try:
+                        hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
                         
-                    sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
-                    
-                    st.session_state.local_emp = emp
-                    st.session_state.local_estado = "Entrada"
-                    st.session_state.cartel_entrada_msg = ""
-                    st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e: st.error(f"Error al guardar inventario: {e}")
+                        try: ws_ef = sh.worksheet("Efectivo_Caja")
+                        except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
+                        ws_ef.append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                        
+                        filas_stock = []
+                        for prod, cant in conteo_stock.items():
+                            filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
+                        if filas_stock:
+                            sh.worksheet("Control_Stock").append_rows(filas_stock)
+                            
+                        sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
+                        
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Entrada"
+                        st.session_state.cartel_entrada_msg = ""
+                        obtener_datos.clear()
+                        st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
+                    except Exception as e: st.error(f"Error al guardar inventario: {e}")
                 
         else: # Estado Salida u otro
             st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
@@ -615,50 +621,56 @@ elif menu == "⏰ Personal":
                     st.session_state.local_emp = emp
                     st.session_state.local_estado = "Fichaje"
                     st.session_state.cartel_entrada_msg = f"✅ Su entrada se consignó correctamente a las {hora_fichada}. Pero para que quede registrada de manera definitiva deberá previamente completar el inventario."
+                    obtener_datos.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al registrar entrada: {e}")
 
     # ==========================
-    # PESTAÑA: SALIDA
+    # PESTAÑA: SALIDA (CON FORMULARIO ANTI-429)
     # ==========================
     with tab_salida:
         if ultimo_est_operador == "Salida":
             st.info("ℹ️ No tienes una entrada activa en este momento para registrar salida.")
         else:
             st.warning("⚠️ **RECUERDE REGISTRAR SU SALIDA** (Realice el inventario de stock y arqueo final).")
-            st.markdown("### 📤 Registrar Salida e Inventario Final")
             
-            efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta (Arqueo de Cierre):", min_value=0, value=0, step=50, key="efectivo_salida")
-            
-            st.markdown("📝 **Inventario final de productos:**")
-            conteo_stock_salida = {}
-            for prod_nombre in list(extras.keys()):
-                if "lavado" not in prod_nombre.lower():
-                    conteo_stock_salida[prod_nombre] = st.number_input(f"Stock físico final [{prod_nombre}]:", min_value=0, value=0, step=1, key=f"inv_sal_{prod_nombre}")
+            with st.form("form_inventario_salida"):
+                st.markdown("### 📤 Registrar Salida e Inventario Final")
                 
-            nota_salida = st.text_input("Observaciones de Cierre (Opcional):", key="obs_salida")
-            
-            if st.button("🚪 Registrar Salida Oficial"):
-                try:
-                    hora_fichada = hora_actual_uy()
-                    try: ws_ef = sh.worksheet("Efectivo_Caja")
-                    except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
-                    ws_ef.append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta (Arqueo de Cierre):", min_value=0, value=0, step=50)
+                
+                st.markdown("📝 **Inventario final de productos:**")
+                conteo_stock_salida = {}
+                for prod_nombre in list(extras.keys()):
+                    if "lavado" not in prod_nombre.lower():
+                        conteo_stock_salida[prod_nombre] = st.number_input(f"Stock físico final [{prod_nombre}]:", min_value=0, value=0, step=1)
                     
-                    filas_stock = []
-                    for prod, cant in conteo_stock_salida.items():
-                        filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
-                    if filas_stock:
-                        sh.worksheet("Control_Stock").append_rows(filas_stock)
-                    
-                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
-                    
-                    st.session_state.local_emp = emp
-                    st.session_state.local_estado = "Salida"
-                    st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
-                    st.rerun()
-                except Exception as e: st.error(f"Error al registrar salida: {e}")
+                nota_salida = st.text_input("Observaciones de Cierre (Opcional):")
+                
+                submit_salida = st.form_submit_button("🚪 Registrar Salida Oficial")
+                
+                if submit_salida:
+                    try:
+                        hora_fichada = hora_actual_uy()
+                        try: ws_ef = sh.worksheet("Efectivo_Caja")
+                        except: ws_ef = sh.add_worksheet(title="Efectivo_Caja", rows="1000", cols="10")
+                        ws_ef.append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                        
+                        filas_stock = []
+                        for prod, cant in conteo_stock_salida.items():
+                            filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
+                        if filas_stock:
+                            sh.worksheet("Control_Stock").append_rows(filas_stock)
+                        
+                        sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
+                        
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Salida"
+                        st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
+                        obtener_datos.clear() 
+                        st.rerun()
+                    except Exception as e: st.error(f"Error al registrar salida: {e}")
 
     if st.session_state.cartel_salida_msg != "":
         st.success(st.session_state.cartel_salida_msg)
