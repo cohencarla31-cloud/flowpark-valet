@@ -63,7 +63,6 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
-# LECTURA ROBUSTA DIRECTA DE LA CONFIGURACIÓN DEL GOOGLE SHEET
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -77,7 +76,6 @@ def cargar_usuarios_desde_db():
     except Exception as e:
         print(f"Error leyendo configuración: {e}")
     
-    # Blindaje por si falta el 1000
     if "1000" not in pins_dict:
         pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
         
@@ -85,7 +83,6 @@ def cargar_usuarios_desde_db():
 
 usuarios_pins = cargar_usuarios_desde_db()
 
-# Inicialización de la memoria del sistema
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
 if "pin_usado" not in st.session_state: st.session_state.pin_usado = ""
@@ -104,13 +101,11 @@ if st.session_state.usuario is None:
         pin_clean = str(pin_ingresado).strip().replace(".0", "")
         nombre_clean = str(nombre_ingresado).strip().lower()
         
-        # 1. Búsqueda exacta por PIN
         if pin_clean in usuarios_pins:
             st.session_state.usuario = usuarios_pins[pin_clean]["nombre"]
             st.session_state.rol = usuarios_pins[pin_clean]["rol"]
             st.session_state.pin_usado = pin_clean
             st.rerun() 
-        # 2. Búsqueda por Nombre Parcial
         elif nombre_clean:
             encontrado = False
             for p, datos in usuarios_pins.items():
@@ -131,7 +126,6 @@ if st.session_state.usuario is None:
             st.error("❌ PIN incorrecto o datos incompletos.")
     st.stop() 
 
-# BLINDAJE ABSOLUTO: Si el PIN es 1000 o el nombre es Rodrigo, es Administrador sí o sí
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
@@ -144,7 +138,6 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 st.sidebar.divider()
 
-# MENÚ LATERAL CONFIGURADO SEGÚN EL ROL
 opciones_menu = []
 if st.session_state.rol in ["Admin", "Valet"]:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida", "⏰ Personal"])
@@ -530,8 +523,8 @@ elif menu == "⏰ Personal":
         except Exception as e: st.error(f"Error al guardar: {e}")
 
 elif menu == "📈 Reportes (Admin)":
-    st.subheader("📊 Panel de Ventas y Auditoría")
-    st.info("🔒 Módulo de acceso exclusivo para Administración.")
+    st.subheader("📊 Panel de Ventas, Control y Auditoría")
+    st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
     st.markdown("### 💵 Auditoría de Caja (Fondo Fijo)")
     movimientos_caja = [r for r in stock_data if len(r) > 2 and r[1] in ["Fondo_Fijo_Entrada", "Cierre_Caja_Salida"]]
@@ -591,15 +584,14 @@ elif menu == "📈 Reportes (Admin)":
             df['Extras'] = pd.to_numeric(df['Extras'], errors='coerce').fillna(0)
             df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
             
-            # FILTRO CONFIGURADO POR DEFECTO EN "Todo el historial" PARA QUE NUNCA SALGA VACÍO
             filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
             if filtro == "Hoy": df = df[df['Hora'].dt.date == hoy_dt.date()]
             elif filtro == "Últimos 7 días": df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
                 
-            st.markdown("### 💰 Resumen")
+            st.markdown("### 💰 Resumen Financiero")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Facturación", f"${df['Total'].sum():,.0f}")
+            c1.metric("Facturación Total", f"${df['Total'].sum():,.0f}")
             c2.metric("Por Estacionamiento", f"${df['Parking'].sum():,.0f}")
             c3.metric("Por Extras/Lavados", f"${df['Extras'].sum():,.0f}")
             
