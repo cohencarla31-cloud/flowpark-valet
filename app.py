@@ -498,24 +498,27 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            # --- VALIDACIÓN DE ESTADOS MENSUALISTAS / AUTORIZADOS ---
-            estado_mensual_encontrado = None
+            # --- BÚSQUEDA INTELIGENTE EN BASE_MENSUALISTAS ---
+            estado_mensual_encontrado = ""
             nombre_men = ""
             for m in mensualistas_data[1:]:
-                if len(m) >= 2 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
-                    # Ajustado para leer correctamente las columnas de tu hoja actual
-                    col_estado_idx = 1 if len(m) > 1 else 0
-                    estado_mensual_encontrado = str(m[col_estado_idx]).strip().upper()
-                    nombre_men = str(m[2]).strip() if len(m) > 2 else str(m[1]).strip()
+                if len(m) > 0 and str(m[0]).strip().upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
+                    estado_mensual_encontrado = str(m[1]).strip().upper() if len(m) > 1 else ""
+                    nombre_men = str(m[2]).strip() if len(m) > 2 and str(m[2]).strip() else "Mensualista"
                     break
             
-            if estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] or "AUTORIZADO" in estado_mensual_encontrado or "DIA" in estado_mensual_encontrado:
+            # Lógica de cobro estricta
+            if "AUTORIZADO" in estado_mensual_encontrado:
                 monto_estacionamiento = 0
-                info_desc = f"✅ Cliente Autorizado / Al Día ({nombre_men}). Sin costo de estadía."
+                info_desc = f"✅ Vehículo AUTORIZADO ({nombre_men}). Sin costo de estadía."
                 st.success(info_desc)
-            elif estado_mensual_encontrado == "DEUDA" or estado_mensual_encontrado == "DEUDOR":
+            elif "AL DIA" in estado_mensual_encontrado or "ACTIVO" in estado_mensual_encontrado:
+                monto_estacionamiento = 0
+                info_desc = f"✅ Mensualista AL DÍA ({nombre_men}). Sin costo de estadía."
+                st.success(info_desc)
+            elif "DEUDA" in estado_mensual_encontrado or "DEUDOR" in estado_mensual_encontrado:
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
-                info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA de mensualidad. ¡Gestionar cobro!"
+                info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA. Se aplicó cobro de estadía."
                 st.error(info_desc)
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
@@ -572,7 +575,6 @@ Op: {emp}
                 cel_salida_clean = cel_salida_clean[1:]
                 
             st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
-
 # ------------------------------------------
 # PERSONAL (CONTROL DE ASISTENCIA Y CAJA EN PESTAÑAS)
 # ------------------------------------------
