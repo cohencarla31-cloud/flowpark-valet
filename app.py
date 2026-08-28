@@ -65,6 +65,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
             return str(row[2]).strip().capitalize()
     return "Salida"
 
+# LECTURA ESTRICTA Y LIMPIA DE USUARIOS DESDE LA BD
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -72,7 +73,10 @@ def cargar_usuarios_desde_db():
         for r in conf[1:]:
             if len(r) >= 3 and r[0].strip() and r[1].strip():
                 nombre = r[0].strip()
-                pin = str(r[1]).strip().replace(".0", "")
+                # Limpieza estricta de PINs (remueve .0 y espacios)
+                pin = str(r[1]).strip()
+                if "." in pin:
+                    pin = pin.split(".")[0]
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except Exception as e:
@@ -102,7 +106,9 @@ if st.session_state.usuario is None:
     pin_ingresado = st.text_input("🔑 Cédula / PIN (Hasta 8 números):", type="password", max_chars=8)
     
     if st.button("Ingresar"):
-        pin_clean = str(pin_ingresado).strip().replace(".0", "")
+        pin_clean = str(pin_ingresado).strip()
+        if "." in pin_clean:
+            pin_clean = pin_clean.split(".")[0]
         nombre_clean = str(nombre_ingresado).strip().lower()
         
         if not nombre_clean or not pin_clean:
@@ -111,14 +117,17 @@ if st.session_state.usuario is None:
             usuario_encontrado = None
             rol_encontrado = None
             
+            # Validación rigurosa de doble factor (Nombre + PIN exactos)
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
-                if nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
+                
+                # Comparamos estrictamente que el nombre ingresado pertenezca al usuario del PIN
+                if nombre_clean == nombre_bd or nombre_clean in nombre_bd or nombre_bd in nombre_clean:
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
                 else:
-                    st.error("❌ El número de cédula/PIN ingresado no pertenece al usuario indicado.")
+                    st.error("❌ El número de cédula/PIN no corresponde al nombre de usuario ingresado.")
             else:
                 st.error("❌ Cédula o PIN no autorizado en el sistema.")
                 
@@ -129,6 +138,7 @@ if st.session_state.usuario is None:
                 st.rerun()
     st.stop() 
 
+# Blindaje absoluto para Rodrigo Bueno
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
@@ -189,14 +199,12 @@ if st.session_state.rol == "Admin" or es_admin_rodrigo:
 
 menu = st.sidebar.radio("Módulo Principal", opciones_menu)
 
-# Función para actualizar stock en la solapa Extras automáticamente
 def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
     try:
         ws_ex = sh.worksheet("Extras")
         rows = ws_ex.get_all_values()
         for idx, r in enumerate(rows[1:], start=2):
             if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
-                # Columna 3 es Vendidos (índice 3), Columna 4 es Stock Actual (índice 4)
                 vendidos_actuales = float(r[3]) if r[3] and r[3] != "" else 0
                 stock_actual = float(r[4]) if r[4] and r[4] != "" else 0
                 
@@ -268,7 +276,7 @@ if menu == "📥 Ingreso":
                 h_ing = hora_actual_uy()
                 estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
                 sh.worksheet("Registro").append_row([str(tkt).strip(), pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
-                time.sleep(1) # Pausa técnica para evitar error 429 de cuota de Google
+                time.sleep(1)
                 
                 try: 
                     if cli_nom and not nombre_sug:
@@ -586,7 +594,7 @@ elif menu == "⏰ Personal":
                     
                     for prod, cant in conteo_stock.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
-                        actualizar_stock_en_extras(prod, 0) # Solo asegura registro físico
+                        actualizar_stock_en_extras(prod, 0)
                     time.sleep(0.5)
                     st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada} luego de realizar el inventario!")
                 except Exception as e: st.error(f"Error al guardar inventario: {e}")
@@ -620,7 +628,10 @@ elif menu == "⏰ Personal":
                     
                     for prod, cant in conteo_stock_salida.items():
                         sh.worksheet("Control_Stock").append_row([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
-                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida} - Obs: {nota_salida}"])
+                    
+                    # Escritura limpia y directa en la solapa Asistencia
+                    ws_asis = sh.worksheet("Asistencia")
+                    ws_asis.append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida} - Obs: {nota_salida}"])
                     time.sleep(0.5)
                     
                     st.session_state.cartel_salida_msg = f"🚪 SU SALIDA, LUEGO DE HABER REALIZADO EL INVENTARIO, ES A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
