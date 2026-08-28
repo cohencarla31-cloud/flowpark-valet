@@ -58,11 +58,13 @@ def calcular_mejor_precio(minutos, es_camioneta, local_validacion, tarifas):
     return min(monto_hora, promo if m_cobro > 60 else 99999, dia)
 
 def verificar_estado_empleado(nombre_emp, asistencia_rows):
+    nombre_buscado = str(nombre_emp).strip().lower()
     for row in reversed(asistencia_rows[1:]):
-        if len(row) > 2 and str(row[1]).strip().lower() == str(nombre_emp).strip().lower():
+        if len(row) > 2 and str(row[1]).strip().lower() == nombre_buscado:
             return str(row[2]).strip().capitalize()
     return "Salida"
 
+# LECTURA ESTRICTA DE LA BASE DE DATOS PARA EL LOGIN
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -106,21 +108,20 @@ if st.session_state.usuario is None:
         if not nombre_clean or not pin_clean:
             st.error("⚠️ Debe completar obligatoriamente el nombre y la cédula/PIN.")
         else:
-            # Validación estricta: El PIN debe coincidir con el usuario registrado en la base
             usuario_encontrado = None
             rol_encontrado = None
             
-            # Caso especial Admin Maestro
-            if pin_clean == "1000" or "rodrigo" in nombre_clean:
-                usuario_encontrado = "Rodrigo Bueno"
-                rol_encontrado = "Admin"
-            elif pin_clean in usuarios_pins:
+            # Verificación estricta: El PIN debe coincidir exactamente con el empleado registrado en Google Sheets
+            if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
-                if nombre_clean in datos_u["nombre"].lower():
+                nombre_bd = datos_u["nombre"].lower()
+                
+                # Comprobamos que el nombre ingresado coincida con el de la base (permitiendo variaciones lógicas del primer nombre)
+                if nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
                 else:
-                    st.error("❌ El número de cédula/PIN no corresponde al nombre ingresado.")
+                    st.error("❌ El número de cédula/PIN ingresado no pertenece al usuario indicado.")
             else:
                 st.error("❌ Cédula o PIN no autorizado en el sistema.")
                 
@@ -178,7 +179,6 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
 
-# MENÚ PRINCIPAL: RODRIGO NO TIENE PERSONAL, LOS VALETS SÍ
 opciones_menu = []
 if not es_admin_rodrigo and st.session_state.rol == "Valet":
     opciones_menu.append("⏰ Personal")
@@ -503,12 +503,14 @@ elif menu == "⏰ Personal":
     if st.button("🔄 Actualizar Estado de Turno"):
         st.rerun()
 
-    ultimo_estado = verificar_estado_empleado(emp, asistencia_data)
+    # Recargamos asistencia fresca directo de la base para evitar desfasajes
+    asistencia_actualizada = sh.worksheet("Asistencia").get_all_values()
+    ultimo_estado = verificar_estado_empleado(emp, asistencia_actualizada)
     st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_estado}**")
     
     with st.expander("📋 Ver mi resumen de entradas y salidas recientes"):
         try:
-            mis_asistencias = [r for r in asistencia_data[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
+            mis_asistencias = [r for r in asistencia_actualizada[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
             if mis_asistencias:
                 df_mis_asis = pd.DataFrame(mis_asistencias[-5:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(mis_asistencias[0])])
                 st.dataframe(df_mis_asis, use_container_width=True)
@@ -526,7 +528,7 @@ elif menu == "⏰ Personal":
     # ==========================
     with tab_entrada:
         if ultimo_estado == "Entrada":
-            st.info("ℹ️ Ya te encuentras con la **Entrada** registrada y activa en este turno.")
+            st.info("ℹ️ Ya te encuentras con la **Entrada** registrada y activa en este turno. Debes registrar tu salida en la pestaña de Salida antes de iniciar un nuevo turno.")
         else:
             st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
             
@@ -630,7 +632,7 @@ elif menu == "📈 Reportes (Admin)":
 
     st.divider()
 
-    st.markdown("### 💵 Auditoría de Caja y Efectivo Declarado (Pestaña Efectivo_Caja)")
+    st.markdown("### 💵 Auditoría de Caja y Efectivo Declarado (Control de Faltantes Entre Turnos)")
     try:
         ws_ef = sh.worksheet("Efectivo_Caja")
         datos_ef = ws_ef.get_all_values()
@@ -639,15 +641,25 @@ elif menu == "📈 Reportes (Admin)":
             df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
             st.dataframe(df_ef.tail(10), use_container_width=True)
             
+            # Auditoría exacta entre turnos distintos: Comparamos el Cierre del turno anterior con la Entrada del turno siguiente
             if len(df_ef) >= 2:
-                ultimo_reg = df_ef.iloc[-1]
-                penultimo_reg = df_ef.iloc[-2]
-                if penultimo_reg['Tipo'] == "Salida" and ultimo_reg['Tipo'] == "Entrada":
-                    dif = float(ultimo_reg['Monto']) - float(penultimo_reg['Monto'])
-                    if dif != 0:
-                        st.error(f"🚨 **ALERTA DE EFECTIVO:** Diferencia de caja de ${dif:+,.0f} entre el cierre de {penultimo_reg['Empleado']} (${penultimo_reg['Monto']}) y la apertura de {ultimo_reg['Empleado']} (${ultimo_reg['Monto']}).")
-                    else:
-                        st.success("✅ El efectivo de caja cuadra perfectamente entre turnos.")
+                # Buscamos el último registro de Salida y el último de Entrada
+                salidas = df_ef[df_ef['Tipo'] == "Salida"]
+                entradas = df_ef[df_ef['Tipo'] == "Entrada"]
+                if not salidas.empty and not entradas.empty:
+                    ult_salida = salidas.iloc[-1]
+                    ult_entrada = entradas.iloc[-1]
+                    
+                    # Si la entrada es posterior a la última salida, comparamos montos
+                    if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
+                        monto_cierre = float(ult_salida['Monto'])
+                        monto_apertura = float(ult_entrada['Monto'])
+                        dif = monto_apertura - monto_cierre
+                        
+                        if dif != 0:
+                            st.error(f"🚨 **ALERTA DE EFECTIVO ENTRE TURNOS:** El empleado {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió el turno con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                        else:
+                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
         else:
             st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
     except Exception as e:
