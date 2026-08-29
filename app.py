@@ -12,13 +12,11 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
-    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
     }
     
-    /* Forzar visibilidad de la barra lateral en celulares */
     @media (max-width: 768px) {
         [data-testid="stSidebar"] {
             min-width: 260px !important;
@@ -26,16 +24,30 @@ st.markdown("""
         }
     }
     
-    /* ELIMINAR ABSOLUTAMENTE CUALQUIER BOTÓN DE EXPANDIR / FULL SCREEN */
-    [data-testid="stToolbar"], [data-testid="stDecoration"], header, footer, 
-    button[title*="fullscreen"], button[title*="Full"], a[title*="fullscreen"],
-    .stAppToolbar, [class*="viewerBadge"] {
+    footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
     }
     </style>
+    
+    <script>
+    // Script infalible para borrar el botón de Fullscreen en tiempo real
+    const borrarFullscreen = () => {
+        const elementos = document.querySelectorAll('a, button, div, span');
+        elementos.forEach(el => {
+            if (el.innerText && (el.innerText.includes('Fullscreen') || el.innerText.includes('Built with Streamlit'))) {
+                // Sube hasta el contenedor principal de esa barra flotante y elimínalo
+                let contenedor = el.closest('div[style*="position"]') || el.parentElement;
+                if (contenedor) {
+                    contenedor.style.display = 'none';
+                }
+                el.style.display = 'none';
+            }
+        });
+    };
+    
+    // Ejecutar varias veces para asegurar que se borre apenas cargue
+    setInterval(borrarFullscreen, 300);
+    </script>
 """, unsafe_allow_html=True)
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
