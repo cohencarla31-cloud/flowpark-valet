@@ -26,6 +26,11 @@ st.markdown("""
         }
     }
     
+    /* Ocultar botón de Full Page / Expandir de Streamlit */
+    button[title="View fullscreen"], a[title="View fullscreen"], [data-testid="stDecoration"] {
+        display: none !important;
+    }
+    
     /* Ocultar barra de herramientas y badge flotante inferior */
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
@@ -33,6 +38,18 @@ st.markdown("""
     div[data-testid="stToolbar"] {display: none !important;}
     iframe[title="streamlitApp"] {display: none !important;}
     </style>
+    
+    <script>
+    // Script de seguridad para eliminar cualquier enlace o botón de pantalla completa residual
+    setTimeout(function() {
+        const fullPageButtons = document.querySelectorAll('a[href*="embed=true"], button');
+        fullPageButtons.forEach(el => {
+            if (el.innerText && el.innerText.includes('Full page')) {
+                el.style.display = 'none';
+            }
+        });
+    }, 1000);
+    </script>
 """, unsafe_allow_html=True)
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
