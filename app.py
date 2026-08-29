@@ -13,6 +13,12 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
+    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL OPTIMIZADO */
+    html, body, [data-testid="stAppViewContainer"] {
+        overscroll-behavior-y: none !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    
     /* Ocultar barra de herramientas y badge flotante inferior */
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
