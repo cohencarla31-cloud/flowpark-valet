@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import urllib.parse
 import time
+
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -12,29 +13,44 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
+    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
     }
     
-    /* HACER VISIBLE LA BARRA LATERAL EN CELULARES Y FIJARLA */
+    /* Hacer la barra lateral estable en celulares */
     @media (max-width: 768px) {
         [data-testid="stSidebar"] {
-            display: block !important;
-            visibility: visible !important;
-            width: 260px !important;
             min-width: 260px !important;
-            position: fixed !important;
-            z-index: 999999 !important;
+            max-width: 260px !important;
         }
     }
     
-    /* Ocultar elementos de Streamlit pero PERMITIR el header móvil para que no se oculte el menú */
+    /* Ocultar elementos de Streamlit pero PERMITIR el header móvil para usar el menú */
     footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
     }
     </style>
+    
+    <script>
+    // Script infalible para borrar el botón de Fullscreen y marca de agua en tiempo real
+    const borrarFullscreen = () => {
+        const elementos = document.querySelectorAll('a, button, div, span');
+        elementos.forEach(el => {
+            if (el.innerText && (el.innerText.includes('Fullscreen') || el.innerText.includes('Built with Streamlit'))) {
+                let contenedor = el.closest('div[style*="position"]') || el.parentElement;
+                if (contenedor) {
+                    contenedor.style.display = 'none';
+                }
+                el.style.display = 'none';
+            }
+        });
+    };
+    setInterval(borrarFullscreen, 300);
+    </script>
 """, unsafe_allow_html=True)
+
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
 
@@ -208,14 +224,16 @@ ultimo_est_operador = verificar_estado_empleado(emp, asistencia_data)
 if st.session_state.local_emp == emp and st.session_state.local_estado != "":
     ultimo_est_operador = st.session_state.local_estado
 
+# --- MENÚ DE NAVEGACIÓN CON PERMISOS ESTRICTOS ---
 opciones_menu = []
+
 if not es_admin_rodrigo and st.session_state.rol == "Valet":
     opciones_menu.append("⏰ Personal")
 
 if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "Valet") or es_admin_rodrigo:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida"])
 
-if st.session_state.rol.startswith("Local_") or es_admin_rodrigo:
+if (st.session_state.rol and st.session_state.rol.startswith("Local_")) or es_admin_rodrigo:
     opciones_menu.append("✅ Validaciones")
 
 if es_admin_rodrigo:
@@ -515,7 +533,10 @@ elif menu == "📤 Salida":
                         estado_mensual_encontrado = "DEUDOR"
                     else:
                         estado_mensual_encontrado = "AL DIA"
-                    nombre_men = str(m[1]).strip() if len(m) > 1 else "Mensualista"
+                    
+                    nombre_men = str(m[1]).strip() if len(m) > 1 and str(m[1]).strip() else "Mensualista"
+                    if "DEUDOR" in nombre_men.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
+                        nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
                     break
             
             if estado_mensual_encontrado == "AUTORIZADO":
@@ -725,7 +746,6 @@ elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
-    # --- PANEL COMERCIAL: MENSUALISTAS Y MOROSIDAD (CORREGIDO Y ROBUSTO) ---
     st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
     try:
         ws_men = sh.worksheet("Base_Mensualistas")
@@ -910,4 +930,3 @@ elif menu == "📈 Reportes (Admin)":
             st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
-        
