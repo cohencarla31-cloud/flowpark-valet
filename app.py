@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import urllib.parse
 import time
-
+st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="expanded")
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
 st.markdown("""
