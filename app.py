@@ -237,11 +237,24 @@ if menu == "📥 Ingreso":
     k = st.session_state.form_key_count
     
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
-    patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and rc[0].strip()]
-    patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec)))
+    patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
+    
+    patentes_mensualistas = []
+    nombres_mensualistas_map = {}
+    try:
+        for m in mensualistas_data[1:]:
+            if len(m) > 0 and str(m[0]).strip():
+                pat_m = str(m[0]).strip().upper().replace("-", "").replace(" ", "")
+                patentes_mensualistas.append(pat_m)
+                nom_m = str(m[1]).strip() if len(m) > 1 and str(m[1]).strip() else "Mensualista/Autorizado"
+                nombres_mensualistas_map[pat_m] = nom_m
+    except:
+        pass
+
+    patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec + patentes_mensualistas)))
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
-    sel_pat_cam = st.selectbox("📷 1. Seleccionar Patente (Cámara y Clientes Frecuentes):", [""] + patentes_unificadas, key=f"cam_{k}")
+    sel_pat_cam = st.selectbox("📷 1. Seleccionar Patente (Cámara, Frecuentes y Mensualistas):", [""] + patentes_unificadas, key=f"cam_{k}")
     pat_manual = st.text_input("✍️ 2. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
     
     if pat_manual.strip():
@@ -260,6 +273,8 @@ if menu == "📥 Ingreso":
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
+        if not nombre_sug and pat_final in nombres_mensualistas_map:
+            nombre_sug = nombres_mensualistas_map[pat_final]
 
     if "ultima_patente" not in st.session_state:
         st.session_state.ultima_patente = ""
@@ -279,7 +294,6 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"):
             cel_clean = cel_clean[1:]
             
-        # Si no pone número de tarjeta, le asignamos un identificador automático para que no dé error
         tkt_final = str(tkt).strip()
         if not tkt_final:
             tkt_final = f"FREC-{pat_final}"
@@ -476,24 +490,32 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            # --- VALIDACIÓN DE ESTADOS MENSUALISTAS / AUTORIZADOS ---
-            estado_mensual_encontrado = None
+            # --- BÚSQUEDA INTELIGENTE EN TODA LA FILA ---
+            estado_mensual_encontrado = ""
             nombre_men = ""
             for m in mensualistas_data[1:]:
-                if len(m) >= 2 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
-                    # Ajustado para leer correctamente las columnas de tu hoja actual
-                    col_estado_idx = 1 if len(m) > 1 else 0
-                    estado_mensual_encontrado = str(m[col_estado_idx]).strip().upper()
-                    nombre_men = str(m[2]).strip() if len(m) > 2 else str(m[1]).strip()
+                if len(m) > 0 and str(m[0]).strip().upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
+                    texto_fila = " ".join([str(val) for val in m]).upper()
+                    if "AUTORIZADO" in texto_fila:
+                        estado_mensual_encontrado = "AUTORIZADO"
+                    elif "DEUDA" in texto_fila or "DEUDOR" in texto_fila:
+                        estado_mensual_encontrado = "DEUDOR"
+                    else:
+                        estado_mensual_encontrado = "AL DIA"
+                    nombre_men = str(m[1]).strip() if len(m) > 1 else "Mensualista"
                     break
             
-            if estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] or "AUTORIZADO" in estado_mensual_encontrado or "DIA" in estado_mensual_encontrado:
+            if estado_mensual_encontrado == "AUTORIZADO":
                 monto_estacionamiento = 0
-                info_desc = f"✅ Cliente Autorizado / Al Día ({nombre_men}). Sin costo de estadía."
+                info_desc = f"✅ Vehículo AUTORIZADO ({nombre_men}). Sin costo de estadía."
                 st.success(info_desc)
-            elif estado_mensual_encontrado == "DEUDA" or estado_mensual_encontrado == "DEUDOR":
+            elif estado_mensual_encontrado == "AL DIA":
+                monto_estacionamiento = 0
+                info_desc = f"✅ Mensualista AL DÍA ({nombre_men}). Sin costo de estadía."
+                st.success(info_desc)
+            elif estado_mensual_encontrado == "DEUDOR":
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
-                info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA de mensualidad. ¡Gestionar cobro!"
+                info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA. Se aplicó cobro de estadía."
                 st.error(info_desc)
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
@@ -690,33 +712,47 @@ elif menu == "📈 Reportes (Admin)":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
-    # --- PANEL COMERCIAL: MENSUALISTAS Y MOROSIDAD ---
+    # --- PANEL COMERCIAL: MENSUALISTAS Y MOROSIDAD (CORREGIDO Y ROBUSTO) ---
     st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
     try:
         ws_men = sh.worksheet("Base_Mensualistas")
         datos_m = ws_men.get_all_values()
         if len(datos_m) > 1:
-            df_m = pd.DataFrame(datos_m[1:], columns=["Matrícula", "Estado", "Nombre"][:len(datos_m[0])])
-            df_m['Estado'] = df_m['Estado'].astype(str).str.strip().str.upper()
+            total_comercial = len(datos_m) - 1
+            total_autorizados = 0
+            total_al_dia = 0
+            lista_deudores = []
             
-            # Conteo flexible según lo que se encuentre en las celdas
-            total_autorizados = len(df_m[df_m['Estado'].str.contains("AUTORIZADO", na=False)])
-            total_al_dia = len(df_m[df_m['Estado'].str.contains("AL DIA|ACTIVO|PROSEGUR|MARCELO|QUINQUELA|GLOBAL|TDT|GOMEZ|TRANSAMERICAN|ESTAB", na=False) | ~df_m['Estado'].str.contains("DEUDA|DEUDOR", na=False)])
-            total_deudores = len(df_m[df_m['Estado'].str.contains("DEUDA|DEUDOR", na=False)])
-            total_comercial = len(df_m)
+            for fila in datos_m[1:]:
+                if not fila or not fila[0].strip():
+                    continue
+                mat = str(fila[0]).strip().upper()
+                texto_fila_completo = " ".join([str(val).strip() for val in fila]).upper()
+                
+                if "AUTORIZADO" in texto_fila_completo:
+                    total_autorizados += 1
+                elif "DEUDA" in texto_fila_completo or "DEUDOR" in texto_fila_completo:
+                    nombre_encontrado = str(fila[1]).strip() if len(fila) > 1 and str(fila[1]).strip() else "Sin nombre"
+                    if "DEUDOR" in nombre_encontrado.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
+                        nombre_encontrado = str(fila[2]).strip() if len(fila) > 2 else "Sin nombre"
+                    lista_deudores.append({"Matrícula": mat, "Nombre / Empresa": nombre_encontrado})
+                else:
+                    total_al_dia += 1
+
+            total_deudores = len(lista_deudores)
             
             c_m1, c_m2, c_m3, c_m4 = st.columns(4)
             c_m1.metric(label="Total Registrados", value=total_comercial)
-            c_m2.metric(label="✅ Al Día / Autorizados", value=total_comercial - total_deudores)
+            c_m2.metric(label="✅ Pagos Al Día", value=total_al_dia)
             c_m3.metric(label="🛑 Morosos / Deuda", value=total_deudores, delta="- Deudores", delta_color="inverse")
-            c_m4.metric(label="Total Base", value=len(df_m))
+            c_m4.metric(label="Autorizados", value=total_autorizados)
             
             if total_deudores > 0:
-                st.error(f"⚠️ Hay {total_deudores} mensualistas marcados con deuda:")
-                df_deudores = df_m[df_m['Estado'].str.contains("DEUDA|DEUDOR", na=False)][['Matrícula', 'Estado', 'Nombre']]
+                st.error(f"⚠️ Hay {total_deudores} mensualista(s) con deuda pendiente:")
+                df_deudores = pd.DataFrame(lista_deudores)
                 st.dataframe(df_deudores, use_container_width=True, hide_index=True)
             else:
-                st.success("¡Excelente estado de cuenta! No se registran deudores marcados.")
+                st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
         else:
             st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
     except Exception as e:
@@ -861,3 +897,4 @@ elif menu == "📈 Reportes (Admin)":
             st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
+        
