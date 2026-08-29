@@ -17,37 +17,23 @@ st.markdown("""
         -webkit-overflow-scrolling: touch;
     }
     
+    /* HACER VISIBLE LA BARRA LATERAL EN CELULARES Y FIJARLA */
     @media (max-width: 768px) {
         [data-testid="stSidebar"] {
+            display: block !important;
+            visibility: visible !important;
+            width: 260px !important;
             min-width: 260px !important;
-            max-width: 260px !important;
+            position: fixed !important;
+            z-index: 999999 !important;
         }
     }
     
-    footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
+    /* Ocultar elementos de Streamlit pero PERMITIR el header móvil para que no se oculte el menú */
+    footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
     }
     </style>
-    
-    <script>
-    // Script infalible para borrar el botón de Fullscreen en tiempo real
-    const borrarFullscreen = () => {
-        const elementos = document.querySelectorAll('a, button, div, span');
-        elementos.forEach(el => {
-            if (el.innerText && (el.innerText.includes('Fullscreen') || el.innerText.includes('Built with Streamlit'))) {
-                // Sube hasta el contenedor principal de esa barra flotante y elimínalo
-                let contenedor = el.closest('div[style*="position"]') || el.parentElement;
-                if (contenedor) {
-                    contenedor.style.display = 'none';
-                }
-                el.style.display = 'none';
-            }
-        });
-    };
-    
-    // Ejecutar varias veces para asegurar que se borre apenas cargue
-    setInterval(borrarFullscreen, 300);
-    </script>
 """, unsafe_allow_html=True)
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
