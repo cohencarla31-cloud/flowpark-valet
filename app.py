@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import urllib.parse
 import time
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="expanded")
-st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered")
 
 st.markdown("""
     <style>
@@ -13,10 +12,18 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
-    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL OPTIMIZADO */
+    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Forzar visibilidad de la barra lateral en celulares */
+    @media (max-width: 768px) {
+        [data-testid="stSidebar"] {
+            min-width: 260px !important;
+            max-width: 260px !important;
+        }
     }
     
     /* Ocultar barra de herramientas y badge flotante inferior */
@@ -27,7 +34,6 @@ st.markdown("""
     iframe[title="streamlitApp"] {display: none !important;}
     </style>
 """, unsafe_allow_html=True)
-
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
 
