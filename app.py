@@ -79,16 +79,54 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
 
 def calcular_mejor_precio(minutos, es_camioneta, local_validacion, tarifas):
     tipo = "Camioneta" if es_camioneta else "Auto"
-    if local_validacion == "Rodrigo Bueno": return 0
+    if local_validacion == "Rodrigo Bueno": 
+        return 0
+    
+    # Descuento de locales (ej. Quinquela o Number 18 descuentan 150 minutos)
     descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
     m_cobro = max(0, minutos - descuento)
-    if m_cobro <= 0: return 0
-    hora = tarifas.get("Hora", {}).get(tipo, 110)
-    promo = tarifas.get("Promo_4h", {}).get(tipo, 330)
-    dia = tarifas.get("Dia_Completo", {}).get(tipo, 500)
-    monto_hora = ((m_cobro - 1) // 60 + 1) * hora
-    return min(monto_hora, promo if m_cobro > 60 else 99999, dia)
+    if m_cobro <= 0: 
+        return 0
 
+    # Obtener tarifas de la base de datos
+    v_hora = tarifas.get("Hora", {}).get(tipo, 110)
+    v_promo4h = tarifas.get("Promo_4h", {}).get(tipo, 330)
+    v_dia = tarifas.get("Dia_Completo", {}).get(tipo, 500)
+
+    # Definimos los minutos equivalentes (8 horas = 480 minutos, 4 horas = 240 minutos)
+    # Nota: Si tu "Día Completo" en el parking son exactamente 8 horas:
+    mins_dia = 8 * 60  
+    mins_promo = 4 * 60
+
+    total_a_cobrar = 0
+
+    # 1. Calcular cuántos días completos (8 horas) abarca la estadía
+    dias = m_cobro // mins_dia
+    total_a_cobrar += dias * v_dia
+    m_cobro = m_cobro % mins_dia  # Resto de minutos que no alcanzaron para otro día completo
+
+    # 2. Calcular cuántas promos de 4 horas abarca el resto
+    promos = m_cobro // mins_promo
+    total_a_cobrar += promos * v_promo4h
+    m_cobro = m_cobro % mins_promo  # Resto de minutos sueltos
+
+    # 3. Calcular las horas restantes con la tarifa por hora (redondeando hacia arriba por hora iniciada)
+    if m_cobro > 0:
+        horas_sueltas = (m_cobro - 1) // 60 + 1
+        monto_suelto = horas_sueltas * v_hora
+        
+        # Validación de tope: si las horas sueltas suman más que una promo de 4h, se cobra la promo
+        if promos == 0 and monto_suelto > v_promo4h and m_cobro <= mins_promo:
+            total_a_cobrar += v_promo4h
+        else:
+            total_a_cobrar += monto_suelto
+
+    # Validación final de tope diario por si el acumulado supera el día completo en fracciones
+    # (Por ejemplo, si las horas sueltas sumadas superan el valor de un día, se aplica el tope de un día)
+    if total_a_cobrar > v_dia and dias == 0 and minutos <= mins_dia:
+        return v_dia
+
+    return total_a_cobrar
 def verificar_estado_empleado(nombre_emp, asistencia_rows):
     nombre_buscado = str(nombre_emp).strip().lower()
     for row in reversed(asistencia_rows[1:]):
