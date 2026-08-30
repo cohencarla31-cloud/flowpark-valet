@@ -5,23 +5,19 @@ from datetime import datetime, timedelta
 import urllib.parse
 import time
 
-# Configuramos la app para que arranque sin la barra lateral (la colapsamos por defecto)
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
-    /* Estilos para que el menú superior se vea como botones táctiles de App */
     div.row-widget.stRadio > div { flex-wrap: wrap; justify-content: center; gap: 8px; }
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 10px 15px; border-radius: 8px; font-size: 16px; border: 2px solid #ddd; cursor: pointer; margin: 2px; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
-    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
     }
     
-    /* Eliminar por completo la barra lateral nativa, el header, footer y botones flotantes */
     [data-testid="stSidebar"], [data-testid="collapsedControl"], footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
         visibility: hidden !important;
@@ -29,15 +25,12 @@ st.markdown("""
     </style>
     
     <script>
-    // Script infalible para borrar el botón de Fullscreen y marca de agua en tiempo real
     const borrarFullscreen = () => {
         const elementos = document.querySelectorAll('a, button, div, span');
         elementos.forEach(el => {
             if (el.innerText && (el.innerText.includes('Fullscreen') || el.innerText.includes('Built with Streamlit'))) {
                 let contenedor = el.closest('div[style*="position"]') || el.parentElement;
-                if (contenedor) {
-                    contenedor.style.display = 'none';
-                }
+                if (contenedor) { contenedor.style.display = 'none'; }
                 el.style.display = 'none';
             }
         });
@@ -79,54 +72,40 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
 
 def calcular_mejor_precio(minutos, es_camioneta, local_validacion, tarifas):
     tipo = "Camioneta" if es_camioneta else "Auto"
-    if local_validacion == "Rodrigo Bueno": 
-        return 0
-    
-    # Descuento de locales (ej. Quinquela o Number 18 descuentan 150 minutos)
+    if local_validacion == "Rodrigo Bueno": return 0
     descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
     m_cobro = max(0, minutos - descuento)
-    if m_cobro <= 0: 
-        return 0
+    if m_cobro <= 0: return 0
 
-    # Obtener tarifas de la base de datos
     v_hora = tarifas.get("Hora", {}).get(tipo, 110)
     v_promo4h = tarifas.get("Promo_4h", {}).get(tipo, 330)
     v_dia = tarifas.get("Dia_Completo", {}).get(tipo, 500)
 
-    # Definimos los minutos equivalentes (8 horas = 480 minutos, 4 horas = 240 minutos)
-    # Nota: Si tu "Día Completo" en el parking son exactamente 8 horas:
     mins_dia = 8 * 60  
     mins_promo = 4 * 60
-
     total_a_cobrar = 0
 
-    # 1. Calcular cuántos días completos (8 horas) abarca la estadía
     dias = m_cobro // mins_dia
     total_a_cobrar += dias * v_dia
-    m_cobro = m_cobro % mins_dia  # Resto de minutos que no alcanzaron para otro día completo
+    m_cobro = m_cobro % mins_dia  
 
-    # 2. Calcular cuántas promos de 4 horas abarca el resto
     promos = m_cobro // mins_promo
     total_a_cobrar += promos * v_promo4h
-    m_cobro = m_cobro % mins_promo  # Resto de minutos sueltos
+    m_cobro = m_cobro % mins_promo  
 
-    # 3. Calcular las horas restantes con la tarifa por hora (redondeando hacia arriba por hora iniciada)
     if m_cobro > 0:
         horas_sueltas = (m_cobro - 1) // 60 + 1
         monto_suelto = horas_sueltas * v_hora
-        
-        # Validación de tope: si las horas sueltas suman más que una promo de 4h, se cobra la promo
         if promos == 0 and monto_suelto > v_promo4h and m_cobro <= mins_promo:
             total_a_cobrar += v_promo4h
         else:
             total_a_cobrar += monto_suelto
 
-    # Validación final de tope diario por si el acumulado supera el día completo en fracciones
-    # (Por ejemplo, si las horas sueltas sumadas superan el valor de un día, se aplica el tope de un día)
     if total_a_cobrar > v_dia and dias == 0 and minutos <= mins_dia:
         return v_dia
 
     return total_a_cobrar
+
 def verificar_estado_empleado(nombre_emp, asistencia_rows):
     nombre_buscado = str(nombre_emp).strip().lower()
     for row in reversed(asistencia_rows[1:]):
@@ -145,8 +124,7 @@ def cargar_usuarios_desde_db():
             if len(r) >= 3 and r[0].strip() and r[1].strip():
                 nombre = r[0].strip()
                 pin = str(r[1]).strip()
-                if "." in pin:
-                    pin = pin.split(".")[0]
+                if "." in pin: pin = pin.split(".")[0]
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except Exception as e:
@@ -179,16 +157,13 @@ if st.session_state.usuario is None:
     
     if st.button("Ingresar"):
         pin_clean = str(pin_ingresado).strip()
-        if "." in pin_clean:
-            pin_clean = pin_clean.split(".")[0]
+        if "." in pin_clean: pin_clean = pin_clean.split(".")[0]
         nombre_clean = str(nombre_ingresado).strip().lower()
         
         if not nombre_clean or not pin_clean:
             st.error("⚠️ Debe completar obligatoriamente el nombre y la cédula/PIN.")
         else:
-            usuario_encontrado = None
-            rol_encontrado = None
-            
+            usuario_encontrado, rol_encontrado = None, None
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
@@ -210,7 +185,6 @@ if st.session_state.usuario is None:
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
-# --- TOP BAR: INFO DE USUARIO Y CERRAR SESIÓN ---
 st.markdown("<br>", unsafe_allow_html=True)
 c_user, c_out = st.columns([3, 1])
 c_user.markdown(f"👤 **{st.session_state.usuario}** | 🛡️ {st.session_state.rol}")
@@ -260,7 +234,6 @@ ultimo_est_operador = verificar_estado_empleado(emp, asistencia_data)
 if st.session_state.local_emp == emp and st.session_state.local_estado != "":
     ultimo_est_operador = st.session_state.local_estado
 
-# --- MENÚ DE NAVEGACIÓN COMO BOTONES SUPERIORES TÁCTILES ---
 st.markdown("### 📍 Menú Principal")
 opciones_menu = []
 
@@ -278,7 +251,7 @@ if es_admin_rodrigo:
 
 if not opciones_menu:
     st.error("⚠️ No tienes permisos activos o no has marcado tu Entrada. Ve al módulo Personal para habilitar el sistema.")
-    opciones_menu = ["⏰ Personal"] # Fuerza a que al menos vea personal para fichar
+    opciones_menu = ["⏰ Personal"] 
 
 menu = st.radio("Navegación:", opciones_menu, horizontal=True, label_visibility="collapsed")
 st.divider()
@@ -330,12 +303,9 @@ if menu == "📥 Ingreso":
     sel_pat_cam = st.selectbox("📷 1. Seleccionar Patente (Cámara, Frecuentes y Mensualistas):", [""] + patentes_unificadas, key=f"cam_{k}")
     pat_manual = st.text_input("✍️ 2. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
     
-    if pat_manual.strip():
-        pat_final = pat_manual.strip()
-    elif sel_pat_cam:
-        pat_final = sel_pat_cam
-    else:
-        pat_final = ""
+    if pat_manual.strip(): pat_final = pat_manual.strip()
+    elif sel_pat_cam: pat_final = sel_pat_cam
+    else: pat_final = ""
         
     pat_final = pat_final.upper().replace("-", "").replace(" ", "")
     st.divider()
@@ -349,8 +319,7 @@ if menu == "📥 Ingreso":
         if not nombre_sug and pat_final in nombres_mensualistas_map:
             nombre_sug = nombres_mensualistas_map[pat_final]
 
-    if "ultima_patente" not in st.session_state:
-        st.session_state.ultima_patente = ""
+    if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
         
     if pat_final != st.session_state.ultima_patente:
         st.session_state.ultima_patente = pat_final
@@ -364,12 +333,10 @@ if menu == "📥 Ingreso":
     
     if st.button("✅ Registrar Ingreso"):
         cel_clean = str(cel).strip()
-        if cel_clean.startswith("0"):
-            cel_clean = cel_clean[1:]
+        if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
             
         tkt_final = str(tkt).strip()
-        if not tkt_final:
-            tkt_final = f"FREC-{pat_final}"
+        if not tkt_final: tkt_final = f"FREC-{pat_final}"
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -379,6 +346,7 @@ if menu == "📥 Ingreso":
             else:
                 h_ing = hora_actual_uy()
                 estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
+                # Columna D (índice 4) arranca obligatoriamente VACÍA para que el auto permanezca activo
                 sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                 
                 try: 
@@ -427,12 +395,9 @@ elif menu == "📊 Activos":
 # ------------------------------------------
 elif menu == "✅ Validaciones":
     st.subheader("Validación de Locales")
-    if st.session_state.rol == "Local_Quinquela":
-        local_seleccionado = "Quinquela"
-    elif st.session_state.rol == "Local_Number18":
-        local_seleccionado = "Number 18"
-    else:
-        local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
+    if st.session_state.rol == "Local_Quinquela": local_seleccionado = "Quinquela"
+    elif st.session_state.rol == "Local_Number18": local_seleccionado = "Number 18"
+    else: local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
         
     activos_disponibles = []
     for r in reg[1:]:
@@ -563,18 +528,14 @@ elif menu == "📤 Salida":
             es_camioneta = "Camioneta" in datos[4]
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            # --- BÚSQUEDA INTELIGENTE EN TODA LA FILA ---
             estado_mensual_encontrado = ""
             nombre_men = ""
             for m in mensualistas_data[1:]:
                 if len(m) > 0 and str(m[0]).strip().upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
                     texto_fila = " ".join([str(val) for val in m]).upper()
-                    if "AUTORIZADO" in texto_fila:
-                        estado_mensual_encontrado = "AUTORIZADO"
-                    elif "DEUDA" in texto_fila or "DEUDOR" in texto_fila:
-                        estado_mensual_encontrado = "DEUDOR"
-                    else:
-                        estado_mensual_encontrado = "AL DIA"
+                    if "AUTORIZADO" in texto_fila: estado_mensual_encontrado = "AUTORIZADO"
+                    elif "DEUDA" in texto_fila or "DEUDOR" in texto_fila: estado_mensual_encontrado = "DEUDOR"
+                    else: estado_mensual_encontrado = "AL DIA"
                     
                     nombre_men = str(m[1]).strip() if len(m) > 1 else "Mensualista"
                     if "DEUDOR" in nombre_men.upper() or "AL DIA" in nombre_men.upper() or "AUTORIZADO" in nombre_men.upper():
@@ -625,6 +586,7 @@ Op: {emp}
             try:
                 for i, row in enumerate(reg, start=1):
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
+                        # AQUÍ ES DONDE ÚNICAMENTE SE ESCRIBE LA SALIDA REAL POR EL CAJERO
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
@@ -644,13 +606,12 @@ Op: {emp}
             with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
             
             cel_salida_clean = str(cel_salida).strip()
-            if cel_salida_clean.startswith("0"):
-                cel_salida_clean = cel_salida_clean[1:]
+            if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
                 
             st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
 
 # ------------------------------------------
-# PERSONAL (CONTROL DE ASISTENCIA Y CAJA EN PESTAÑAS)
+# PERSONAL
 # ------------------------------------------
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
@@ -667,10 +628,8 @@ elif menu == "⏰ Personal":
             if mis_asistencias:
                 df_mis_asis = pd.DataFrame(mis_asistencias[-5:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(mis_asistencias[0])])
                 st.dataframe(df_mis_asis, use_container_width=True)
-            else:
-                st.info("No hay registros recientes.")
-        except:
-            st.info("Sin registros.")
+            else: st.info("No hay registros recientes.")
+        except: st.info("Sin registros.")
 
     st.divider()
 
@@ -695,20 +654,17 @@ elif menu == "⏰ Personal":
                         conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1)
                     
                 nota_stock = st.text_input("Observaciones (Opcional):")
-                
                 submit_entrada = st.form_submit_button("✅ Confirmar Inventario y Finalizar Entrada")
                 
                 if submit_entrada:
                     try:
                         hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
-                        
                         sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
                         
                         filas_stock = []
                         for prod, cant in conteo_stock.items():
                             filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
-                        if filas_stock:
-                            sh.worksheet("Control_Stock").append_rows(filas_stock)
+                        if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
                             
                         sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
                         
@@ -731,8 +687,7 @@ elif menu == "⏰ Personal":
                     st.session_state.cartel_entrada_msg = f"✅ Su entrada se consignó correctamente a las {hora_fichada}. Pero para que quede registrada de manera definitiva deberá previamente completar el inventario."
                     obtener_datos.clear()
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error al registrar entrada: {e}")
+                except Exception as e: st.error(f"Error al registrar entrada: {e}")
 
     with tab_salida:
         if ultimo_est_operador == "Salida":
@@ -742,7 +697,6 @@ elif menu == "⏰ Personal":
             
             with st.form("form_inventario_salida"):
                 st.markdown("### 📤 Registrar Salida e Inventario Final")
-                
                 efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta (Arqueo de Cierre):", min_value=0, value=0, step=50)
                 
                 st.markdown("📝 **Inventario final de productos:**")
@@ -752,7 +706,6 @@ elif menu == "⏰ Personal":
                         conteo_stock_salida[prod_nombre] = st.number_input(f"Stock físico final [{prod_nombre}]:", min_value=0, value=0, step=1)
                     
                 nota_salida = st.text_input("Observaciones de Cierre (Opcional):")
-                
                 submit_salida = st.form_submit_button("🚪 Registrar Salida Oficial")
                 
                 if submit_salida:
@@ -763,8 +716,7 @@ elif menu == "⏰ Personal":
                         filas_stock = []
                         for prod, cant in conteo_stock_salida.items():
                             filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
-                        if filas_stock:
-                            sh.worksheet("Control_Stock").append_rows(filas_stock)
+                        if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
                         
                         sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
                         
@@ -794,25 +746,21 @@ elif menu == "📈 Reportes":
         datos_m = ws_men.get_all_values()
         if len(datos_m) > 1:
             total_comercial = len(datos_m) - 1
-            total_autorizados = 0
-            total_al_dia = 0
+            total_autorizados, total_al_dia = 0, 0
             lista_deudores = []
             
             for fila in datos_m[1:]:
-                if not fila or not fila[0].strip():
-                    continue
+                if not fila or not fila[0].strip(): continue
                 mat = str(fila[0]).strip().upper()
                 texto_fila_completo = " ".join([str(val).strip() for val in fila]).upper()
                 
-                if "AUTORIZADO" in texto_fila_completo:
-                    total_autorizados += 1
+                if "AUTORIZADO" in texto_fila_completo: total_autorizados += 1
                 elif "DEUDA" in texto_fila_completo or "DEUDOR" in texto_fila_completo:
                     nombre_encontrado = str(fila[1]).strip() if len(fila) > 1 and str(fila[1]).strip() else "Sin nombre"
                     if "DEUDOR" in nombre_encontrado.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
                         nombre_encontrado = str(fila[2]).strip() if len(fila) > 2 else "Sin nombre"
                     lista_deudores.append({"Matrícula": mat, "Nombre / Empresa": nombre_encontrado})
-                else:
-                    total_al_dia += 1
+                else: total_al_dia += 1
 
             total_deudores = len(lista_deudores)
             
@@ -826,10 +774,8 @@ elif menu == "📈 Reportes":
                 st.error(f"⚠️ Hay {total_deudores} mensualista(s) con deuda pendiente:")
                 df_deudores = pd.DataFrame(lista_deudores)
                 st.dataframe(df_deudores, use_container_width=True, hide_index=True)
-            else:
-                st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
-        else:
-            st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
+            else: st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
+        else: st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
     except Exception as e:
         st.info(f"ℹ️ Error leyendo la base de mensualistas: {e}")
 
@@ -844,10 +790,8 @@ elif menu == "📈 Reportes":
             df_asis['Hora'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
             df_asis = df_asis.sort_values(by='Hora', ascending=False)
             st.dataframe(df_asis.head(15), use_container_width=True)
-        else:
-            st.info("ℹ️ Aún no hay registros de asistencia.")
-    except Exception as e:
-        st.error(f"Error cargando asistencia: {e}")
+        else: st.info("ℹ️ Aún no hay registros de asistencia.")
+    except Exception as e: st.error(f"Error cargando asistencia: {e}")
 
     st.divider()
 
@@ -870,21 +814,17 @@ elif menu == "📈 Reportes":
                         monto_cierre = float(ult_salida['Monto'])
                         monto_apertura = float(ult_entrada['Monto'])
                         dif = monto_apertura - monto_cierre
-                        
                         if dif != 0:
                             st.error(f"🚨 **ALERTA DE EFECTIVO ENTRE TURNOS:** El empleado {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió el turno con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                         else:
                             st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con el cierre anterior de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
-        else:
-            st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
-    except Exception as e:
-        st.info("ℹ️ Asegúrate de tener creada la pestaña 'Efectivo_Caja' en tu Google Sheet.")
+        else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
+    except Exception as e: st.info("ℹ️ Asegúrate de tener creada la pestaña 'Efectivo_Caja' en tu Google Sheet.")
 
     st.divider()
 
     st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
     hoy_str = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
-    
     autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str in r[1]]
     autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
     
@@ -898,16 +838,13 @@ elif menu == "📈 Reportes":
 
     fugas = []
     for patente_camara in autos_camara:
-        if patente_camara not in patentes_activas_playa:
-            fugas.append(patente_camara)
+        if patente_camara not in patentes_activas_playa: fugas.append(patente_camara)
             
-    if len(autos_camara) == 0:
-        st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
+    if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
     elif fugas:
         st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
         st.write("Patentes sin registrar:", ", ".join(set(fugas)))
-    else:
-        st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
+    else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
 
     st.divider()
 
@@ -940,14 +877,12 @@ elif menu == "📈 Reportes":
             
             st.markdown("---")
             col_a, col_b = st.columns(2)
-            
             with col_a:
                 st.markdown("### 👤 Rendimiento por Valet")
                 if not df.empty:
                     df_op = df.groupby('Op')['Total'].sum().reset_index()
                     df_op.columns = ['Valet', 'Recaudación ($)']
                     st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
-            
             with col_b:
                 st.markdown("### 🏪 Uso de Validaciones")
                 if not df.empty:
@@ -967,8 +902,6 @@ elif menu == "📈 Reportes":
                 df_diario.rename(columns={'Autos': 'Cant. Autos', 'Parking': 'Parking ($)', 'Extras': 'Extras ($)', 'Total_Recaudado': 'Total ($)'}, inplace=True)
                 df_diario = df_diario.sort_values(by='Fecha', ascending=False)
                 st.dataframe(df_diario, use_container_width=True)
-                
-        else:
-            st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
+        else: st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
