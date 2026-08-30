@@ -5,12 +5,14 @@ from datetime import datetime, timedelta
 import urllib.parse
 import time
 
-st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="expanded")
+# Configuramos la app para que arranque sin la barra lateral (la colapsamos por defecto)
+st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
-    div.row-widget.stRadio > div { flex-wrap: wrap; justify-content: center; gap: 10px; }
-    div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 15px 25px; border-radius: 8px; font-size: 18px; border: 2px solid #ddd; cursor: pointer; }
+    /* Estilos para que el menú superior se vea como botones táctiles de App */
+    div.row-widget.stRadio > div { flex-wrap: wrap; justify-content: center; gap: 8px; }
+    div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 10px 15px; border-radius: 8px; font-size: 16px; border: 2px solid #ddd; cursor: pointer; margin: 2px; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
     /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
@@ -19,17 +21,10 @@ st.markdown("""
         -webkit-overflow-scrolling: touch;
     }
     
-    /* Hacer la barra lateral estable en celulares */
-    @media (max-width: 768px) {
-        [data-testid="stSidebar"] {
-            min-width: 260px !important;
-            max-width: 260px !important;
-        }
-    }
-    
-    /* Ocultar elementos de Streamlit pero PERMITIR el header móvil para usar el menú */
-    footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
+    /* Eliminar por completo la barra lateral nativa, el header, footer y botones flotantes */
+    [data-testid="stSidebar"], [data-testid="collapsedControl"], footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
+        visibility: hidden !important;
     }
     </style>
     
@@ -137,6 +132,7 @@ if "local_estado" not in st.session_state: st.session_state.local_estado = ""
 if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaje_temporal = ""
 
 if st.session_state.usuario is None:
+    st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🔐 Acceso al Sistema - Parking El Globo")
     st.markdown("Ingrese sus datos de operador (Nombre y Cédula/PIN exactos):")
     
@@ -176,9 +172,11 @@ if st.session_state.usuario is None:
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
     st.session_state.rol = "Admin"
 
-st.sidebar.markdown(f"👤 **Usuario:** {st.session_state.usuario}")
-st.sidebar.markdown(f"🛡️ **Rol:** {st.session_state.rol}")
-if st.sidebar.button("Cerrar Sesión"):
+# --- TOP BAR: INFO DE USUARIO Y CERRAR SESIÓN ---
+st.markdown("<br>", unsafe_allow_html=True)
+c_user, c_out = st.columns([3, 1])
+c_user.markdown(f"👤 **{st.session_state.usuario}** | 🛡️ {st.session_state.rol}")
+if c_out.button("🚪 Salir"):
     st.session_state.usuario = None
     st.session_state.rol = None
     st.session_state.pin_usado = ""
@@ -188,7 +186,7 @@ if st.sidebar.button("Cerrar Sesión"):
     st.session_state.local_estado = ""
     st.session_state.hora_fichaje_temporal = ""
     st.rerun()
-st.sidebar.divider()
+st.divider()
 
 @st.cache_data(ttl=300)
 def obtener_datos():
@@ -224,7 +222,8 @@ ultimo_est_operador = verificar_estado_empleado(emp, asistencia_data)
 if st.session_state.local_emp == emp and st.session_state.local_estado != "":
     ultimo_est_operador = st.session_state.local_estado
 
-# --- MENÚ DE NAVEGACIÓN CON PERMISOS ESTRICTOS ---
+# --- MENÚ DE NAVEGACIÓN COMO BOTONES SUPERIORES TÁCTILES ---
+st.markdown("### 📍 Menú Principal")
 opciones_menu = []
 
 if not es_admin_rodrigo and st.session_state.rol == "Valet":
@@ -237,9 +236,14 @@ if (st.session_state.rol and st.session_state.rol.startswith("Local_")) or es_ad
     opciones_menu.append("✅ Validaciones")
 
 if es_admin_rodrigo:
-    opciones_menu.append("📈 Reportes (Admin)")
+    opciones_menu.append("📈 Reportes")
 
-menu = st.sidebar.radio("Módulo Principal", opciones_menu)
+if not opciones_menu:
+    st.error("⚠️ No tienes permisos activos o no has marcado tu Entrada. Ve al módulo Personal para habilitar el sistema.")
+    opciones_menu = ["⏰ Personal"] # Fuerza a que al menos vea personal para fichar
+
+menu = st.radio("Navegación:", opciones_menu, horizontal=True, label_visibility="collapsed")
+st.divider()
 
 if st.session_state.rol == "Valet" and ultimo_est_operador == "Salida" and menu != "⏰ Personal":
     st.warning("⚠️ **¡ATENCIÓN! No olvides registrar tu ENTRADA en el módulo Personal para habilitar el sistema operativo.**")
@@ -534,8 +538,8 @@ elif menu == "📤 Salida":
                     else:
                         estado_mensual_encontrado = "AL DIA"
                     
-                    nombre_men = str(m[1]).strip() if len(m) > 1 and str(m[1]).strip() else "Mensualista"
-                    if "DEUDOR" in nombre_men.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
+                    nombre_men = str(m[1]).strip() if len(m) > 1 else "Mensualista"
+                    if "DEUDOR" in nombre_men.upper() or "AL DIA" in nombre_men.upper() or "AUTORIZADO" in nombre_men.upper():
                         nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
                     break
             
@@ -742,7 +746,7 @@ elif menu == "⏰ Personal":
 # ------------------------------------------
 # REPORTES (ADMIN)
 # ------------------------------------------
-elif menu == "📈 Reportes (Admin)":
+elif menu == "📈 Reportes":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
