@@ -9,15 +9,23 @@ st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", in
 
 st.markdown("""
     <style>
+    /* Estilos para que el menú superior se vea como botones táctiles de App */
     div.row-widget.stRadio > div { flex-wrap: wrap; justify-content: center; gap: 8px; }
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 10px 15px; border-radius: 8px; font-size: 16px; border: 2px solid #ddd; cursor: pointer; margin: 2px; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
+    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
     }
     
+    /* MARGEN INFERIOR AMPLIO: Evita que los botones finales queden tapados al fondo del celular */
+    [data-testid="stMainBlockContainer"] {
+        padding-bottom: 120px !important;
+    }
+    
+    /* Eliminar por completo la barra lateral nativa, el header, footer y botones flotantes */
     [data-testid="stSidebar"], [data-testid="collapsedControl"], footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
         visibility: hidden !important;
@@ -38,7 +46,6 @@ st.markdown("""
     setInterval(borrarFullscreen, 300);
     </script>
 """, unsafe_allow_html=True)
-
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
 
