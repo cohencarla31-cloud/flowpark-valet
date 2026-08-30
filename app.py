@@ -9,23 +9,19 @@ st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", in
 
 st.markdown("""
     <style>
-    /* Estilos para que el menú superior se vea como botones táctiles de App */
     div.row-widget.stRadio > div { flex-wrap: wrap; justify-content: center; gap: 8px; }
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 10px 15px; border-radius: 8px; font-size: 16px; border: 2px solid #ddd; cursor: pointer; margin: 2px; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
-    /* BLOQUEO DE PULL-TO-REFRESH Y SCROLL MÓVIL */
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
     }
     
-    /* MARGEN INFERIOR AMPLIO: Evita que los botones finales queden tapados al fondo del celular */
     [data-testid="stMainBlockContainer"] {
         padding-bottom: 120px !important;
     }
     
-    /* Eliminar por completo la barra lateral nativa, el header, footer y botones flotantes */
     [data-testid="stSidebar"], [data-testid="collapsedControl"], footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         display: none !important;
         visibility: hidden !important;
@@ -46,14 +42,19 @@ st.markdown("""
     setInterval(borrarFullscreen, 300);
     </script>
 """, unsafe_allow_html=True)
+
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
 
 @st.cache_resource
 def init_connection():
-    creds_dict = st.secrets["gcp_service_account"]
-    client = gspread.service_account_from_dict(creds_dict)
-    return client.open("FlowPark_Valet_DB")
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+        client = gspread.service_account_from_dict(creds_dict)
+        return client.open("FlowPark_Valet_DB")
+    except Exception as e:
+        st.error("⚠️ Error crítico de conexión con la base de datos. Por favor, avise al administrador.")
+        st.stop()
 
 sh = init_connection()
 
@@ -122,7 +123,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -130,8 +131,8 @@ def cargar_usuarios_desde_db():
         for r in conf[1:]:
             if len(r) >= 3 and r[0].strip() and r[1].strip():
                 nombre = r[0].strip()
+                # El PIN ya no limpia puntos para respetar caracteres alfanuméricos
                 pin = str(r[1]).strip()
-                if "." in pin: pin = pin.split(".")[0]
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except Exception as e:
@@ -157,20 +158,43 @@ if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaj
 if st.session_state.usuario is None:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🔐 Acceso al Sistema - Parking El Globo")
-    st.markdown("Ingrese sus datos de operador (Nombre y Cédula/PIN exactos):")
     
-    nombre_ingresado = st.text_input("👤 Nombre y Apellido:")
-    pin_ingresado = st.text_input("🔑 Cédula / PIN (Hasta 8 números):", type="password", max_chars=8)
+    # 📌 PANEL DE FLUJO SIMPLE PARA EMPLEADOS
+    with st.expander("📖 **¿Cómo funciona el sistema? (Guía Rápida)**", expanded=False):
+        st.markdown("""
+        **Paso 1: Fichar Entrada ⏰**
+        * Al llegar, logueate y andá al módulo **Personal**.
+        * Hacé clic en "Registrar Entrada", contá el dinero de la caja, cargá el stock físico y confirmá.
+        
+        **Paso 2: Operativa 🚗**
+        * **📥 Ingreso:** Anotá la patente y enviá el comprobante al cliente.
+        * **✅ Validaciones:** Si los locales Quinquela o Nro 18 aplican un descuento, se mostrará en los activos.
+        
+        **Paso 3: Cobro y Salida 📤**
+        * Andá a **Salida**, buscá el auto, y el sistema calculará automáticamente el mejor precio.
+        * Al finalizar el turno, volvé a **Personal** para registrar tu Salida con el conteo final de caja.
+        """)
+    
+    st.markdown("Ingrese sus datos de operador para iniciar el turno:")
+    
+    nombre_ingresado = st.text_input("👤 Usuario:")
+    # Seguridad: Pedimos al menos 8 caracteres y lo ocultamos
+    pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password")
     
     if st.button("Ingresar"):
+        # ESCUDO ANTI-BOTS: Retraso invisible
+        time.sleep(1.5)
+        
         pin_clean = str(pin_ingresado).strip()
-        if "." in pin_clean: pin_clean = pin_clean.split(".")[0]
         nombre_clean = str(nombre_ingresado).strip().lower()
         
         if not nombre_clean or not pin_clean:
-            st.error("⚠️ Debe completar obligatoriamente el nombre y la cédula/PIN.")
+            st.error("⚠️ Debe completar el usuario y la clave.")
+        elif len(pin_clean) < 8 and pin_clean != "1000":
+            st.error("🔒 Por seguridad, la clave debe tener al menos 8 caracteres.")
         else:
             usuario_encontrado, rol_encontrado = None, None
+            # Validación estricta: Case-sensitive en la clave
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
@@ -178,9 +202,9 @@ if st.session_state.usuario is None:
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
                 else:
-                    st.error("❌ El número de cédula/PIN no corresponde al nombre de usuario ingresado.")
+                    st.error("❌ El usuario no coincide con las credenciales ingresadas.")
             else:
-                st.error("❌ Cédula o PIN no autorizado en el sistema.")
+                st.error("❌ Clave incorrecta o no autorizada en el sistema.")
                 
             if usuario_encontrado:
                 st.session_state.usuario = usuario_encontrado
@@ -207,33 +231,44 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-@st.cache_data(ttl=300)
+# PREVENCIÓN PANTALLA BLANCA: Manejo de errores en la extracción de datos
+@st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
-    if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
-    conf = sh.worksheet("Configuracion").get_all_values()
-    tarifas_raw = sh.worksheet("Tarifas").get_all_values()
-    extras_raw = sh.worksheet("Extras").get_all_values()
-    reg = sh.worksheet("Registro").get_all_values()
-    q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
-    cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
-    
-    try: asistencia = sh.worksheet("Asistencia").get_all_values()
-    except: asistencia = []
-    try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
-    except: mensualistas = []
-    try: stock = sh.worksheet("Control_Stock").get_all_values()
-    except: stock = []
-    try: efectivo_data = sh.worksheet("Efectivo_Caja").get_all_values()
-    except: efectivo_data = []
-    try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
-    except: auditoria = []
-    
-    empleados = [r[0] for r in conf[1:] if r[0]]
-    tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
-    extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-    return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria
+    try:
+        if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
+        conf = sh.worksheet("Configuracion").get_all_values()
+        tarifas_raw = sh.worksheet("Tarifas").get_all_values()
+        extras_raw = sh.worksheet("Extras").get_all_values()
+        reg = sh.worksheet("Registro").get_all_values()
+        q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
+        cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
+        
+        try: asistencia = sh.worksheet("Asistencia").get_all_values()
+        except: asistencia = []
+        try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
+        except: mensualistas = []
+        try: stock = sh.worksheet("Control_Stock").get_all_values()
+        except: stock = []
+        try: efectivo_data = sh.worksheet("Efectivo_Caja").get_all_values()
+        except: efectivo_data = []
+        try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
+        except: auditoria = []
+        
+        empleados = [r[0] for r in conf[1:] if r[0]]
+        tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
+        extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
+        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria
+    except Exception as e:
+        return [], {}, {}, [], [], [], [], [], [], [], []
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data = obtener_datos()
+# Control anti-bloqueo al obtener datos
+resultado_datos = obtener_datos()
+if not resultado_datos[0] and st.session_state.rol != "Admin":
+    st.warning("🔄 Hubo un pequeño corte de conexión con la base de datos. Intentando reconectar... presione 'F5' o recargue la página en unos segundos.")
+    st.stop()
+
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data = resultado_datos
+
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
 
@@ -351,25 +386,25 @@ if menu == "📥 Ingreso":
             if any((str(r[0]).strip().lstrip("0") == tkt_final.lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
                 st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
             else:
-                h_ing = hora_actual_uy()
-                estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                # Columna D (índice 4) arranca obligatoriamente VACÍA para que el auto permanezca activo
-                sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
-                
-                try: 
+                try:
+                    h_ing = hora_actual_uy()
+                    estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
+                    sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
+                    
                     if cli_nom and not nombre_sug:
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
-                except: pass
-                
-                msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
-                
-                st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt_final}"
-                st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
-                
-                st.session_state.form_key_count += 1
-                st.session_state.ultima_patente = "" 
-                obtener_datos.clear() 
-                st.rerun()
+                    
+                    msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                    
+                    st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt_final}"
+                    st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
+                    
+                    st.session_state.form_key_count += 1
+                    st.session_state.ultima_patente = "" 
+                    obtener_datos.clear() 
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al intentar guardar en la base de datos: {e}")
 
     if st.session_state.exito_msg != "":
         st.success(st.session_state.exito_msg)
@@ -446,7 +481,7 @@ elif menu == "✅ Validaciones":
                     st.markdown(f"[➡️ Notificar al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})", unsafe_allow_html=True)
                     obtener_datos.clear()
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error al conectar con Google Sheets: {e}")
         else:
             st.error("Selecciona un vehículo de la lista.")
 
@@ -473,28 +508,31 @@ elif menu == "🍔 Extras":
         if not prod: st.warning("Seleccione un producto.")
         else:
             fecha_act = hora_actual_uy()
-            if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
-                sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA"])
-                actualizar_stock_en_extras(prod, cant)
-                st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
-                obtener_datos.clear()
-            else:
-                tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
-                patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
-                precio_unitario = extras.get(prod, 0)
-                total_dinero_extra = precio_unitario * cant
-                sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext])
-                actualizar_stock_en_extras(prod, cant)
-                for i, row in enumerate(reg, start=1):
-                    if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
-                        texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
-                        nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
-                        sh.worksheet("Registro").update_cell(i, 6, nuevo_texto)
-                        dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
-                        sh.worksheet("Registro").update_cell(i, 8, dinero_actual + total_dinero_extra)
-                        break
-                st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
-                obtener_datos.clear()
+            try:
+                if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
+                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA"])
+                    actualizar_stock_en_extras(prod, cant)
+                    st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
+                    obtener_datos.clear()
+                else:
+                    tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
+                    patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
+                    precio_unitario = extras.get(prod, 0)
+                    total_dinero_extra = precio_unitario * cant
+                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext])
+                    actualizar_stock_en_extras(prod, cant)
+                    for i, row in enumerate(reg, start=1):
+                        if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
+                            texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
+                            nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
+                            sh.worksheet("Registro").update_cell(i, 6, nuevo_texto)
+                            dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
+                            sh.worksheet("Registro").update_cell(i, 8, dinero_actual + total_dinero_extra)
+                            break
+                    st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
+                    obtener_datos.clear()
+            except Exception as e:
+                st.error("Hubo un error cargando el extra. Intente nuevamente.")
 
 # ------------------------------------------
 # SALIDA
@@ -593,7 +631,6 @@ Op: {emp}
             try:
                 for i, row in enumerate(reg, start=1):
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
-                        # AQUÍ ES DONDE ÚNICAMENTE SE ESCRIBE LA SALIDA REAL POR EL CAJERO
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
@@ -607,15 +644,16 @@ Op: {emp}
                     local_val if local_val else "Ninguna"
                 ])
                 obtener_datos.clear() 
-            except Exception as e: st.warning(f"Error: {e}")
-            
-            st.success("✅ ¡Ticket registrado con éxito!")
-            with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
-            
-            cel_salida_clean = str(cel_salida).strip()
-            if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
                 
-            st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
+                st.success("✅ ¡Ticket registrado con éxito!")
+                with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
+                
+                cel_salida_clean = str(cel_salida).strip()
+                if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
+                    
+                st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
+            except Exception as e: 
+                st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
 
 # ------------------------------------------
 # PERSONAL
