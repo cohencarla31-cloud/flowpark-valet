@@ -29,6 +29,7 @@ st.markdown("""
     </style>
     
     <script>
+    // 1. Escudo anti-marca de agua de Streamlit
     const borrarFullscreen = () => {
         const elementos = document.querySelectorAll('a, button, div, span');
         elementos.forEach(el => {
@@ -40,9 +41,13 @@ st.markdown("""
         });
     };
     setInterval(borrarFullscreen, 300);
+
+    // 2. MANTENEDOR DE SESIÓN MÓVIL (Evita que el navegador duerma o reinicie la app)
+    setInterval(() => {
+        fetch(window.location.href, { method: 'HEAD' }).catch(() => {});
+    }, 20000);
     </script>
 """, unsafe_allow_html=True)
-
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
 
