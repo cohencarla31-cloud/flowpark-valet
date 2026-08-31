@@ -1,0 +1,15 @@
+name: Despertador Streamlit
+
+on:
+  schedule:
+    # Este código hace que el robot visite la app cada 3 horas
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visitar la app para que no se duerma
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://flowpark-valet.streamlit.app/
