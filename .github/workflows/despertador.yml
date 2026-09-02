@@ -9,6 +9,6 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Visitar la app
+      - name: Tocar la puerta de la app
         run: |
-          curl --location --request GET 'https://flowpark-valet.streamlit.app/'
+          curl -I -s -o /dev/null -w "%{http_code}" https://flowpark-valet.streamlit.app/
