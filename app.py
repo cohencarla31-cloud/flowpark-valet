@@ -421,21 +421,40 @@ if menu == "📥 Ingreso":
             
         tkt_final = str(tkt).strip()
         
-        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO SI EL VALET LO DEJÓ EN BLANCO
+        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO (EVENTOS VS ESTÁNDAR)
         if not tkt_final: 
-            max_t = 1000 # Empieza en 1000 si está todo vacío
-            # Busca en la playa actual
-            for r_val in reg[1:]:
-                if str(r_val[0]).strip().isdigit():
-                    max_t = max(max_t, int(str(r_val[0]).strip()))
-            # Busca en el historial de tickets históricos
-            for h_val in historial_data[1:]:
-                if len(h_val) > 3:
-                    t_val = str(h_val[3]).replace("#", "").strip()
-                    if t_val.isdigit():
-                        max_t = max(max_t, int(t_val))
-            
-            tkt_final = str(max_t + 1)
+            if evento_sel:
+                prefijo_evento = f"EV{evento_sel.replace(' ', '').upper()}"
+                max_ev = 0
+                
+                # Buscar en la playa
+                for r_val in reg[1:]:
+                    t_val = str(r_val[0]).strip().upper()
+                    if t_val.startswith(prefijo_evento):
+                        num_part = t_val.replace(prefijo_evento, "")
+                        if num_part.isdigit(): max_ev = max(max_ev, int(num_part))
+                        
+                # Buscar en historial
+                for h_val in historial_data[1:]:
+                    if len(h_val) > 3:
+                        t_val = str(h_val[3]).replace("#", "").strip().upper()
+                        if t_val.startswith(prefijo_evento):
+                            num_part = t_val.replace(prefijo_evento, "")
+                            if num_part.isdigit(): max_ev = max(max_ev, int(num_part))
+                
+                tkt_final = f"{prefijo_evento}{max_ev + 1}"
+            else:
+                max_t = 1000 # Empieza en 1000 si está todo vacío
+                for r_val in reg[1:]:
+                    if str(r_val[0]).strip().isdigit():
+                        max_t = max(max_t, int(str(r_val[0]).strip()))
+                for h_val in historial_data[1:]:
+                    if len(h_val) > 3:
+                        t_val = str(h_val[3]).replace("#", "").strip()
+                        if t_val.isdigit():
+                            max_t = max(max_t, int(t_val))
+                
+                tkt_final = str(max_t + 1)
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -524,7 +543,13 @@ elif menu == "✅ Validaciones":
                 if not obtener_validacion_local(pat, tkt, h_ing, q_data):
                     activos_disponibles.append(r)
                     
-    activos_disponibles = sorted(activos_disponibles, key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
+    # Ordenamiento alfanumérico para que no tire error con los tickets de eventos
+    def get_sort_key(r):
+        val = str(r[0]).strip()
+        if val.isdigit(): return int(val)
+        return 999999
+        
+    activos_disponibles = sorted(activos_disponibles, key=get_sort_key)
     opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
     seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
     
@@ -567,7 +592,12 @@ elif menu == "🍔 Extras":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
             
-    activos = sorted(list(temp_activos.values()), key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
+    def get_sort_key(r):
+        val = str(r[0]).strip()
+        if val.isdigit(): return int(val)
+        return 999999
+        
+    activos = sorted(list(temp_activos.values()), key=get_sort_key)
     opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     
     sel_auto = st.selectbox("Seleccionar vehículo (Ordenado por Ticket):", opciones_autos)
@@ -616,7 +646,12 @@ elif menu == "📤 Salida":
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
             temp_activos[r[0].strip()] = r
             
-    activos = sorted(list(temp_activos.values()), key=lambda r: int(str(r[0]).strip()) if str(r[0]).strip().isdigit() else 999999)
+    def get_sort_key(r):
+        val = str(r[0]).strip()
+        if val.isdigit(): return int(val)
+        return 999999
+        
+    activos = sorted(list(temp_activos.values()), key=get_sort_key)
     lista_salida_ordenada = [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
     
     sel = st.selectbox("Elegir auto a retirar (Ordenado por Ticket):", [""] + lista_salida_ordenada)
@@ -673,6 +708,7 @@ elif menu == "📤 Salida":
                         nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
                     break
             
+            # 🚨 INYECTAR TEXTO DE DEUDA EN SALIDA
             if es_evento:
                 monto_estacionamiento = 0
                 info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
@@ -1033,7 +1069,6 @@ elif menu == "📈 Reportes":
             st.markdown("---")
             st.markdown("### 🎟️ Asistencia a Eventos")
             
-            # 1. ACTUALMENTE EN PLAYA (Ingresados)
             st.markdown("#### 🟢 Actualmente en Playa (Ingresados)")
             activos_eventos = []
             for r_ev in reg[1:]:
@@ -1046,7 +1081,6 @@ elif menu == "📈 Reportes":
             else:
                 st.info("No hay vehículos de eventos actualmente en el estacionamiento.")
 
-            # 2. EGRESADOS (Historial)
             st.markdown("#### 🏁 Egresados (Finalizados)")
             if not df.empty:
                 df_evts = df[df['Validación'].str.startswith('Evento:', na=False)].copy()
