@@ -333,14 +333,16 @@ if menu == "📥 Ingreso":
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
     
     patentes_mensualistas = []
-    nombres_mensualistas_map = {}
+    datos_mensualistas_map = {}
     try:
         for m in mensualistas_data[1:]:
             if len(m) > 0 and str(m[0]).strip():
                 pat_m = str(m[0]).strip().upper().replace("-", "").replace(" ", "")
                 patentes_mensualistas.append(pat_m)
                 nom_m = str(m[1]).strip() if len(m) > 1 and str(m[1]).strip() else "Mensualista/Autorizado"
-                nombres_mensualistas_map[pat_m] = nom_m
+                estado_m = str(m[2]).strip().upper() if len(m) > 2 else ""
+                tel_m = str(m[3]).strip() if len(m) > 3 else ""
+                datos_mensualistas_map[pat_m] = {"nombre": nom_m, "estado": estado_m, "telefono": tel_m}
     except:
         pass
 
@@ -358,13 +360,19 @@ if menu == "📥 Ingreso":
     st.divider()
 
     nombre_sug, cel_sug = "", "598"
+    es_deudor = False
     if pat_final:
         for rc in clientes[1:]:
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
-        if not nombre_sug and pat_final in nombres_mensualistas_map:
-            nombre_sug = nombres_mensualistas_map[pat_final]
+        if not nombre_sug and pat_final in datos_mensualistas_map:
+            datos_m = datos_mensualistas_map[pat_final]
+            nombre_sug = datos_m["nombre"]
+            if datos_m["telefono"]:
+                cel_sug = datos_m["telefono"]
+            if datos_m["estado"] == "DEUDOR":
+                es_deudor = True
 
     if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
         
@@ -375,8 +383,21 @@ if menu == "📥 Ingreso":
                 
     tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional para Frecuentes/Mensualistas):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
-    cel = st.text_input("📱 Celular (Para comprobante):", key=f"cel_{k}")
+    cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
+    
+    # 🚨 ALERTA DEUDOR Y BOTÓN WHATSAPP
+    if es_deudor:
+        st.error(f"🚨 **¡ATENCIÓN! El mensualista {cli_nom or nombre_sug} REGISTRA DEUDA.**")
+        cel_deuda = str(cel).strip()
+        if cel_deuda.startswith("0"): cel_deuda = cel_deuda[1:]
+        
+        if cel_deuda and cel_deuda != "598":
+            texto_deuda = "Le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
+            link_wa = f"https://wa.me/{cel_deuda}?text={urllib.parse.quote(texto_deuda)}"
+            st.markdown(f"### [👉 📲 ENVIAR AVISO DE DEUDA POR WHATSAPP]({link_wa})")
+        else:
+            st.warning("⚠️ Escribí el celular del cliente arriba para que aparezca el botón de WhatsApp con el aviso.")
     
     if st.button("✅ Registrar Ingreso"):
         cel_clean = str(cel).strip()
@@ -411,12 +432,11 @@ if menu == "📥 Ingreso":
                 except Exception as e:
                     st.error(f"❌ Error al intentar guardar en la base de datos: {e}")
 
-    if st.session_state.exito_msg != "":
-        st.success(st.session_state.exito_msg)
-        st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
-        st.session_state.exito_msg = ""
-        st.session_state.exito_wp = ""
-
+if st.session_state.exito_msg != "":
+    st.success(st.session_state.exito_msg)
+    st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
+    st.session_state.exito_msg = ""
+    st.session_state.exito_wp = ""
 # ------------------------------------------
 # ACTIVOS
 # ------------------------------------------
