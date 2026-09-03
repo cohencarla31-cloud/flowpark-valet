@@ -233,7 +233,7 @@ st.divider()
 @st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
     try:
-        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], []
+        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
         conf = sh.worksheet("Configuracion").get_all_values()
         tarifas_raw = sh.worksheet("Tarifas").get_all_values()
         extras_raw = sh.worksheet("Extras").get_all_values()
@@ -253,20 +253,22 @@ def obtener_datos():
         except: auditoria = []
         try: eventos = sh.worksheet("Eventos").get_all_values()
         except: eventos = []
+        try: historial = sh.worksheet("Historial_Tickets").get_all_values()
+        except: historial = []
         
         empleados = [r[0] for r in conf[1:] if r[0]]
         tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos
+        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial
     except Exception as e:
-        return [], {}, {}, [], [], [], [], [], [], [], [], []
+        return [], {}, {}, [], [], [], [], [], [], [], [], [], []
 
 resultado_datos = obtener_datos()
 if not resultado_datos[0] and st.session_state.rol != "Admin":
     st.warning("🔄 Hubo un pequeño corte de conexión con la base de datos. Intentando reconectar... presione 'F5' o recargue la página en unos segundos.")
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data = resultado_datos
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data = resultado_datos
 
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
@@ -375,7 +377,7 @@ if menu == "📥 Ingreso":
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
                 
-    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional):", key=f"tkt_{k}")
+    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional - Se generará uno automático si se deja en blanco):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
@@ -418,9 +420,22 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
             
         tkt_final = str(tkt).strip()
+        
+        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO SI EL VALET LO DEJÓ EN BLANCO
         if not tkt_final: 
-            # 🎟️ ASIGNAR PREFIJO EV- SI ES EVENTO
-            tkt_final = f"EV-{pat_final}" if evento_sel else f"FREC-{pat_final}"
+            max_t = 1000 # Empieza en 1000 si está todo vacío
+            # Busca en la playa actual
+            for r_val in reg[1:]:
+                if str(r_val[0]).strip().isdigit():
+                    max_t = max(max_t, int(str(r_val[0]).strip()))
+            # Busca en el historial de tickets históricos
+            for h_val in historial_data[1:]:
+                if len(h_val) > 3:
+                    t_val = str(h_val[3]).replace("#", "").strip()
+                    if t_val.isdigit():
+                        max_t = max(max_t, int(t_val))
+            
+            tkt_final = str(max_t + 1)
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -658,7 +673,6 @@ elif menu == "📤 Salida":
                         nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
                     break
             
-            # 🚨 INYECTAR TEXTO DE DEUDA EN SALIDA
             if es_evento:
                 monto_estacionamiento = 0
                 info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
@@ -1010,14 +1024,30 @@ elif menu == "📈 Reportes":
                     df_op.columns = ['Valet', 'Recaudación ($)']
                     st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
             with col_b:
-                # ACÁ SEPARAMOS LAS TABLAS DE REPORTES (LOCALES VS EVENTOS)
                 st.markdown("### 🏪 Uso de Validaciones (Locales)")
                 if not df.empty:
                     df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
                     df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
                     st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
             
+            st.markdown("---")
             st.markdown("### 🎟️ Asistencia a Eventos")
+            
+            # 1. ACTUALMENTE EN PLAYA (Ingresados)
+            st.markdown("#### 🟢 Actualmente en Playa (Ingresados)")
+            activos_eventos = []
+            for r_ev in reg[1:]:
+                if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
+                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0]
+                    activos_eventos.append({"Evento": ev_name, "Patente": str(r_ev[1]).upper(), "Ticket": f"#{r_ev[0]}", "Hora Ingreso": r_ev[2]})
+            
+            if activos_eventos:
+                st.dataframe(pd.DataFrame(activos_eventos), use_container_width=True)
+            else:
+                st.info("No hay vehículos de eventos actualmente en el estacionamiento.")
+
+            # 2. EGRESADOS (Historial)
+            st.markdown("#### 🏁 Egresados (Finalizados)")
             if not df.empty:
                 df_evts = df[df['Validación'].str.startswith('Evento:', na=False)].copy()
                 if not df_evts.empty:
