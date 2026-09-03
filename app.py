@@ -386,21 +386,17 @@ if menu == "📥 Ingreso":
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
-    # 🚨 ALERTA DEUDOR Y BOTÓN WHATSAPP
+    # 🚨 PREPARAR ALERTA Y TEXTO DE DEUDA
+    texto_deuda_completo = ""
     if es_deudor:
         st.error(f"🚨 **¡ATENCIÓN! El mensualista {cli_nom or nombre_sug} REGISTRA DEUDA.**")
-        cel_deuda = str(cel).strip()
-        if cel_deuda.startswith("0"): cel_deuda = cel_deuda[1:]
+        nombre_cliente = cli_nom.strip().title() if cli_nom else nombre_sug.strip().title()
+        saludo = f"Buen día {nombre_cliente}," if nombre_cliente else "Buen día,"
+        texto_deuda_completo = f"{saludo} desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
         
-        if cel_deuda and cel_deuda != "598":
-            nombre_cliente = cli_nom.strip().title() if cli_nom else nombre_sug.strip().title()
-            saludo = f"Buen día {nombre_cliente}, " if nombre_cliente else "Buen día, "
-            
-            texto_deuda = f"{saludo}desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
-            link_wa = f"https://wa.me/{cel_deuda}?text={urllib.parse.quote(texto_deuda)}"
-            st.markdown(f"### [👉 📲 ENVIAR AVISO DE DEUDA POR WHATSAPP]({link_wa})")
-        else:
-            st.warning("⚠️ Escribí el celular del cliente arriba para que aparezca el botón de WhatsApp con el aviso.")
+        cel_pantalla = str(cel).strip()
+        if cel_pantalla == "" or cel_pantalla == "598":
+            st.warning("⚠️ Escribí el celular del cliente arriba para que el aviso de deuda se adjunte al comprobante automático.")
     
     if st.button("✅ Registrar Ingreso"):
         cel_clean = str(cel).strip()
@@ -420,10 +416,26 @@ if menu == "📥 Ingreso":
                     estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                     
-                    if cli_nom and not nombre_sug:
+                    # 1. Guardar en clientes frecuentes si es completamente nuevo
+                    if cli_nom and not nombre_sug and pat_final not in datos_mensualistas_map:
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
                     
-                    msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}\n¡Gracias por elegirnos!"
+                    # 2. AUTOGUARDADO DE CELULAR EN BASE_MENSUALISTAS
+                    if pat_final in datos_mensualistas_map and cel_clean and cel_clean != "598" and not datos_mensualistas_map[pat_final]["telefono"]:
+                        for idx, m_row in enumerate(mensualistas_data):
+                            if len(m_row) > 0 and str(m_row[0]).strip().upper().replace("-", "").replace(" ", "") == pat_final:
+                                # Guardamos el celular en la columna 4 (D) de esa fila
+                                sh.worksheet("Base_Mensualistas").update_cell(idx + 1, 4, cel_clean)
+                                break
+                    
+                    # 3. Armar el Ticket de Ingreso Unificado
+                    msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or nombre_sug or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}"
+                    
+                    # Inyectar el mensaje de deuda si corresponde
+                    if es_deudor and texto_deuda_completo:
+                        msg_ingreso += f"\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
+                        
+                    msg_ingreso += "\n\n¡Gracias por elegirnos!"
                     
                     st.session_state.exito_msg = f"✅ Ingreso registrado: {pat_final} | Tarjeta #{tkt_final}"
                     st.session_state.exito_wp = f"[📲 Enviar Comprobante por WhatsApp](https://wa.me/{cel_clean}?text={urllib.parse.quote(msg_ingreso)})"
