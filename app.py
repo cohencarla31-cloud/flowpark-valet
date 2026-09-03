@@ -393,7 +393,10 @@ if menu == "📥 Ingreso":
         if cel_deuda.startswith("0"): cel_deuda = cel_deuda[1:]
         
         if cel_deuda and cel_deuda != "598":
-            texto_deuda = "Le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
+            nombre_cliente = cli_nom.strip().title() if cli_nom else nombre_sug.strip().title()
+            saludo = f"Buen día {nombre_cliente}, " if nombre_cliente else "Buen día, "
+            
+            texto_deuda = f"{saludo}desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
             link_wa = f"https://wa.me/{cel_deuda}?text={urllib.parse.quote(texto_deuda)}"
             st.markdown(f"### [👉 📲 ENVIAR AVISO DE DEUDA POR WHATSAPP]({link_wa})")
         else:
@@ -621,9 +624,9 @@ elif menu == "📤 Salida":
                 info_desc = f"✅ Mensualista AL DÍA ({nombre_men}). Sin costo de estadía."
                 st.success(info_desc)
             elif estado_mensual_encontrado == "DEUDOR":
-                monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
-                info_desc = f"🛑 ATENCIÓN: {nombre_men} registra DEUDA. Se aplicó cobro de estadía."
-                st.error(info_desc)
+                monto_estacionamiento = 0
+                info_desc = f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0 (El atraso se gestiona en su cuota)."
+                st.warning(info_desc)
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
                 if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% libre por Rodrigo Bueno."
@@ -679,7 +682,6 @@ Op: {emp}
                 st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
             except Exception as e: 
                 st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
-
 # ------------------------------------------
 # PERSONAL
 # ------------------------------------------
