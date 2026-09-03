@@ -48,6 +48,7 @@ st.markdown("""
     }, 20000);
     </script>
 """, unsafe_allow_html=True)
+
 TEL_PARKING_1 = "59895280412" 
 TEL_PARKING_2 = "59893343092" 
 
@@ -136,7 +137,6 @@ def cargar_usuarios_desde_db():
         for r in conf[1:]:
             if len(r) >= 3 and r[0].strip() and r[1].strip():
                 nombre = r[0].strip()
-                # El PIN ya no limpia puntos para respetar caracteres alfanuméricos
                 pin = str(r[1]).strip()
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
@@ -164,7 +164,6 @@ if st.session_state.usuario is None:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🔐 Acceso al Sistema - Parking El Globo")
     
-    # 📌 PANEL DE FLUJO SIMPLE PARA EMPLEADOS
     with st.expander("📖 **¿Cómo funciona el sistema? (Guía Rápida)**", expanded=False):
         st.markdown("""
         **Paso 1: Fichar Entrada ⏰**
@@ -183,11 +182,9 @@ if st.session_state.usuario is None:
     st.markdown("Ingrese sus datos de operador para iniciar el turno:")
     
     nombre_ingresado = st.text_input("👤 Usuario:")
-    # Seguridad: Pedimos al menos 8 caracteres y lo ocultamos
     pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password")
     
     if st.button("Ingresar"):
-        # ESCUDO ANTI-BOTS: Retraso invisible
         time.sleep(1.5)
         
         pin_clean = str(pin_ingresado).strip()
@@ -199,7 +196,6 @@ if st.session_state.usuario is None:
             st.error("🔒 Por seguridad, la clave debe tener al menos 8 caracteres.")
         else:
             usuario_encontrado, rol_encontrado = None, None
-            # Validación estricta: Case-sensitive en la clave
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
@@ -240,7 +236,7 @@ st.divider()
 @st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
     try:
-        if not sh: return [], {}, {}, [], [], [], [], [], [], [], []
+        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], []
         conf = sh.worksheet("Configuracion").get_all_values()
         tarifas_raw = sh.worksheet("Tarifas").get_all_values()
         extras_raw = sh.worksheet("Extras").get_all_values()
@@ -258,13 +254,15 @@ def obtener_datos():
         except: efectivo_data = []
         try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
         except: auditoria = []
+        try: eventos = sh.worksheet("Eventos").get_all_values()
+        except: eventos = []
         
         empleados = [r[0] for r in conf[1:] if r[0]]
         tarifas = {r[0]: {"Auto": int(r[1]), "Camioneta": int(r[2])} for r in tarifas_raw[1:] if r[0]}
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria
+        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos
     except Exception as e:
-        return [], {}, {}, [], [], [], [], [], [], [], []
+        return [], {}, {}, [], [], [], [], [], [], [], [], []
 
 # Control anti-bloqueo al obtener datos
 resultado_datos = obtener_datos()
@@ -272,7 +270,7 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
     st.warning("🔄 Hubo un pequeño corte de conexión con la base de datos. Intentando reconectar... presione 'F5' o recargue la página en unos segundos.")
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data = resultado_datos
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data = resultado_datos
 
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
@@ -386,6 +384,27 @@ if menu == "📥 Ingreso":
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
+    # 🎟️ MÓDULO EVENTOS VIP
+    hoy_str = hora_actual_uy().split()[0]
+    eventos_hoy = []
+    cupos_evento = {}
+    for ev in eventos_data[1:]:
+        if len(ev) >= 3 and str(ev[0]).strip() == hoy_str:
+            nombre_ev = str(ev[1]).strip()
+            eventos_hoy.append(nombre_ev)
+            try: cupos_evento[nombre_ev] = int(ev[2])
+            except: cupos_evento[nombre_ev] = 999
+
+    evento_sel = ""
+    if eventos_hoy:
+        evento_sel = st.selectbox("🎟️ Ingreso por Evento (Opcional):", [""] + eventos_hoy, key=f"evt_{k}")
+        if evento_sel:
+            autos_en_evento = sum(1 for r in reg[1:] if len(r) > 4 and f"Evento: {evento_sel}" in str(r[4]) and hoy_str in str(r[2]))
+            if autos_en_evento >= cupos_evento[evento_sel]:
+                st.warning(f"⚠️ ¡ATENCIÓN! Se superó el cupo de {cupos_evento[evento_sel]} lugares para '{evento_sel}'. (Van {autos_en_evento} autos).")
+            else:
+                st.info(f"✅ Cupo disponible para '{evento_sel}': {autos_en_evento} / {cupos_evento[evento_sel]} autos ingresados.")
+
     # 🚨 PREPARAR ALERTA Y TEXTO DE DEUDA
     texto_deuda_completo = ""
     if es_deudor:
@@ -396,7 +415,7 @@ if menu == "📥 Ingreso":
         
         cel_pantalla = str(cel).strip()
         if cel_pantalla == "" or cel_pantalla == "598":
-            st.warning("⚠️ Escribí el celular del cliente arriba para que el aviso de deuda se adjunte al comprobante automático.")
+            st.warning("⚠️ Escribí el celular del cliente arriba para que el aviso de deuda se adjunte al comprobante.")
     
     if st.button("✅ Registrar Ingreso"):
         cel_clean = str(cel).strip()
@@ -414,24 +433,23 @@ if menu == "📥 Ingreso":
                 try:
                     h_ing = hora_actual_uy()
                     estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
+                    if evento_sel:
+                        estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
+
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                     
-                    # 1. Guardar en clientes frecuentes si es completamente nuevo
                     if cli_nom and not nombre_sug and pat_final not in datos_mensualistas_map:
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
                     
-                    # 2. AUTOGUARDADO DE CELULAR EN BASE_MENSUALISTAS
                     if pat_final in datos_mensualistas_map and cel_clean and cel_clean != "598" and not datos_mensualistas_map[pat_final]["telefono"]:
                         for idx, m_row in enumerate(mensualistas_data):
                             if len(m_row) > 0 and str(m_row[0]).strip().upper().replace("-", "").replace(" ", "") == pat_final:
-                                # Guardamos el celular en la columna 4 (D) de esa fila
                                 sh.worksheet("Base_Mensualistas").update_cell(idx + 1, 4, cel_clean)
                                 break
                     
-                    # 3. Armar el Ticket de Ingreso Unificado
                     msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or nombre_sug or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}"
-                    
-                    # Inyectar el mensaje de deuda si corresponde
+                    if evento_sel:
+                        msg_ingreso += f"\n🎟️ *Invitado Especial:* {evento_sel}"
                     if es_deudor and texto_deuda_completo:
                         msg_ingreso += f"\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
                         
@@ -452,6 +470,7 @@ if st.session_state.exito_msg != "":
     st.markdown(st.session_state.exito_wp, unsafe_allow_html=True)
     st.session_state.exito_msg = ""
     st.session_state.exito_wp = ""
+
 # ------------------------------------------
 # ACTIVOS
 # ------------------------------------------
@@ -597,10 +616,21 @@ elif menu == "📤 Salida":
         
         nombre_cliente_encontrado = "Cliente"
         cel_encontrado = "598"
+        
+        # 1. Buscar en Frecuentes
         for c in clientes[1:]:
             if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
                 nombre_cliente_encontrado = str(c[1]).strip()
                 cel_encontrado = str(c[2]).strip()
+                break
+                
+        # 2. Buscar en Mensualistas (Sobrescribe si encuentra)
+        for m in mensualistas_data[1:]:
+            if len(m) > 0 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
+                if len(m) > 1 and m[1].strip():
+                    nombre_cliente_encontrado = str(m[1]).strip()
+                if len(m) > 3 and m[3].strip(): 
+                    cel_encontrado = str(m[3]).strip()
                 break
                 
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
@@ -612,6 +642,11 @@ elif menu == "📤 Salida":
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             es_camioneta = "Camioneta" in datos[4]
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
+            
+            es_evento = "Evento:" in str(datos[4])
+            nombre_evento_salida = ""
+            if es_evento:
+                nombre_evento_salida = str(datos[4]).split("Evento: ")[1].split(" (")[0]
             
             estado_mensual_encontrado = ""
             nombre_men = ""
@@ -627,7 +662,11 @@ elif menu == "📤 Salida":
                         nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
                     break
             
-            if estado_mensual_encontrado == "AUTORIZADO":
+            if es_evento:
+                monto_estacionamiento = 0
+                info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
+                st.success(info_desc)
+            elif estado_mensual_encontrado == "AUTORIZADO":
                 monto_estacionamiento = 0
                 info_desc = f"✅ Vehículo AUTORIZADO ({nombre_men}). Sin costo de estadía."
                 st.success(info_desc)
@@ -675,13 +714,14 @@ Op: {emp}
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
                 
+                local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
                 try: ws_h = sh.worksheet("Historial_Tickets")
                 except: ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="10")
                 ws_h.append_row([
                     h_salida, emp, patente, f"#{tkt}", float(monto_estacionamiento), 
                     float(total_extras), float(total_a_pagar), 
                     obs_salida if obs_salida else "-", 
-                    local_val if local_val else "Ninguna"
+                    local_val_guardar
                 ])
                 obtener_datos.clear() 
                 
@@ -694,6 +734,7 @@ Op: {emp}
                 st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
             except Exception as e: 
                 st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
+
 # ------------------------------------------
 # PERSONAL
 # ------------------------------------------
