@@ -29,7 +29,6 @@ st.markdown("""
     </style>
     
     <script>
-    // 1. Escudo anti-marca de agua de Streamlit
     const borrarFullscreen = () => {
         const elementos = document.querySelectorAll('a, button, div, span');
         elementos.forEach(el => {
@@ -42,7 +41,6 @@ st.markdown("""
     };
     setInterval(borrarFullscreen, 300);
 
-    // 2. MANTENEDOR DE SESIÓN MÓVIL (Evita que el navegador duerma o reinicie la app)
     setInterval(() => {
         fetch(window.location.href, { method: 'HEAD' }).catch(() => {});
     }, 20000);
@@ -232,7 +230,6 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# PREVENCIÓN PANTALLA BLANCA: Manejo de errores en la extracción de datos
 @st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
     try:
@@ -264,7 +261,6 @@ def obtener_datos():
     except Exception as e:
         return [], {}, {}, [], [], [], [], [], [], [], [], []
 
-# Control anti-bloqueo al obtener datos
 resultado_datos = obtener_datos()
 if not resultado_datos[0] and st.session_state.rol != "Admin":
     st.warning("🔄 Hubo un pequeño corte de conexión con la base de datos. Intentando reconectar... presione 'F5' o recargue la página en unos segundos.")
@@ -379,7 +375,7 @@ if menu == "📥 Ingreso":
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
                 
-    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional para Frecuentes/Mensualistas):", key=f"tkt_{k}")
+    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
@@ -410,7 +406,7 @@ if menu == "📥 Ingreso":
     if es_deudor:
         st.error(f"🚨 **¡ATENCIÓN! El mensualista {cli_nom or nombre_sug} REGISTRA DEUDA.**")
         nombre_cliente = cli_nom.strip().title() if cli_nom else nombre_sug.strip().title()
-        saludo = f"Buen día {nombre_cliente}," if nombre_cliente else "Buen día,"
+        saludo = f"Buen día {nombre_cliente}," if nombre_cliente and nombre_cliente != "Cliente" else "Buen día,"
         texto_deuda_completo = f"{saludo} desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
         
         cel_pantalla = str(cel).strip()
@@ -422,7 +418,9 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
             
         tkt_final = str(tkt).strip()
-        if not tkt_final: tkt_final = f"FREC-{pat_final}"
+        if not tkt_final: 
+            # 🎟️ ASIGNAR PREFIJO EV- SI ES EVENTO
+            tkt_final = f"EV-{pat_final}" if evento_sel else f"FREC-{pat_final}"
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -617,14 +615,12 @@ elif menu == "📤 Salida":
         nombre_cliente_encontrado = "Cliente"
         cel_encontrado = "598"
         
-        # 1. Buscar en Frecuentes
         for c in clientes[1:]:
             if len(c) > 2 and str(c[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
                 nombre_cliente_encontrado = str(c[1]).strip()
                 cel_encontrado = str(c[2]).strip()
                 break
                 
-        # 2. Buscar en Mensualistas (Sobrescribe si encuentra)
         for m in mensualistas_data[1:]:
             if len(m) > 0 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
                 if len(m) > 1 and m[1].strip():
@@ -662,6 +658,7 @@ elif menu == "📤 Salida":
                         nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
                     break
             
+            # 🚨 INYECTAR TEXTO DE DEUDA EN SALIDA
             if es_evento:
                 monto_estacionamiento = 0
                 info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
@@ -676,8 +673,12 @@ elif menu == "📤 Salida":
                 st.success(info_desc)
             elif estado_mensual_encontrado == "DEUDOR":
                 monto_estacionamiento = 0
-                info_desc = f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0 (El atraso se gestiona en su cuota)."
-                st.warning(info_desc)
+                nombre_cliente = nombre_cliente_encontrado.strip().title()
+                saludo = f"Buen día {nombre_cliente}," if nombre_cliente and nombre_cliente != "Cliente" else "Buen día,"
+                texto_deuda_completo = f"{saludo} desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
+                
+                info_desc = f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
+                st.warning(f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0 (El atraso se gestiona en su cuota).")
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, es_camioneta, local_val, tarifas)
                 if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% libre por Rodrigo Bueno."
@@ -1009,10 +1010,23 @@ elif menu == "📈 Reportes":
                     df_op.columns = ['Valet', 'Recaudación ($)']
                     st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
             with col_b:
-                st.markdown("### 🏪 Uso de Validaciones")
+                # ACÁ SEPARAMOS LAS TABLAS DE REPORTES (LOCALES VS EVENTOS)
+                st.markdown("### 🏪 Uso de Validaciones (Locales)")
                 if not df.empty:
-                    df_loc = df.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                    df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
+                    df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
                     st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
+            
+            st.markdown("### 🎟️ Asistencia a Eventos")
+            if not df.empty:
+                df_evts = df[df['Validación'].str.startswith('Evento:', na=False)].copy()
+                if not df_evts.empty:
+                    df_ev_grouped = df_evts.groupby('Validación').size().reset_index(name='Invitados')
+                    df_ev_grouped['Validación'] = df_ev_grouped['Validación'].str.replace("Evento: ", "")
+                    df_ev_grouped.columns = ['Evento', 'Invitados (Egresados)']
+                    st.dataframe(df_ev_grouped.sort_values(by='Invitados (Egresados)', ascending=False), use_container_width=True)
+                else:
+                    st.info("Aún no han egresado invitados de eventos en el período seleccionado.")
             
             st.markdown("---")
             st.markdown("### 📅 Detalle de Ventas por Día")
