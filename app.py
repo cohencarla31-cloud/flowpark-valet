@@ -337,7 +337,12 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
 # INGRESO
 # ------------------------------------------
 if menu == "📥 Ingreso":
-    st.subheader("Registro de Ingreso")
+    c_head1, c_head2 = st.columns([3, 1])
+    c_head1.subheader("Registro de Ingreso")
+    if c_head2.button("🔄 Refrescar Datos", key="ref_ing"):
+        obtener_datos.clear()
+        st.rerun()
+
     k = st.session_state.form_key_count
     
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
@@ -373,22 +378,28 @@ if menu == "📥 Ingreso":
 
     nombre_sug, cel_sug = "", "598"
     es_deudor = False
+    
     if pat_final:
+        # Primero revisa Frecuentes
         for rc in clientes[1:]:
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
-        if not nombre_sug and pat_final in datos_mensualistas_map:
+                
+        # Revisa Mensualistas y PISA si encuentra
+        if pat_final in datos_mensualistas_map:
             datos_m = datos_mensualistas_map[pat_final]
             nombre_sug = datos_m["nombre"]
             if datos_m["telefono"]:
                 cel_sug = datos_m["telefono"]
-            if datos_m["estado"] == "DEUDOR":
+            
+            estado_visual = datos_m["estado"]
+            if estado_visual == "DEUDOR":
                 es_deudor = True
+            elif estado_visual in ["AL DIA", "AUTORIZADO"]:
+                st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
                 
-        # 💦 AVISO DE LAVADO PARA MENSUALISTAS
-        if pat_final in datos_mensualistas_map:
-            bene = datos_mensualistas_map[pat_final].get("beneficio", "")
+            bene = datos_m.get("beneficio", "")
             if "LAVADO" in bene:
                 st.info(f"💦 **Aviso: Este Mensualista cuenta con beneficio de: {bene}**")
 
@@ -668,7 +679,12 @@ elif menu == "🍔 Extras":
 # SALIDA
 # ------------------------------------------
 elif menu == "📤 Salida":
-    st.subheader("Cómputo de Egreso y Ticket Final")
+    c_head1, c_head2 = st.columns([3, 1])
+    c_head1.subheader("Cómputo de Egreso y Ticket Final")
+    if c_head2.button("🔄 Refrescar Datos", key="ref_sal"):
+        obtener_datos.clear()
+        st.rerun()
+
     temp_activos = {}
     for r in reg[1:]:
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
@@ -780,6 +796,7 @@ elif menu == "📤 Salida":
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
             
+            # Incorporar el lavado al texto del ticket
             if lavado_opcion != "Ninguno":
                 nom_lavado = lavado_opcion.split(" (")[0]
                 if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
