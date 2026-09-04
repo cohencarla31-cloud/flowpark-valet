@@ -443,7 +443,7 @@ if menu == "📥 Ingreso":
             
         tkt_final = str(tkt).strip()
         
-        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO (EVENTOS VS ESTÁNDAR)
+        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO
         if not tkt_final: 
             if evento_sel:
                 prefijo_evento = f"EV{evento_sel.replace(' ', '').upper()}"
@@ -464,15 +464,25 @@ if menu == "📥 Ingreso":
             else:
                 max_t = 1000 
                 for r_val in reg[1:]:
-                    if str(r_val[0]).strip().isdigit():
-                        max_t = max(max_t, int(str(r_val[0]).strip()))
+                    t_val = str(r_val[0]).strip().upper()
+                    if t_val.startswith("MEN-"):
+                        num_part = t_val.replace("MEN-", "")
+                        if num_part.isdigit(): max_t = max(max_t, int(num_part))
+                    elif t_val.isdigit():
+                        max_t = max(max_t, int(t_val))
                 for h_val in historial_data[1:]:
                     if len(h_val) > 3:
-                        t_val = str(h_val[3]).replace("#", "").strip()
-                        if t_val.isdigit():
+                        t_val = str(h_val[3]).replace("#", "").strip().upper()
+                        if t_val.startswith("MEN-"):
+                            num_part = t_val.replace("MEN-", "")
+                            if num_part.isdigit(): max_t = max(max_t, int(num_part))
+                        elif t_val.isdigit():
                             max_t = max(max_t, int(t_val))
                 
-                tkt_final = str(max_t + 1)
+                if pat_final in datos_mensualistas_map:
+                    tkt_final = f"MEN-{max_t + 1}"
+                else:
+                    tkt_final = str(max_t + 1)
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -563,8 +573,8 @@ elif menu == "✅ Validaciones":
                     
     def get_sort_key(r):
         val = str(r[0]).strip()
-        if val.isdigit(): return int(val)
-        return 999999
+        nums = ''.join(filter(str.isdigit, val))
+        return int(nums) if nums else 999999
         
     activos_disponibles = sorted(activos_disponibles, key=get_sort_key)
     opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
@@ -612,8 +622,8 @@ elif menu == "🍔 Extras":
             
     def get_sort_key(r):
         val = str(r[0]).strip()
-        if val.isdigit(): return int(val)
-        return 999999
+        nums = ''.join(filter(str.isdigit, val))
+        return int(nums) if nums else 999999
         
     activos = sorted(list(temp_activos.values()), key=get_sort_key)
     opciones_autos = ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
@@ -666,8 +676,8 @@ elif menu == "📤 Salida":
             
     def get_sort_key(r):
         val = str(r[0]).strip()
-        if val.isdigit(): return int(val)
-        return 999999
+        nums = ''.join(filter(str.isdigit, val))
+        return int(nums) if nums else 999999
         
     activos = sorted(list(temp_activos.values()), key=get_sort_key)
     lista_salida_ordenada = [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos]
@@ -770,7 +780,6 @@ elif menu == "📤 Salida":
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
             
-            # Incorporar el lavado al texto del ticket
             if lavado_opcion != "Ninguno":
                 nom_lavado = lavado_opcion.split(" (")[0]
                 if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
