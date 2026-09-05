@@ -14,7 +14,6 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 10px 15px; border-radius: 8px; font-size: 16px; border: 2px solid #ddd; cursor: pointer; margin: 2px; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
-    /* Botón de cálculo de salida destacado */
     div.stButton > button[kind="primary"], div.stButton > button {
         font-weight: bold;
     }
@@ -47,7 +46,6 @@ st.markdown("""
     };
     setInterval(borrarFullscreen, 300);
 
-    // Anti-autoguardado de contraseñas en navegadores móviles compartidos
     setTimeout(() => {
         const inputsPass = document.querySelectorAll('input[type="password"]');
         inputsPass.forEach(inp => { inp.setAttribute('autocomplete', 'new-password'); });
@@ -158,16 +156,16 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
         conf = sh.worksheet("Configuracion").get_all_values()
         for r in conf[1:]:
-            if len(r) >= 3 and r[0].strip() and r[1].strip():
-                nombre = r[0].strip()
+            if len(r) >= 3 and str(r[0]).strip() and str(r[1]).strip():
+                nombre = str(r[0]).strip()
                 pin = str(r[1]).strip()
-                rol = r[2].strip()
+                rol = str(r[2]).strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except Exception as e:
         pass
@@ -214,25 +212,26 @@ if st.session_state.usuario is None:
     pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password", help="Ingrese su clave")
     
     if st.button("Ingresar"):
-        time.sleep(1.5)
+        time.sleep(1)
         
         pin_clean = str(pin_ingresado).strip()
         nombre_clean = str(nombre_ingresado).strip().lower()
         
         if not nombre_clean or not pin_clean:
             st.error("⚠️ Debe completar el usuario y la clave.")
-        elif len(pin_clean) < 8 and pin_clean != "1000":
-            st.error("🔒 Por seguridad, la clave debe tener al menos 8 caracteres.")
         else:
             usuario_encontrado, rol_encontrado = None, None
+            
+            # Validación flexible y robusta contra la base de datos
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
-                if nombre_clean == nombre_bd or nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
+                # Comprobamos si el nombre ingresado coincide de cualquier forma razonable
+                if nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
                 else:
-                    st.error("❌ El usuario no coincide con las credenciales ingresadas.")
+                    st.error(f"❌ La clave ingresada pertenece a '{datos_u['nombre']}', el usuario no coincide.")
             else:
                 st.error("❌ Clave incorrecta o no autorizada en el sistema.")
                 
@@ -749,7 +748,6 @@ elif menu == "📤 Salida":
         lavado_opcion = st.selectbox("🧼 Servicio de Lavado en esta estadía:", 
             ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)", "Lavado Incluido (Plan Mensualista)"])
         
-        # BOTÓN DE CÁLCULO DESTACADO
         st.markdown("<br>", unsafe_allow_html=True)
         btn_calcular = st.button("🧮 CALCULAR TICKET Y EGRESO", type="primary", use_container_width=True)
         
@@ -867,7 +865,6 @@ Op: {emp}
                     
                 st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
                 
-                # BOTÓN TERMINAR / VOLVER ARRIBA
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🏁 TERMINAR Y REFRESCAR PANTALLA", type="primary", use_container_width=True):
                     st.rerun()
