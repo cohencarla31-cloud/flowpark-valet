@@ -84,9 +84,12 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     return None
 
 def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno"):
-    if local_validacion == "Rodrigo Bueno": return 0
-    descuento = 150 if local_validacion in ["Quinquela", "Number 18"] else 0
-    m_cobro = max(0, minutos - descuento)
+    if local_validacion in ["Rodrigo Bueno", "Number 18"]:
+        m_cobro = 0
+    else:
+        descuento = 150 if local_validacion == "Quinquela" else 0
+        m_cobro = max(0, minutos - descuento)
+
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
 
     v_hora = tarifas.get("Hora", {}).get(tipo_vehi, 110)
@@ -117,6 +120,7 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     elif "Exterior" in tipo_lavado:
         return costo_base + v_lavado_ext
     elif "Completo" in tipo_lavado:
+        if m_cobro <= 0: return v_lavado_comp
         costo_normal = costo_base + v_lavado_comp
         dias = m_cobro // 480
         rest_mins = m_cobro % 480
@@ -380,13 +384,11 @@ if menu == "📥 Ingreso":
     es_deudor = False
     
     if pat_final:
-        # Primero revisa Frecuentes
         for rc in clientes[1:]:
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
                 nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
                 break
                 
-        # Revisa Mensualistas y PISA si encuentra
         if pat_final in datos_mensualistas_map:
             datos_m = datos_mensualistas_map[pat_final]
             nombre_sug = datos_m["nombre"]
@@ -786,8 +788,10 @@ elif menu == "📤 Salida":
                 st.warning(f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0 (El atraso se gestiona en su cuota).")
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion)
-                if local_val == "Rodrigo Bueno": info_desc = "Estacionamiento 100% libre por Rodrigo Bueno."
-                elif local_val: info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
+                if local_val in ["Rodrigo Bueno", "Number 18"]: 
+                    info_desc = f"Estacionamiento 100% libre por {local_val}."
+                elif local_val == "Quinquela": 
+                    info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
                 else: 
                     if "Aplica Promos" in lavado_opcion: info_desc = "Tarifa y combos de lavado calculados automáticamente según tiempo."
                     elif lavado_opcion != "Ninguno": info_desc = "Tarifa estándar + Lavado cobrado."
