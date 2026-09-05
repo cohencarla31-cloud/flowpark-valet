@@ -53,13 +53,16 @@ TEL_PARKING_2 = "59893343092"
 
 @st.cache_resource
 def init_connection():
-    try:
-        creds_dict = st.secrets["gcp_service_account"]
-        client = gspread.service_account_from_dict(creds_dict)
-        return client.open("FlowPark_Valet_DB")
-    except Exception as e:
-        st.error("⚠️ Error crítico de conexión con la base de datos. Por favor, avise al administrador.")
-        st.stop()
+    for intento in range(3):
+        try:
+            creds_dict = st.secrets["gcp_service_account"]
+            client = gspread.service_account_from_dict(creds_dict)
+            return client.open("FlowPark_Valet_DB")
+        except Exception as e:
+            if intento == 2:
+                st.error("⚠️ Error crítico de conexión con la base de datos. Por favor, recargue la página.")
+                st.stop()
+            time.sleep(1)
 
 sh = init_connection()
 
@@ -249,38 +252,41 @@ st.divider()
 
 @st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
-    try:
-        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
-        conf = sh.worksheet("Configuracion").get_all_values()
-        tarifas_raw = sh.worksheet("Tarifas").get_all_values()
-        extras_raw = sh.worksheet("Extras").get_all_values()
-        reg = sh.worksheet("Registro").get_all_values()
-        q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
-        cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
-        
-        try: asistencia = sh.worksheet("Asistencia").get_all_values()
-        except: asistencia = []
-        try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
-        except: mensualistas = []
-        try: stock = sh.worksheet("Control_Stock").get_all_values()
-        except: stock = []
-        try: efectivo_data = sh.worksheet("Efectivo_Caja").get_all_values()
-        except: efectivo_data = []
-        try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
-        except: auditoria = []
-        try: eventos = sh.worksheet("Eventos").get_all_values()
-        except: eventos = []
-        try: historial = sh.worksheet("Historial_Tickets").get_all_values()
-        except: historial = []
-        
-        empleados = [r[0] for r in conf[1:] if r[0]]
-        tarifas = {str(r[0]).strip(): {"Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
-                                       "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
-                   for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
-        extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial
-    except Exception as e:
-        return [], {}, {}, [], [], [], [], [], [], [], [], [], []
+    for intento in range(3):
+        try:
+            if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
+            conf = sh.worksheet("Configuracion").get_all_values()
+            tarifas_raw = sh.worksheet("Tarifas").get_all_values()
+            extras_raw = sh.worksheet("Extras").get_all_values()
+            reg = sh.worksheet("Registro").get_all_values()
+            q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
+            cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
+            
+            try: asistencia = sh.worksheet("Asistencia").get_all_values()
+            except: asistencia = []
+            try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
+            except: mensualistas = []
+            try: stock = sh.worksheet("Control_Stock").get_all_values()
+            except: stock = []
+            try: efectivo_data = sh.worksheet("Efectivo_Caja").get_all_values()
+            except: efectivo_data = []
+            try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
+            except: auditoria = []
+            try: eventos = sh.worksheet("Eventos").get_all_values()
+            except: eventos = []
+            try: historial = sh.worksheet("Historial_Tickets").get_all_values()
+            except: historial = []
+            
+            empleados = [r[0] for r in conf[1:] if r[0]]
+            tarifas = {str(r[0]).strip(): {"Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
+                                           "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
+                       for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
+            extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
+            return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial
+        except Exception as e:
+            if intento == 2:
+                return [], {}, {}, [], [], [], [], [], [], [], [], [], []
+            time.sleep(1)
 
 resultado_datos = obtener_datos()
 if not resultado_datos[0] and st.session_state.rol != "Admin":
@@ -800,7 +806,6 @@ elif menu == "📤 Salida":
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
             
-            # Incorporar el lavado al texto del ticket
             if lavado_opcion != "Ninguno":
                 nom_lavado = lavado_opcion.split(" (")[0]
                 if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
