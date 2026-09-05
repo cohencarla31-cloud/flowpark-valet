@@ -164,7 +164,7 @@ def cargar_usuarios_desde_db():
         for r in conf[1:]:
             if len(r) >= 3 and str(r[0]).strip() and str(r[1]).strip():
                 nombre = str(r[0]).strip()
-                pin = str(r[1]).strip()
+                pin = str(r[1]).strip().lstrip("'")
                 rol = str(r[2]).strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
     except Exception as e:
@@ -206,37 +206,26 @@ if st.session_state.usuario is None:
         * Al finalizar el turno, volvé a **Personal** para registrar tu Salida con el conteo final de caja.
         """)
     
-    st.markdown("Ingrese sus datos de operador para iniciar el turno:")
+    st.markdown("Ingrese sus datos para iniciar el turno:")
     
-    nombre_ingresado = st.text_input("👤 Usuario:")
+    # Login simplificado basado puramente en la clave (PIN) para evitar errores de tipeo en el nombre
     pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password", help="Ingrese su clave")
     
     if st.button("Ingresar"):
-        time.sleep(1)
+        time.sleep(0.5)
+        pin_clean = str(pin_ingresado).strip().lstrip("'")
         
-        pin_clean = str(pin_ingresado).strip()
-        nombre_clean = str(nombre_ingresado).strip().lower()
-        
-        if not nombre_clean or not pin_clean:
-            st.error("⚠️ Debe completar el usuario y la clave.")
+        if not pin_clean:
+            st.error("⚠️ Debe ingresar su clave.")
         else:
-            usuario_encontrado, rol_encontrado = None, None
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
-                nombre_bd = datos_u["nombre"].lower()
-                if nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
-                    usuario_encontrado = datos_u["nombre"]
-                    rol_encontrado = datos_u["rol"]
-                else:
-                    st.error(f"❌ La clave ingresada pertenece a '{datos_u['nombre']}', el usuario no coincide.")
-            else:
-                st.error("❌ Clave incorrecta o no autorizada en el sistema.")
-                
-            if usuario_encontrado:
-                st.session_state.usuario = usuario_encontrado
-                st.session_state.rol = rol_encontrado
+                st.session_state.usuario = datos_u["nombre"]
+                st.session_state.rol = datos_u["rol"]
                 st.session_state.pin_usado = pin_clean
                 st.rerun()
+            else:
+                st.error("❌ Clave incorrecta o no autorizada en el sistema.")
     st.stop() 
 
 if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
@@ -257,7 +246,6 @@ def obtener_datos():
     for intento in range(3):
         try:
             if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
-            # Traemos todo de un solo golpe para no gastar llamadas a la API
             conf = sh.worksheet("Configuracion").get_all_values()
             tarifas_raw = sh.worksheet("Tarifas").get_all_values()
             extras_raw = sh.worksheet("Extras").get_all_values()
