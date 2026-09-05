@@ -14,6 +14,11 @@ st.markdown("""
     div.row-widget.stRadio > div > label { background-color: #f0f2f6; padding: 10px 15px; border-radius: 8px; font-size: 16px; border: 2px solid #ddd; cursor: pointer; margin: 2px; }
     div.row-widget.stRadio > div > label:hover { border-color: #ff4b4b; background-color: #ffcccc; }
     
+    /* Botón de cálculo de salida destacado */
+    div.stButton > button[kind="primary"], div.stButton > button {
+        font-weight: bold;
+    }
+
     html, body, [data-testid="stAppViewContainer"] {
         overscroll-behavior-y: none !important;
         -webkit-overflow-scrolling: touch;
@@ -41,6 +46,12 @@ st.markdown("""
         });
     };
     setInterval(borrarFullscreen, 300);
+
+    // Anti-autoguardado de contraseñas en navegadores móviles compartidos
+    setTimeout(() => {
+        const inputsPass = document.querySelectorAll('input[type="password"]');
+        inputsPass.forEach(inp => { inp.setAttribute('autocomplete', 'new-password'); });
+    }, 1000);
 
     setInterval(() => {
         fetch(window.location.href, { method: 'HEAD' }).catch(() => {});
@@ -200,7 +211,7 @@ if st.session_state.usuario is None:
     st.markdown("Ingrese sus datos de operador para iniciar el turno:")
     
     nombre_ingresado = st.text_input("👤 Usuario:")
-    pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password")
+    pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password", help="Ingrese su clave")
     
     if st.button("Ingresar"):
         time.sleep(1.5)
@@ -239,14 +250,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 c_user, c_out = st.columns([3, 1])
 c_user.markdown(f"👤 **{st.session_state.usuario}** | 🛡️ {st.session_state.rol}")
 if c_out.button("🚪 Salir"):
-    st.session_state.usuario = None
-    st.session_state.rol = None
-    st.session_state.pin_usado = ""
-    st.session_state.cartel_salida_msg = ""
-    st.session_state.cartel_entrada_msg = ""
-    st.session_state.local_emp = ""
-    st.session_state.local_estado = ""
-    st.session_state.hora_fichaje_temporal = ""
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
     st.rerun()
 st.divider()
 
@@ -744,7 +749,11 @@ elif menu == "📤 Salida":
         lavado_opcion = st.selectbox("🧼 Servicio de Lavado en esta estadía:", 
             ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)", "Lavado Incluido (Plan Mensualista)"])
         
-        if st.button("Calcular y Generar Salida"):
+        # BOTÓN DE CÁLCULO DESTACADO
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn_calcular = st.button("🧮 CALCULAR TICKET Y EGRESO", type="primary", use_container_width=True)
+        
+        if btn_calcular:
             h_salida = hora_actual_uy()
             ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
@@ -857,6 +866,12 @@ Op: {emp}
                 if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
                     
                 st.markdown(f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})")
+                
+                # BOTÓN TERMINAR / VOLVER ARRIBA
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🏁 TERMINAR Y REFRESCAR PANTALLA", type="primary", use_container_width=True):
+                    st.rerun()
+
             except Exception as e: 
                 st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
 
