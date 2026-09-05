@@ -221,12 +221,9 @@ if st.session_state.usuario is None:
             st.error("⚠️ Debe completar el usuario y la clave.")
         else:
             usuario_encontrado, rol_encontrado = None, None
-            
-            # Validación flexible y robusta contra la base de datos
             if pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 nombre_bd = datos_u["nombre"].lower()
-                # Comprobamos si el nombre ingresado coincide de cualquier forma razonable
                 if nombre_clean in nombre_bd or nombre_bd in nombre_clean or (pin_clean == "1000" and "rodrigo" in nombre_clean):
                     usuario_encontrado = datos_u["nombre"]
                     rol_encontrado = datos_u["rol"]
@@ -254,11 +251,13 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-@st.cache_data(ttl=300, show_spinner=False)
+# CACHÉ OPTIMIZADA PARA EVITAR LÍMITES DE GOOGLE SHEETS (ERROR 429)
+@st.cache_data(ttl=60, show_spinner=False)
 def obtener_datos():
     for intento in range(3):
         try:
             if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
+            # Traemos todo de un solo golpe para no gastar llamadas a la API
             conf = sh.worksheet("Configuracion").get_all_values()
             tarifas_raw = sh.worksheet("Tarifas").get_all_values()
             extras_raw = sh.worksheet("Extras").get_all_values()
@@ -290,7 +289,7 @@ def obtener_datos():
         except Exception as e:
             if intento == 2:
                 return [], {}, {}, [], [], [], [], [], [], [], [], [], []
-            time.sleep(1)
+            time.sleep(1.5)
 
 resultado_datos = obtener_datos()
 if not resultado_datos[0] and st.session_state.rol != "Admin":
@@ -448,7 +447,6 @@ if menu == "📥 Ingreso":
             else:
                 st.info(f"✅ Cupo disponible para '{evento_sel}': {autos_en_evento} / {cupos_evento[evento_sel]} autos ingresados.")
 
-    # 🚨 PREPARAR ALERTA Y TEXTO DE DEUDA
     texto_deuda_completo = ""
     if es_deudor:
         st.error(f"🚨 **¡ATENCIÓN! El mensualista {cli_nom or nombre_sug} REGISTRA DEUDA.**")
@@ -466,7 +464,6 @@ if menu == "📥 Ingreso":
             
         tkt_final = str(tkt).strip()
         
-        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO
         if not tkt_final: 
             if evento_sel:
                 prefijo_evento = f"EV{evento_sel.replace(' ', '').upper()}"
@@ -520,14 +517,17 @@ if menu == "📥 Ingreso":
                         estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
 
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
+                    time.sleep(0.5)
                     
                     if cli_nom and not nombre_sug and pat_final not in datos_mensualistas_map:
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
+                        time.sleep(0.5)
                     
                     if pat_final in datos_mensualistas_map and cel_clean and cel_clean != "598" and not datos_mensualistas_map[pat_final]["telefono"]:
                         for idx, m_row in enumerate(mensualistas_data):
                             if len(m_row) > 0 and str(m_row[0]).strip().upper().replace("-", "").replace(" ", "") == pat_final:
                                 sh.worksheet("Base_Mensualistas").update_cell(idx + 1, 4, cel_clean)
+                                time.sleep(0.5)
                                 break
                     
                     msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or nombre_sug or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}"
@@ -620,6 +620,7 @@ elif menu == "✅ Validaciones":
                 try:
                     fecha_val = hora_actual_uy()
                     sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
+                    time.sleep(0.5)
                     st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                     
                     msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
@@ -679,8 +680,10 @@ elif menu == "🍔 Extras":
                             texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
                             nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
                             sh.worksheet("Registro").update_cell(i, 6, nuevo_texto)
+                            time.sleep(0.3)
                             dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
                             sh.worksheet("Registro").update_cell(i, 8, dinero_actual + total_dinero_extra)
+                            time.sleep(0.3)
                             break
                     st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
                     obtener_datos.clear()
@@ -741,7 +744,6 @@ elif menu == "📤 Salida":
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
-        # 💦 AVISO Y SELECTOR DE LAVADO
         if "LAVADO" in beneficio_encontrado.upper():
             st.info(f"💦 **Aviso al Valet: Este Mensualista cuenta con: {beneficio_encontrado}**")
             
@@ -843,8 +845,11 @@ Op: {emp}
                 for i, row in enumerate(reg, start=1):
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
+                        time.sleep(0.4)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
+                        time.sleep(0.4)
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
+                        time.sleep(0.4)
                 
                 local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
                 try: ws_h = sh.worksheet("Historial_Tickets")
@@ -855,6 +860,7 @@ Op: {emp}
                     obs_salida if obs_salida else "-", 
                     local_val_guardar
                 ])
+                time.sleep(0.5)
                 obtener_datos.clear() 
                 
                 st.success("✅ ¡Ticket registrado con éxito!")
@@ -922,13 +928,17 @@ elif menu == "⏰ Personal":
                     try:
                         hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
                         sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                        time.sleep(0.5)
                         
                         filas_stock = []
                         for prod, cant in conteo_stock.items():
                             filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
-                        if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                        if filas_stock: 
+                            sh.worksheet("Control_Stock").append_rows(filas_stock)
+                            time.sleep(0.5)
                             
                         sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
+                        time.sleep(0.5)
                         
                         st.session_state.local_emp = emp
                         st.session_state.local_estado = "Entrada"
@@ -974,13 +984,17 @@ elif menu == "⏰ Personal":
                     try:
                         hora_fichada = hora_actual_uy()
                         sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                        time.sleep(0.5)
                         
                         filas_stock = []
                         for prod, cant in conteo_stock_salida.items():
                             filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
-                        if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                        if filas_stock: 
+                            sh.worksheet("Control_Stock").append_rows(filas_stock)
+                            time.sleep(0.5)
                         
                         sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
+                        time.sleep(0.5)
                         
                         st.session_state.local_emp = emp
                         st.session_state.local_estado = "Salida"
@@ -1102,7 +1116,7 @@ elif menu == "📈 Reportes":
     for patente_camara in autos_camara:
         if patente_camara not in patentes_activas_playa: fugas.append(patente_camara)
             
-    if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
+    if len(autos_camara) == 0: st.info("ℹ️ Aún no hay registros en el día de hoy.")
     elif fugas:
         st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
         st.write("Patentes sin registrar:", ", ".join(set(fugas)))
