@@ -494,7 +494,6 @@ if menu == "📥 Ingreso":
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
         else:
-            # VALIDACIÓN BLINDADA: Compara limpiando símbolos # y espacios
             pat_ingreso_clean = pat_final.replace("-", "").replace(" ", "").upper()
             tkt_ingreso_clean = tkt_final.replace("#", "").strip().lstrip("0").upper()
             
@@ -504,7 +503,6 @@ if menu == "📥 Ingreso":
                     r_tkt = str(r[0]).replace("#", "").strip().lstrip("0").upper()
                     r_pat = str(r[1]).replace("-", "").replace(" ", "").upper()
                     r_salida = str(r[3]).strip()
-                    # Si no tiene hora de salida registrada, sigue adentro
                     if not r_salida or r_salida.lower() == "nan":
                         if r_tkt == tkt_ingreso_clean or r_pat == pat_ingreso_clean:
                             vehiculo_activo = True
@@ -681,7 +679,8 @@ elif menu == "🍔 Extras":
                     time.sleep(0.3)
                     actualizar_stock_en_extras(prod, cant)
                     for i, row in enumerate(reg, start=1):
-                        if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
+                        row_tkt_clean = str(row[0]).replace("#", "").strip()
+                        if row_tkt_clean == tkt.replace("#", "").strip() and (not row[3] or str(row[3]).lower() == "nan"):
                             texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
                             nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
                             sh.worksheet("Registro").update_cell(i, 6, nuevo_texto)
@@ -847,14 +846,18 @@ Op: {emp}
 ¡Gracias por elegirnos!"""
 
             try:
+                # 🔍 BÚSQUEDA BLINDADA PARA ACTUALIZAR EL TICKET EN GOOGLE SHEETS
+                tkt_salida_clean = tkt.replace("#", "").strip().lstrip("0").upper()
                 for i, row in enumerate(reg, start=1):
-                    if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
+                    row_tkt_clean = str(row[0]).replace("#", "").strip().lstrip("0").upper()
+                    if row_tkt_clean == tkt_salida_clean and (not row[3] or str(row[3]).lower() == "nan"):
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
                         time.sleep(0.4)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
                         time.sleep(0.4)
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
                         time.sleep(0.4)
+                        break
                 
                 local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
                 try: ws_h = sh.worksheet("Historial_Tickets")
@@ -867,7 +870,6 @@ Op: {emp}
                 ])
                 time.sleep(0.5)
                 
-                # 🔄 FORZAR LIMPIEZA DE CACHÉ
                 obtener_datos.clear() 
                 
                 st.success("✅ ¡Ticket registrado con éxito!")
