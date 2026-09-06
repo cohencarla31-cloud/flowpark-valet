@@ -156,7 +156,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -238,8 +238,8 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# CACHÉ DE LECTURA AMPLIADA (TTL 120s) PARA EVITAR SATURAR LA API DE GOOGLE
-@st.cache_data(ttl=120, show_spinner=False)
+# CACHÉ DE LECTURA AMPLIADA (TTL 60s) PARA EVITAR SATURAR LA API DE GOOGLE
+@st.cache_data(ttl=60, show_spinner=False)
 def obtener_datos():
     for intento in range(3):
         try:
@@ -275,7 +275,7 @@ def obtener_datos():
         except Exception as e:
             if intento == 2:
                 return [], {}, {}, [], [], [], [], [], [], [], [], [], []
-            time.sleep(2)
+            time.sleep(1.5)
 
 resultado_datos = obtener_datos()
 if not resultado_datos[0] and st.session_state.rol != "Admin":
@@ -327,9 +327,9 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
                 nuevo_stock = stock_actual - float(cantidad_vendida)
                 ws_ex.update_cell(idx, 4, nuevo_vendidos)
-                time.sleep(0.4)
+                time.sleep(0.3)
                 ws_ex.update_cell(idx, 5, nuevo_stock)
-                time.sleep(0.4)
+                time.sleep(0.3)
                 break
     except Exception as e:
         print(f"Error actualizando stock en Extras: {e}")
@@ -505,17 +505,17 @@ if menu == "📥 Ingreso":
                         estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
 
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
-                    time.sleep(0.6)
+                    time.sleep(0.5)
                     
                     if cli_nom and not nombre_sug and pat_final not in datos_mensualistas_map:
                         sh.worksheet("Clientes_Frecuentes").append_row([pat_final, cli_nom.strip().title(), cel_clean])
-                        time.sleep(0.6)
+                        time.sleep(0.5)
                     
                     if pat_final in datos_mensualistas_map and cel_clean and cel_clean != "598" and not datos_mensualistas_map[pat_final]["telefono"]:
                         for idx, m_row in enumerate(mensualistas_data):
                             if len(m_row) > 0 and str(m_row[0]).strip().upper().replace("-", "").replace(" ", "") == pat_final:
                                 sh.worksheet("Base_Mensualistas").update_cell(idx + 1, 4, cel_clean)
-                                time.sleep(0.6)
+                                time.sleep(0.5)
                                 break
                     
                     msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or nombre_sug or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}"
@@ -531,7 +531,7 @@ if menu == "📥 Ingreso":
                     
                     st.session_state.form_key_count += 1
                     st.session_state.ultima_patente = "" 
-                    # NOTA: NO HACEMOS obtener_datos.clear() ACÁ para evitar saltar el límite de lectura de Google.
+                    obtener_datos.clear() 
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al intentar guardar en la base de datos: {e}")
@@ -608,13 +608,14 @@ elif menu == "✅ Validaciones":
                 try:
                     fecha_val = hora_actual_uy()
                     sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
-                    time.sleep(0.6)
+                    time.sleep(0.5)
                     st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                     
                     msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
                     st.markdown("### 📲 Avisar a los Valets:")
                     st.markdown(f"[➡️ Notificar al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})", unsafe_allow_html=True)
                     st.markdown(f"[➡️ Notificar al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})", unsafe_allow_html=True)
+                    obtener_datos.clear()
                 except Exception as e:
                     st.error(f"Error al conectar con Google Sheets: {e}")
         else:
@@ -652,28 +653,30 @@ elif menu == "🍔 Extras":
             try:
                 if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
                     sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA"])
-                    time.sleep(0.6)
+                    time.sleep(0.5)
                     actualizar_stock_en_extras(prod, cant)
                     st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
+                    obtener_datos.clear()
                 else:
                     tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
                     patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
                     precio_unitario = extras.get(prod, 0)
                     total_dinero_extra = precio_unitario * cant
                     sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext])
-                    time.sleep(0.4)
+                    time.sleep(0.3)
                     actualizar_stock_en_extras(prod, cant)
                     for i, row in enumerate(reg, start=1):
                         if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                             texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
                             nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
                             sh.worksheet("Registro").update_cell(i, 6, nuevo_texto)
-                            time.sleep(0.4)
+                            time.sleep(0.3)
                             dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
                             sh.worksheet("Registro").update_cell(i, 8, dinero_actual + total_dinero_extra)
-                            time.sleep(0.4)
+                            time.sleep(0.3)
                             break
                     st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
+                    obtener_datos.clear()
             except Exception as e:
                 st.error("Hubo un error cargando el extra. Intente nuevamente.")
 
@@ -832,11 +835,11 @@ Op: {emp}
                 for i, row in enumerate(reg, start=1):
                     if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                         sh.worksheet("Registro").update_cell(i, 4, h_salida)
-                        time.sleep(0.5)
+                        time.sleep(0.4)
                         sh.worksheet("Registro").update_cell(i, 7, float(monto_estacionamiento))
-                        time.sleep(0.5)
+                        time.sleep(0.4)
                         sh.worksheet("Registro").update_cell(i, 9, float(total_a_pagar))
-                        time.sleep(0.5)
+                        time.sleep(0.4)
                 
                 local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
                 try: ws_h = sh.worksheet("Historial_Tickets")
@@ -847,7 +850,10 @@ Op: {emp}
                     obs_salida if obs_salida else "-", 
                     local_val_guardar
                 ])
-                time.sleep(0.6)
+                time.sleep(0.5)
+                
+                # 🔄 FORZAR LIMPIEZA Y RECARGA INMEDIATA DE LA PLAYA
+                obtener_datos.clear()
                 
                 st.success("✅ ¡Ticket registrado con éxito!")
                 with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
