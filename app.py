@@ -497,19 +497,24 @@ if menu == "📥 Ingreso":
             pat_ingreso_clean = pat_final.replace("-", "").replace(" ", "").upper()
             tkt_ingreso_clean = tkt_final.replace("#", "").strip().lstrip("0").upper()
             
+            # VALIDACIÓN INTELIGENTE: Solo bloquea si está activo Y entró el día de hoy
+            hoy_fecha_str = hora_actual_uy().split()[0]
             vehiculo_activo = False
             for r in reg[1:]:
                 if len(r) > 3:
                     r_tkt = str(r[0]).replace("#", "").strip().lstrip("0").upper()
                     r_pat = str(r[1]).replace("-", "").replace(" ", "").upper()
+                    r_ingreso_time = str(r[2]).strip()
                     r_salida = str(r[3]).strip()
-                    if not r_salida or r_salida.lower() == "nan":
+                    
+                    # Verificamos si sigue en playa Y si ingresó hoy
+                    if (not r_salida or r_salida.lower() == "nan") and r_ingreso_time.startswith(hoy_fecha_str):
                         if r_tkt == tkt_ingreso_clean or r_pat == pat_ingreso_clean:
                             vehiculo_activo = True
                             break
 
             if vehiculo_activo:
-                st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
+                st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa hoy!")
             else:
                 try:
                     h_ing = hora_actual_uy()
@@ -846,7 +851,6 @@ Op: {emp}
 ¡Gracias por elegirnos!"""
 
             try:
-                # 🔍 BÚSQUEDA BLINDADA PARA ACTUALIZAR EL TICKET EN GOOGLE SHEETS
                 tkt_salida_clean = tkt.replace("#", "").strip().lstrip("0").upper()
                 for i, row in enumerate(reg, start=1):
                     row_tkt_clean = str(row[0]).replace("#", "").strip().lstrip("0").upper()
@@ -1121,11 +1125,7 @@ elif menu == "📈 Reportes":
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
                 patentes_activas_playa.append(str(r[1]).strip().upper())
 
-    fugas = []
-    for patente_camara in autos_camara:
-        if patente_camara not in patentes_activas_playa: fugas.append(patente_camara)
-            
-    if len(autos_camara) == 0: st.info("ℹ️ Aún no hay registros en el día de hoy.")
+1000  if len(autos_camara) == 0: st.info("ℹ️ Aún no hay registros en el día de hoy.")
     elif fugas:
         st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
         st.write("Patentes sin registrar:", ", ".join(set(fugas)))
