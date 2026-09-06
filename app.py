@@ -82,11 +82,11 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     try: ingreso_dt = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
     except: return None
     pat_clean = patente.upper().replace("-", "").replace(" ", "")
-    tkt_clean = str(tkt).strip().lstrip("0")
+    tkt_clean = str(tkt).replace("#", "").strip().lstrip("0")
     for q in q_records[1:]:
         if len(q) < 4: continue
         q_time_str = str(q[0]).strip()
-        q_tkt = str(q[2]).strip().lstrip("0")
+        q_tkt = str(q[2]).replace("#", "").strip().lstrip("0")
         q_pat = str(q[3]).upper().replace("-", "").replace(" ", "")
         q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
         try: q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
@@ -238,7 +238,6 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# CACHÉ DE LECTURA AMPLIADA (TTL 60s) PARA EVITAR SATURAR LA API DE GOOGLE
 @st.cache_data(ttl=60, show_spinner=False)
 def obtener_datos():
     for intento in range(3):
@@ -495,7 +494,23 @@ if menu == "📥 Ingreso":
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
         else:
-            if any((str(r[0]).strip().lstrip("0") == tkt_final.lstrip("0") or str(r[1]).upper() == pat_final) and (len(r)>3 and (not r[3] or str(r[3]).lower() == "nan")) for r in reg[1:]):
+            # VALIDACIÓN BLINDADA: Compara limpiando símbolos # y espacios
+            pat_ingreso_clean = pat_final.replace("-", "").replace(" ", "").upper()
+            tkt_ingreso_clean = tkt_final.replace("#", "").strip().lstrip("0").upper()
+            
+            vehiculo_activo = False
+            for r in reg[1:]:
+                if len(r) > 3:
+                    r_tkt = str(r[0]).replace("#", "").strip().lstrip("0").upper()
+                    r_pat = str(r[1]).replace("-", "").replace(" ", "").upper()
+                    r_salida = str(r[3]).strip()
+                    # Si no tiene hora de salida registrada, sigue adentro
+                    if not r_salida or r_salida.lower() == "nan":
+                        if r_tkt == tkt_ingreso_clean or r_pat == pat_ingreso_clean:
+                            vehiculo_activo = True
+                            break
+
+            if vehiculo_activo:
                 st.error("❌ ¡Esa tarjeta o patente ya se encuentra activa en playa!")
             else:
                 try:
@@ -852,8 +867,8 @@ Op: {emp}
                 ])
                 time.sleep(0.5)
                 
-                # 🔄 FORZAR LIMPIEZA Y RECARGA INMEDIATA DE LA PLAYA
-                obtener_datos.clear()
+                # 🔄 FORZAR LIMPIEZA DE CACHÉ
+                obtener_datos.clear() 
                 
                 st.success("✅ ¡Ticket registrado con éxito!")
                 with st.expander("🔍 Ver comprobante", expanded=True): st.code(texto_ticket)
