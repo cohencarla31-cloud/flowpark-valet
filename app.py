@@ -242,7 +242,7 @@ st.divider()
 def obtener_datos():
     for intento in range(3):
         try:
-            if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
+            if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
             conf = sh.worksheet("Configuracion").get_all_values()
             tarifas_raw = sh.worksheet("Tarifas").get_all_values()
             extras_raw = sh.worksheet("Extras").get_all_values()
@@ -264,16 +264,18 @@ def obtener_datos():
             except: eventos = []
             try: historial = sh.worksheet("Historial_Tickets").get_all_values()
             except: historial = []
+            try: lista_inv = sh.worksheet("Lista_Invitados").get_all_values()
+            except: lista_inv = []
             
             empleados = [r[0] for r in conf[1:] if r[0]]
             tarifas = {str(r[0]).strip(): {"Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
                                            "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
                        for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
             extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-            return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial
+            return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv
         except Exception as e:
             if intento == 2:
-                return [], {}, {}, [], [], [], [], [], [], [], [], [], []
+                return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
             time.sleep(1.5)
 
 resultado_datos = obtener_datos()
@@ -281,7 +283,7 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
     st.warning("🔄 Hubo un pequeño corte de conexión con la base de datos. Intentando reconectar... presione 'F5' o recargue la página en unos segundos.")
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data = resultado_datos
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_inv_data = resultado_datos
 
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
@@ -344,6 +346,7 @@ if menu == "📥 Ingreso":
         st.rerun()
 
     k = st.session_state.form_key_count
+    hoy_str = hora_actual_uy().split()[0]
     
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
@@ -363,6 +366,15 @@ if menu == "📥 Ingreso":
     except:
         pass
 
+    # Mapa de Invitados VIP para hoy
+    invitados_hoy_map = {}
+    for inv in lista_inv_data[1:]:
+        if len(inv) >= 4 and str(inv[0]).strip() == hoy_str:
+            ev_inv = str(inv[1]).strip()
+            nom_inv = str(inv[2]).strip()
+            pat_inv = str(inv[3]).strip().upper().replace("-", "").replace(" ", "")
+            invitados_hoy_map[pat_inv] = {"nombre": nom_inv, "evento": ev_inv}
+
     patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec + patentes_mensualistas)))
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
@@ -378,18 +390,21 @@ if menu == "📥 Ingreso":
 
     nombre_sug, cel_sug = "", "598"
     es_deudor = False
+    es_invitado_vip = False
+    evento_vip_sug = ""
     
     if pat_final:
-        for rc in clientes[1:]:
-            if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
-                nombre_sug, cel_sug = str(rc[1]).strip(), str(rc[2]).strip()
-                break
-                
+        # Chequeo 1: Invitado VIP (Tiene prioridad)
+        if pat_final in invitados_hoy_map:
+            es_invitado_vip = True
+            nombre_sug = invitados_hoy_map[pat_final]["nombre"]
+            evento_vip_sug = invitados_hoy_map[pat_final]["evento"]
+            
+        # Chequeo 2: Mensualistas
         if pat_final in datos_mensualistas_map:
             datos_m = datos_mensualistas_map[pat_final]
-            nombre_sug = datos_m["nombre"]
-            if datos_m["telefono"]:
-                cel_sug = datos_m["telefono"]
+            if not nombre_sug: nombre_sug = datos_m["nombre"]
+            if datos_m["telefono"]: cel_sug = datos_m["telefono"]
             
             estado_visual = datos_m["estado"]
             if estado_visual == "DEUDOR":
@@ -400,6 +415,17 @@ if menu == "📥 Ingreso":
             bene = datos_m.get("beneficio", "")
             if "LAVADO" in bene:
                 st.info(f"💦 **Aviso: Este Mensualista cuenta con beneficio de: {bene}**")
+                
+        # Chequeo 3: Frecuentes (Si no encontró nombre en los anteriores)
+        for rc in clientes[1:]:
+            if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
+                if not nombre_sug: nombre_sug = str(rc[1]).strip()
+                cel_sug = str(rc[2]).strip()
+                break
+
+        # Alerta visual VIP
+        if es_invitado_vip:
+            st.success(f"🌟 **¡INVITADO VIP EN LISTA PARA HOY!**\n\n**Evento:** {evento_vip_sug}\n\n**Nombre:** {nombre_sug}")
 
     if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
         
@@ -413,8 +439,7 @@ if menu == "📥 Ingreso":
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
-    # 🎟️ MÓDULO EVENTOS VIP
-    hoy_str = hora_actual_uy().split()[0]
+    # 🎟️ MÓDULO EVENTOS
     eventos_hoy = []
     cupos_evento = {}
     for ev in eventos_data[1:]:
@@ -424,9 +449,12 @@ if menu == "📥 Ingreso":
             try: cupos_evento[nombre_ev] = int(ev[2])
             except: cupos_evento[nombre_ev] = 999
 
+    opciones_eventos = [""] + eventos_hoy
+    idx_evento = opciones_eventos.index(evento_vip_sug) if (es_invitado_vip and evento_vip_sug in opciones_eventos) else 0
+
     evento_sel = ""
     if eventos_hoy:
-        evento_sel = st.selectbox("🎟️ Ingreso por Evento (Opcional):", [""] + eventos_hoy, key=f"evt_{k}")
+        evento_sel = st.selectbox("🎟️ Ingreso por Evento (Opcional):", opciones_eventos, index=idx_evento, key=f"evt_{k}")
         if evento_sel:
             autos_en_evento = sum(1 for r in reg[1:] if len(r) > 4 and f"Evento: {evento_sel}" in str(r[4]) and hoy_str in str(r[2]))
             if autos_en_evento >= cupos_evento[evento_sel]:
@@ -497,7 +525,7 @@ if menu == "📥 Ingreso":
             pat_ingreso_clean = pat_final.replace("-", "").replace(" ", "").upper()
             tkt_ingreso_clean = tkt_final.replace("#", "").strip().lstrip("0").upper()
             
-            # VALIDACIÓN DE DUPLICADOS RIGUROSA Y SEGURA (Controla que si está activo, no lo deje reingresar)
+            # VALIDACIÓN DE DUPLICADOS RIGUROSA
             vehiculo_activo = False
             for r in reg[1:]:
                 if len(r) > 3:
@@ -505,7 +533,6 @@ if menu == "📥 Ingreso":
                     r_pat = str(r[1]).replace("-", "").replace(" ", "").upper()
                     r_salida = str(r[3]).strip()
                     
-                    # Si no tiene hora de salida registrada, el auto sigue en la playa
                     if not r_salida or r_salida.lower() == "nan":
                         if r_tkt == tkt_ingreso_clean or r_pat == pat_ingreso_clean:
                             vehiculo_activo = True
