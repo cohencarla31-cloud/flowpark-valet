@@ -170,8 +170,44 @@ if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaj
 if st.session_state.usuario is None:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🔐 Acceso al Sistema - Parking El Globo")
-    st.markdown("Ingrese sus datos para iniciar el turno:")
-    pin_ingresado = st.text_input("🔑 Clave / PIN de Seguridad:", type="password")
+    
+    with st.expander("📖 **¿Cómo funciona el sistema? (Guía Rápida)**", expanded=False):
+        st.markdown("""
+        **Paso 1: Fichar Entrada ⏰**
+        * Al llegar, logueate y andá al módulo **Personal**.
+        * Hacé clic en "Registrar Entrada", contá el dinero de la caja, cargá el stock físico y confirmá.
+        
+        **Paso 2: Operativa 🚗**
+        * **📥 Ingreso:** Anotá la patente y enviá el comprobante al cliente.
+        * **✅ Validaciones:** Si los locales Quinquela o Nro 18 aplican un descuento, se mostrará en los activos.
+        
+        **Paso 3: Cobro y Salida 📤**
+        * Andá a **Salida**, buscá el auto, y el sistema calculará automáticamente el mejor precio.
+        * Al finalizar el turno, volvé a **Personal** para registrar tu Salida con el conteo final de caja.
+        """)
+    
+    st.markdown("Ingrese su clave numérica para iniciar el turno:")
+    
+    pin_ingresado = st.text_input("🔑 PIN de Seguridad:", type="password")
+    
+    if st.button("Ingresar"):
+        time.sleep(1) # Breve pausa anti-spam
+        
+        pin_clean = str(pin_ingresado).strip()
+        
+        if not pin_clean:
+            st.error("⚠️ Debe ingresar su clave.")
+        else:
+            # Busca la clave directamente en la base de datos sin importar el largo
+            if pin_clean in usuarios_pins:
+                datos_u = usuarios_pins[pin_clean]
+                st.session_state.usuario = datos_u["nombre"]
+                st.session_state.rol = datos_u["rol"]
+                st.session_state.pin_usado = pin_clean
+                st.rerun()
+            else:
+                st.error("❌ Clave incorrecta o no autorizada en el sistema.")
+    st.stop()
     
     if st.button("Ingresar"):
         pin_clean = str(pin_ingresado).strip().lstrip("'")
