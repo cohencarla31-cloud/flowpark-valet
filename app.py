@@ -707,6 +707,177 @@ elif menu == "⏰ Personal":
             st.session_state.cartel_salida_msg = ""
             st.rerun()
 
+# ------------------------------------------
+# REPORTES (ADMIN)
+# ------------------------------------------
 elif menu == "📈 Reportes":
-    st.subheader("📊 Panel (Resumido)")
-    st.info("Módulo activo. (Visualización de datos suprimida en este resumen de optimización de código, el original se mantiene intacto en estructura de datos).")
+    st.subheader("📊 Panel de Ventas, Control y Auditoría")
+    st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
+    
+    st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
+    try:
+        ws_men = sh.worksheet("Base_Mensualistas")
+        datos_m = ws_men.get_all_values()
+        if len(datos_m) > 1:
+            total_comercial = len(datos_m) - 1
+            total_autorizados, total_al_dia = 0, 0
+            lista_deudores = []
+            
+            for fila in datos_m[1:]:
+                if not fila or not fila[0].strip(): continue
+                mat = str(fila[0]).strip().upper()
+                texto_fila_completo = " ".join([str(val).strip() for val in fila]).upper()
+                
+                if "AUTORIZADO" in texto_fila_completo: total_autorizados += 1
+                elif "DEUDA" in texto_fila_completo or "DEUDOR" in texto_fila_completo:
+                    nombre_encontrado = str(fila[1]).strip() if len(fila) > 1 and str(fila[1]).strip() else "Sin nombre"
+                    if "DEUDOR" in nombre_encontrado.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
+                        nombre_encontrado = str(fila[2]).strip() if len(fila) > 2 else "Sin nombre"
+                    lista_deudores.append({"Matrícula": mat, "Nombre / Empresa": nombre_encontrado})
+                else: total_al_dia += 1
+
+            total_deudores = len(lista_deudores)
+            
+            c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+            c_m1.metric(label="Total Registrados", value=total_comercial)
+            c_m2.metric(label="✅ Pagos Al Día", value=total_al_dia)
+            c_m3.metric(label="🛑 Morosos / Deuda", value=total_deudores, delta="- Deudores", delta_color="inverse")
+            c_m4.metric(label="Autorizados", value=total_autorizados)
+            
+            if total_deudores > 0:
+                st.error(f"⚠️ Hay {total_deudores} mensualista(s) con deuda pendiente:")
+                df_deudores = pd.DataFrame(lista_deudores)
+                st.dataframe(df_deudores, use_container_width=True, hide_index=True)
+            else: st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
+        else: st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
+    except Exception as e:
+        st.info(f"ℹ️ Error leyendo la base de mensualistas: {e}")
+
+    st.divider()
+
+    st.markdown("### 🕒 Control de Asistencia y Horarios de Empleados")
+    try:
+        ws_asis = sh.worksheet("Asistencia")
+        datos_asis = ws_asis.get_all_values()
+        if len(datos_asis) > 1:
+            df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
+            df_asis['Hora'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+            df_asis = df_asis.sort_values(by='Hora', ascending=False)
+            st.dataframe(df_asis.head(15), use_container_width=True)
+        else: st.info("ℹ️ Aún no hay registros de asistencia.")
+    except Exception as e: st.error(f"Error cargando asistencia: {e}")
+
+    st.divider()
+
+    st.markdown("### 💵 Auditoría de Caja y Efectivo (Control de Faltantes Entre Turnos)")
+    try:
+        ws_ef = sh.worksheet("Efectivo_Caja")
+        datos_ef = ws_ef.get_all_values()
+        if len(datos_ef) > 1:
+            df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
+            df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
+            st.dataframe(df_ef.tail(10), use_container_width=True)
+            
+            if len(df_ef) >= 2:
+                salidas = df_ef[df_ef['Tipo'] == "Salida"]
+                entradas = df_ef[df_ef['Tipo'] == "Entrada"]
+                if not salidas.empty and not entradas.empty:
+                    ult_salida = salidas.iloc[-1]
+                    ult_entrada = entradas.iloc[-1]
+                    if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
+                        monto_cierre = float(ult_salida['Monto'])
+                        monto_apertura = float(ult_entrada['Monto'])
+                        dif = monto_apertura - monto_cierre
+                        if dif != 0:
+                            st.error(f"🚨 **ALERTA DE EFECTIVO ENTRE TURNOS:** El empleado {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió el turno con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                        else:
+                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con el cierre anterior de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+        else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
+    except Exception as e: st.info("ℹ️ Asegúrate de tener creada la pestaña 'Efectivo_Caja' en tu Google Sheet.")
+
+    st.divider()
+
+    try:
+        ws_hist = sh.worksheet("Historial_Tickets")
+        datos_hist = ws_hist.get_all_values()
+        if len(datos_hist) > 1 and "Total" in datos_hist[0]:
+            df = pd.DataFrame(datos_hist[1:], columns=datos_hist[0])
+            df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+            df['Parking'] = pd.to_numeric(df['Parking'], errors='coerce').fillna(0)
+            df['Extras'] = pd.to_numeric(df['Extras'], errors='coerce').fillna(0)
+            df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
+            
+            filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
+            hoy_dt = datetime.utcnow() - timedelta(hours=3)
+            if filtro == "Hoy": df = df[df['Hora'].dt.date == hoy_dt.date()]
+            elif filtro == "Últimos 7 días": df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                
+            st.markdown("### 💰 Resumen Financiero")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Facturación Total", f"${df['Total'].sum():,.0f}")
+            c2.metric("Por Estacionamiento", f"${df['Parking'].sum():,.0f}")
+            c3.metric("Por Extras/Lavados", f"${df['Extras'].sum():,.0f}")
+            
+            st.markdown("### 🚗 Operativa")
+            c4, c5 = st.columns(2)
+            c4.metric("Vehículos Egresados", len(df))
+            ticket_promedio = df['Total'].mean() if len(df) > 0 else 0
+            c5.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
+            
+            st.markdown("---")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("### 👤 Rendimiento por Valet")
+                if not df.empty:
+                    df_op = df.groupby('Op')['Total'].sum().reset_index()
+                    df_op.columns = ['Valet', 'Recaudación ($)']
+                    st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
+            with col_b:
+                st.markdown("### 🏪 Uso de Validaciones (Locales)")
+                if not df.empty:
+                    df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
+                    df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                    st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 🎟️ Asistencia a Eventos")
+            
+            st.markdown("#### 🟢 Actualmente en Playa (Ingresados)")
+            activos_eventos = []
+            for r_ev in reg[1:]:
+                if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
+                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0]
+                    activos_eventos.append({"Evento": ev_name, "Patente": str(r_ev[1]).upper(), "Ticket": f"#{r_ev[0]}", "Hora Ingreso": r_ev[2]})
+            
+            if activos_eventos:
+                st.dataframe(pd.DataFrame(activos_eventos), use_container_width=True)
+            else:
+                st.info("No hay vehículos de eventos actualmente en el estacionamiento.")
+
+            st.markdown("#### 🏁 Egresados (Finalizados)")
+            if not df.empty:
+                df_evts = df[df['Validación'].str.startswith('Evento:', na=False)].copy()
+                if not df_evts.empty:
+                    df_ev_grouped = df_evts.groupby('Validación').size().reset_index(name='Invitados')
+                    df_ev_grouped['Validación'] = df_ev_grouped['Validación'].str.replace("Evento: ", "")
+                    df_ev_grouped.columns = ['Evento', 'Invitados (Egresados)']
+                    st.dataframe(df_ev_grouped.sort_values(by='Invitados (Egresados)', ascending=False), use_container_width=True)
+                else:
+                    st.info("Aún no han egresado invitados de eventos en el período seleccionado.")
+            
+            st.markdown("---")
+            st.markdown("### 📅 Detalle de Ventas por Día")
+            if not df.empty:
+                df['Fecha'] = df['Hora'].dt.date
+                df_diario = df.groupby('Fecha', as_index=False).agg(
+                    Autos=('Total', 'count'),
+                    Parking=('Parking', 'sum'),
+                    Extras=('Extras', 'sum'),
+                    Total_Recaudado=('Total', 'sum')
+                )
+                df_diario.rename(columns={'Autos': 'Cant. Autos', 'Parking': 'Parking ($)', 'Extras': 'Extras ($)', 'Total_Recaudado': 'Total ($)'}, inplace=True)
+                df_diario = df_diario.sort_values(by='Fecha', ascending=False)
+                st.dataframe(df_diario, use_container_width=True)
+        else: st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
+    except Exception as e:
+        st.error(f"Error conectando con el historial: {e}")
