@@ -195,12 +195,12 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# OPTIMIZACIÓN MASIVA: 1 sola petición de lectura de metadatos en vez de 14.
+# OPTIMIZACIÓN: Removimos la cámara (Auditoria_LPR) por completo.
 @st.cache_data(ttl=60, show_spinner=False)
 def obtener_datos():
     for intento in range(3):
         try:
-            if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
+            if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
             todas_las_hojas = {ws.title: ws for ws in sh.worksheets()}
             
             def get_data(nombre):
@@ -216,7 +216,6 @@ def obtener_datos():
             mensualistas = get_data("Base_Mensualistas")
             stock = get_data("Control_Stock")
             efectivo_data = get_data("Efectivo_Caja")
-            auditoria = get_data("Auditoria_LPR")
             eventos = get_data("Eventos")
             historial = get_data("Historial_Tickets")
             lista_inv = get_data("Lista_Invitados")
@@ -226,9 +225,10 @@ def obtener_datos():
                                            "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
                        for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
             extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
-            return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv
+            
+            return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, eventos, historial, lista_inv
         except Exception as e:
-            if intento == 2: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
+            if intento == 2: return [], {}, {}, [], [], [], [], [], [], [], [], [], []
             time.sleep(1.5)
 
 resultado_datos = obtener_datos()
@@ -236,7 +236,8 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
     st.warning("🔄 Hubo un pequeño corte de conexión. Recargue la página en unos segundos.")
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_inv_data = resultado_datos
+# Desempaquetamos los datos (ya sin Auditoria)
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, eventos_data, historial_data, lista_inv_data = resultado_datos
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
 
@@ -288,7 +289,7 @@ if menu == "📥 Ingreso":
     k = st.session_state.form_key_count
     hoy_str = hora_actual_uy().split()[0]
     
-    patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
+    # Lista de clientes frecuentes
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
     
     patentes_mensualistas = []
@@ -310,8 +311,8 @@ if menu == "📥 Ingreso":
             pat_inv = str(inv[3]).strip().upper().replace("-", "").replace(" ", "")
             invitados_hoy_map[pat_inv] = {"nombre": str(inv[2]).strip(), "evento": str(inv[1]).strip()}
 
-    patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec + patentes_mensualistas)))
-    sel_pat_cam = st.selectbox("📷 1. Patente detectada / Mensualista:", [""] + patentes_unificadas, key=f"cam_{k}")
+    patentes_unificadas = sorted(list(set(patentes_frec + patentes_mensualistas)))
+    sel_pat_cam = st.selectbox("📷 1. Patente Frecuente / Mensualista:", [""] + patentes_unificadas, key=f"cam_{k}")
     pat_manual = st.text_input("✍️ 2. Ingreso Manual (Auto Nuevo):", key=f"man_{k}")
     
     pat_final = (pat_manual.strip() if pat_manual.strip() else sel_pat_cam).upper().replace("-", "").replace(" ", "")
@@ -390,13 +391,42 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
         tkt_final = str(tkt).strip()
         
+        # EL BLOQUE ROBUSTO DE GENERACIÓN DE TICKETS HA VUELTO
         if not tkt_final: 
             if evento_sel:
-                prefijo = f"EV{evento_sel.replace(' ', '').upper()}"
-                max_ev = max([int(str(r[0]).replace(prefijo, "")) for r in reg[1:] if str(r[0]).startswith(prefijo) and str(r[0]).replace(prefijo, "").isdigit()] + [0])
-                tkt_final = f"{prefijo}{max_ev + 1}"
+                prefijo_evento = f"EV{evento_sel.replace(' ', '').upper()}"
+                max_ev = 0
+                for r_val in reg[1:]:
+                    t_val = str(r_val[0]).strip().upper()
+                    if t_val.startswith(prefijo_evento):
+                        num_part = t_val.replace(prefijo_evento, "")
+                        if num_part.isdigit(): max_ev = max(max_ev, int(num_part))
+                for h_val in historial_data[1:]:
+                    if len(h_val) > 3:
+                        t_val = str(h_val[3]).replace("#", "").strip().upper()
+                        if t_val.startswith(prefijo_evento):
+                            num_part = t_val.replace(prefijo_evento, "")
+                            if num_part.isdigit(): max_ev = max(max_ev, int(num_part))
+                
+                tkt_final = f"{prefijo_evento}{max_ev + 1}"
             else:
-                max_t = max([int(r[0]) for r in reg[1:] if str(r[0]).isdigit()] + [1000])
+                max_t = 1000 
+                for r_val in reg[1:]:
+                    t_val = str(r_val[0]).strip().upper()
+                    if t_val.startswith("MEN-"):
+                        num_part = t_val.replace("MEN-", "")
+                        if num_part.isdigit(): max_t = max(max_t, int(num_part))
+                    elif t_val.isdigit():
+                        max_t = max(max_t, int(t_val))
+                for h_val in historial_data[1:]:
+                    if len(h_val) > 3:
+                        t_val = str(h_val[3]).replace("#", "").strip().upper()
+                        if t_val.startswith("MEN-"):
+                            num_part = t_val.replace("MEN-", "")
+                            if num_part.isdigit(): max_t = max(max_t, int(num_part))
+                        elif t_val.isdigit():
+                            max_t = max(max_t, int(t_val))
+                
                 tkt_final = f"MEN-{max_t + 1}" if pat_final in datos_mensualistas_map else str(max_t + 1)
 
         if not pat_final: st.warning("⚠️ Patente obligatoria.")
@@ -412,7 +442,6 @@ if menu == "📥 Ingreso":
                     h_ing = hora_actual_uy()
                     estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}" if evento_sel else f"Estándar ({tipo_vehi}) - Op: {emp}"
                     
-                    # Llamamos a las hojas una sola vez
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                     
                     if cli_nom and not nombre_sug and pat_final not in datos_mensualistas_map:
@@ -597,7 +626,6 @@ elif menu == "📤 Salida":
             texto_ticket = f"""*TICKET EGRESO*\n🚗 {patente} | Tkt: #{tkt}\n🕒 Ingreso: {h_ingreso}\n🕒 Salida: {h_salida}\n⏱️ Estadía: {mins//60}h {mins%60}m\n\n📋 DETALLE:\n{detalle_extras_txt}\nEstacionamiento/Lavado: ${monto}\nExtras: ${total_extras}\n\n💰 *TOTAL: ${total_a_pagar}*\nOp: {emp}"""
 
             try:
-                # OPTIMIZACIÓN DE ESCRITURA (Una sola búsqueda de pestaña)
                 ws_reg = sh.worksheet("Registro")
                 tkt_salida_clean = tkt.replace("#", "").strip().lstrip("0").upper()
                 for i, row in enumerate(reg, start=1):
