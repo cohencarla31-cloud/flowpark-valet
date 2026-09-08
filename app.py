@@ -421,7 +421,7 @@ if menu == "📥 Ingreso":
                 
             else:
                 st.error("⚠️ DATOS INCOMPLETOS: Debes ingresar el N° de Tarjeta PVC obligatoriamente para vehículos estándar.")
-                st.stop() # Bloquea el registro
+                st.stop()
 
         if not pat_final: st.warning("⚠️ Patente obligatoria.")
         else:
@@ -492,11 +492,11 @@ elif menu == "✅ Validaciones":
     activos_disponibles.sort(key=lambda x: int(''.join(filter(str.isdigit, x[0])) or 999999))
     
     seleccion_mozo = st.selectbox("Vehículo:", [""] + [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles])
-    mozo = st.text_input("Mozo:") if local_seleccionado in ["Quinquela", "Number 18"] else "Recepción RB"
-    factura = st.text_input("Últimos 4 dígitos factura:", max_chars=4) if local_seleccionado in ["Quinquela", "Number 18"] else "N/A"
+    mozo = st.text_input("Mozo:") if local_seleccionado == "Quinquela" else f"Recepción {local_seleccionado}"
+    factura = st.text_input("Últimos 4 dígitos factura:", max_chars=4) if local_seleccionado == "Quinquela" else "N/A"
         
     if st.button("Aplicar Validación y Avisar") and seleccion_mozo:
-        if local_seleccionado in ["Quinquela", "Number 18"] and (not mozo or len(factura) < 4): st.error("⚠️ Faltan datos.")
+        if local_seleccionado == "Quinquela" and (not mozo or len(factura) < 4): st.error("⚠️ Faltan datos.")
         else:
             tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
@@ -519,7 +519,6 @@ elif menu == "🍔 Extras":
     prod = st.selectbox("Extra:", [""] + list(extras.keys()))
     cant = st.number_input("Cantidad:", min_value=1, step=1)
     
-    # SUBTOTAL DINÁMICO
     if prod:
         subtotal = extras.get(prod, 0) * cant
         st.info(f"💰 Subtotal a cobrar: **${subtotal}**")
