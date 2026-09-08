@@ -195,7 +195,6 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# OPTIMIZACIÓN: Removimos la cámara (Auditoria_LPR) por completo.
 @st.cache_data(ttl=60, show_spinner=False)
 def obtener_datos():
     for intento in range(3):
@@ -236,7 +235,6 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
     st.warning("🔄 Hubo un pequeño corte de conexión. Recargue la página en unos segundos.")
     st.stop()
 
-# Desempaquetamos los datos (ya sin Auditoria)
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, eventos_data, historial_data, lista_inv_data = resultado_datos
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
@@ -289,7 +287,6 @@ if menu == "📥 Ingreso":
     k = st.session_state.form_key_count
     hoy_str = hora_actual_uy().split()[0]
     
-    # Lista de clientes frecuentes
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
     
     patentes_mensualistas = []
@@ -335,9 +332,9 @@ if menu == "📥 Ingreso":
             estado_visual = datos_m["estado"]
             if estado_visual == "DEUDOR": es_deudor = True
             elif estado_visual in ["AL DIA", "AUTORIZADO"]:
-                st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
+                st.success(f"💳 **Vehículo Registrado ({estado_visual})** a nombre de: {nombre_sug}")
             bene = datos_m.get("beneficio", "")
-            if "LAVADO" in bene: st.info(f"💦 **Aviso: Este Mensualista cuenta con: {bene}**")
+            if "LAVADO" in bene: st.info(f"💦 **Aviso: Cuenta con: {bene}**")
                 
         for rc in clientes[1:]:
             if len(rc) > 2 and str(rc[0]).upper().replace("-", "").replace(" ", "") == pat_final:
@@ -354,7 +351,7 @@ if menu == "📥 Ingreso":
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
                 
-    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional):", key=f"tkt_{k}")
+    tkt = st.text_input("🎫 N° Tarjeta PVC (OBLIGATORIO para clientes estándar):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular:", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
@@ -391,43 +388,40 @@ if menu == "📥 Ingreso":
         if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
         tkt_final = str(tkt).strip()
         
-        # EL BLOQUE ROBUSTO DE GENERACIÓN DE TICKETS HA VUELTO
+        # SISTEMA DE VALIDACIÓN OBLIGATORIA Y SIGLAS CLARAS
         if not tkt_final: 
             if evento_sel:
-                prefijo_evento = f"EV{evento_sel.replace(' ', '').upper()}"
-                max_ev = 0
+                prefijo = "EV-"
+                max_num = 0
                 for r_val in reg[1:]:
                     t_val = str(r_val[0]).strip().upper()
-                    if t_val.startswith(prefijo_evento):
-                        num_part = t_val.replace(prefijo_evento, "")
-                        if num_part.isdigit(): max_ev = max(max_ev, int(num_part))
+                    if t_val.startswith(prefijo) and t_val.replace(prefijo, "").isdigit():
+                        max_num = max(max_num, int(t_val.replace(prefijo, "")))
                 for h_val in historial_data[1:]:
                     if len(h_val) > 3:
                         t_val = str(h_val[3]).replace("#", "").strip().upper()
-                        if t_val.startswith(prefijo_evento):
-                            num_part = t_val.replace(prefijo_evento, "")
-                            if num_part.isdigit(): max_ev = max(max_ev, int(num_part))
+                        if t_val.startswith(prefijo) and t_val.replace(prefijo, "").isdigit():
+                            max_num = max(max_num, int(t_val.replace(prefijo, "")))
+                tkt_final = f"{prefijo}{max_num + 1}"
                 
-                tkt_final = f"{prefijo_evento}{max_ev + 1}"
+            elif pat_final in datos_mensualistas_map:
+                estado_m = datos_mensualistas_map[pat_final]["estado"]
+                prefijo = "AUT-" if estado_m == "AUTORIZADO" else "MEN-"
+                max_num = 0
+                for r_val in reg[1:]:
+                    t_val = str(r_val[0]).strip().upper()
+                    if t_val.startswith(prefijo) and t_val.replace(prefijo, "").isdigit():
+                        max_num = max(max_num, int(t_val.replace(prefijo, "")))
+                for h_val in historial_data[1:]:
+                    if len(h_val) > 3:
+                        t_val = str(h_val[3]).replace("#", "").strip().upper()
+                        if t_val.startswith(prefijo) and t_val.replace(prefijo, "").isdigit():
+                            max_num = max(max_num, int(t_val.replace(prefijo, "")))
+                tkt_final = f"{prefijo}{max_num + 1}"
+                
             else:
-                max_t = 1000 
-                for r_val in reg[1:]:
-                    t_val = str(r_val[0]).strip().upper()
-                    if t_val.startswith("MEN-"):
-                        num_part = t_val.replace("MEN-", "")
-                        if num_part.isdigit(): max_t = max(max_t, int(num_part))
-                    elif t_val.isdigit():
-                        max_t = max(max_t, int(t_val))
-                for h_val in historial_data[1:]:
-                    if len(h_val) > 3:
-                        t_val = str(h_val[3]).replace("#", "").strip().upper()
-                        if t_val.startswith("MEN-"):
-                            num_part = t_val.replace("MEN-", "")
-                            if num_part.isdigit(): max_t = max(max_t, int(num_part))
-                        elif t_val.isdigit():
-                            max_t = max(max_t, int(t_val))
-                
-                tkt_final = f"MEN-{max_t + 1}" if pat_final in datos_mensualistas_map else str(max_t + 1)
+                st.error("⚠️ DATOS INCOMPLETOS: Debes ingresar el N° de Tarjeta PVC obligatoriamente para vehículos estándar.")
+                st.stop() # Bloquea el registro
 
         if not pat_final: st.warning("⚠️ Patente obligatoria.")
         else:
@@ -521,8 +515,14 @@ elif menu == "🍔 Extras":
     st.subheader("Carga de Extras")
     activos = sorted([r for r in reg[1:] if len(r)>3 and (not r[3] or r[3].lower()=='nan') and r[0].upper()!="EXTRA" and not r[0].startswith("LPR-")], key=lambda x: int(''.join(filter(str.isdigit, x[0])) or 999999))
     sel_auto = st.selectbox("Vehículo:", ["🛒 VENTA DIRECTA (Sin Vehículo)"] + [f"#{r[0]} - Patente: {str(r[1]).upper()}" for r in activos])
+    
     prod = st.selectbox("Extra:", [""] + list(extras.keys()))
     cant = st.number_input("Cantidad:", min_value=1, step=1)
+    
+    # SUBTOTAL DINÁMICO
+    if prod:
+        subtotal = extras.get(prod, 0) * cant
+        st.info(f"💰 Subtotal a cobrar: **${subtotal}**")
     
     if st.button("Registrar Extra") and prod:
         fecha_act = hora_actual_uy()
@@ -707,12 +707,8 @@ elif menu == "⏰ Personal":
             st.session_state.cartel_salida_msg = ""
             st.rerun()
 
-# ------------------------------------------
-# REPORTES (ADMIN)
-# ------------------------------------------
 elif menu == "📈 Reportes":
     st.subheader("📊 Panel de Ventas, Control y Auditoría")
-    st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
     
     st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
     try:
@@ -769,7 +765,7 @@ elif menu == "📈 Reportes":
 
     st.divider()
 
-    st.markdown("### 💵 Auditoría de Caja y Efectivo (Control de Faltantes Entre Turnos)")
+    st.markdown("### 💵 Auditoría de Caja y Efectivo")
     try:
         ws_ef = sh.worksheet("Efectivo_Caja")
         datos_ef = ws_ef.get_all_values()
