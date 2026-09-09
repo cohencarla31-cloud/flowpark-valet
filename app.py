@@ -144,7 +144,8 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-# 🛑 SIN CACHÉ: Lee en tiempo real para no trabarse si Google falla
+# 🛡️ LECTURA CACHEADA DE CLAVES
+@st.cache_data(ttl=60, show_spinner=False)
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -159,7 +160,7 @@ def cargar_usuarios_desde_db():
             pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
         return pins_dict
     except Exception as e:
-        return None # Devuelve None si Google bloqueó la lectura
+        return None
 
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
@@ -196,7 +197,7 @@ if st.session_state.usuario is None:
     pin_ingresado = st.text_input("🔑 PIN de Seguridad:", type="password")
     
     if st.button("Ingresar"):
-        time.sleep(1)
+        time.sleep(0.5)
         pin_clean = str(pin_ingresado).strip()
         
         if not pin_clean:
@@ -204,7 +205,7 @@ if st.session_state.usuario is None:
         else:
             usuarios_pins = cargar_usuarios_desde_db()
             if usuarios_pins is None:
-                st.error("⏳ Google está verificando la conexión por seguridad. Por favor, espere 15 segundos y vuelva a intentar ingresar.")
+                st.warning("⏳ Enlace asegurando conexión con Google. Por favor, espere 15 segundos y vuelva a dar 'Ingresar'.")
             elif pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 st.session_state.usuario = datos_u["nombre"]
@@ -233,42 +234,43 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# 🛡️ SISTEMA ROBUSTO DE EXTRACCIÓN DE DATOS
-@st.cache_data(ttl=300, show_spinner=False)
+# 🛡️ MOTOR DE EXTRACCIÓN EN BLOQUE (BATCH) - SÚPER RÁPIDO
+@st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
     try:
         if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
-        conf = sh.worksheet("Configuracion").get_all_values()
-        tarifas_raw = sh.worksheet("Tarifas").get_all_values()
-        extras_raw = sh.worksheet("Extras").get_all_values()
-        reg = sh.worksheet("Registro").get_all_values()
-        q_data = sh.worksheet("Respuestas de formulario 1").get_all_values()
-        cli = sh.worksheet("Clientes_Frecuentes").get_all_values()
         
-        try: asistencia = sh.worksheet("Asistencia").get_all_values()
-        except: asistencia = []
-        try: mensualistas = sh.worksheet("Base_Mensualistas").get_all_values()
-        except: mensualistas = []
-        try: stock = sh.worksheet("Control_Stock").get_all_values()
-        except: stock = []
-        try: efectivo_data = sh.worksheet("Efectivo_Caja").get_all_values()
-        except: efectivo_data = []
-        try: auditoria = sh.worksheet("Auditoria_LPR").get_all_values()
-        except: auditoria = []
-        try: eventos = sh.worksheet("Eventos").get_all_values()
-        except: eventos = []
-        try: historial = sh.worksheet("Historial_Tickets").get_all_values()
-        except: historial = []
-        try: lista_inv = sh.worksheet("Lista de invitados").get_all_values()
-        except: 
-            try: lista_inv = sh.worksheet("Lista_Invitados").get_all_values()
-            except: lista_inv = []
+        hojas = sh.worksheets()
+        titulos = [h.title for h in hojas]
         
-        empleados = [r[0] for r in conf[1:] if r[0]]
+        # Google trae las 14 pestañas en 1 sola lectura
+        batch = sh.values_batch_get(titulos)
+        
+        data_dict = {}
+        for idx, vr in enumerate(batch.get('valueRanges', [])):
+            nombre_hoja = titulos[idx]
+            data_dict[nombre_hoja] = vr.get('values', [])
+
+        conf = data_dict.get("Configuracion", [])
+        tarifas_raw = data_dict.get("Tarifas", [])
+        extras_raw = data_dict.get("Extras", [])
+        reg = data_dict.get("Registro", [])
+        q_data = data_dict.get("Respuestas de formulario 1", [])
+        cli = data_dict.get("Clientes_Frecuentes", [])
+        asistencia = data_dict.get("Asistencia", [])
+        mensualistas = data_dict.get("Base_Mensualistas", [])
+        stock = data_dict.get("Control_Stock", [])
+        efectivo_data = data_dict.get("Efectivo_Caja", [])
+        auditoria = data_dict.get("Auditoria_LPR", [])
+        eventos = data_dict.get("Eventos", [])
+        historial = data_dict.get("Historial_Tickets", [])
+        lista_inv = data_dict.get("Lista de invitados", data_dict.get("Lista_Invitados", []))
+        
+        empleados = [r[0] for r in conf[1:] if len(r)>0 and r[0]]
         tarifas = {str(r[0]).strip(): {"Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
                                        "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
                    for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
-        extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
+        extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
         
         st.session_state.ultimo_error_db = ""
         return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv
@@ -278,7 +280,6 @@ def obtener_datos():
 
 resultado_datos = obtener_datos()
 
-# 🛡️ PANTALLA INTELIGENTE DE RECONEXIÓN
 if not resultado_datos[0] and st.session_state.rol != "Admin":
     error_detectado = st.session_state.get("ultimo_error_db", "")
     st.markdown("### 📡 Enlace pausado por seguridad")
@@ -294,7 +295,6 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
-# MAPEO DE MENSUALISTAS GLOBAL
 datos_mensualistas_map = {}
 patentes_mensualistas = []
 try:
@@ -596,8 +596,9 @@ if st.session_state.exito_msg != "":
 # ACTIVOS
 # ------------------------------------------
 elif menu == "📊 Activos":
-    st.subheader("Vehículos en Playa")
-    if st.button("🔄 Refrescar Playa"):
+    c_head1, c_head2 = st.columns([3, 1])
+    c_head1.subheader("Vehículos en Playa")
+    if c_head2.button("🔄 Refrescar Playa", key="ref_activos"):
         obtener_datos.clear()
         st.rerun()
         
