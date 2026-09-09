@@ -48,8 +48,8 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-TEL_PARKING_1 = "59896185562" 
-TEL_PARKING_2 = "59897818770" 
+TEL_PARKING_1 = "59895280412" 
+TEL_PARKING_2 = "59893343092" 
 
 @st.cache_resource
 def init_connection():
@@ -286,6 +286,17 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
+# 🔔 SISTEMA GLOBAL DE ALERTAS PARA VALETS (NUEVAS VALIDACIONES)
+hoy_str_global = hora_actual_uy().split()[0]
+val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
+
+if "cant_val_hoy" not in st.session_state:
+    st.session_state.cant_val_hoy = len(val_hoy_global)
+elif len(val_hoy_global) > st.session_state.cant_val_hoy:
+    if st.session_state.rol == "Valet" or st.session_state.rol == "Admin":
+        st.toast("🚨 ¡NUEVA VALIDACIÓN DE LOCAL RECIBIDA!", icon="🔔")
+    st.session_state.cant_val_hoy = len(val_hoy_global)
+
 datos_mensualistas_map = {}
 patentes_mensualistas = []
 try:
@@ -316,15 +327,14 @@ if not es_admin and st.session_state.rol == "Valet":
     opciones_menu.append("⏰ Personal")
 
 if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "Valet") or es_admin:
-    opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🧽 Lavadero", "🍔 Extras", "📤 Salida"])
+    opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🧽 Lavadero", "🍔 Extras", "📤 Salida", "✅ Validaciones"])
 
-if (st.session_state.rol and st.session_state.rol.startswith("Local_")) or es_admin:
+if st.session_state.rol and st.session_state.rol.startswith("Local_"):
     opciones_menu.append("✅ Validaciones")
 
 if es_admin:
     opciones_menu.append("📈 Reportes")
 
-# NUEVA OPCIÓN: AYUDA / MANUAL PARA TODOS
 if st.session_state.rol:
     opciones_menu.append("📖 Ayuda")
 
@@ -335,7 +345,6 @@ if not opciones_menu:
 menu = st.radio("Navegación:", opciones_menu, horizontal=True, label_visibility="collapsed")
 st.divider()
 
-# 🚨 SISTEMA DE CARTELES DE ADVERTENCIA PARA VALETS 🚨
 if st.session_state.rol == "Valet" and menu != "📖 Ayuda":
     if ultimo_est_operador == "Salida":
         st.error("🚨 **¡ALERTA MÁXIMA! NO HAS REGISTRADO TU ENTRADA.**\n\nDebes ir obligatoriamente a la pestaña **'Personal'** y hacer tu inventario inicial. Si no lo hacés, estás operando de forma incorrecta.")
@@ -721,62 +730,94 @@ elif menu == "🧽 Lavadero":
             st.success(f"✨ **{str(auto[1]).upper()}** | Tkt #{str(auto[0]).strip()} - Listo para entregar.")
 
 # ------------------------------------------
-# VALIDACIONES PRIVADAS
+# VALIDACIONES (FORMULARIO Y PANEL)
 # ------------------------------------------
 elif menu == "✅ Validaciones":
-    st.subheader("Validación de Locales")
-    if st.session_state.rol == "Local_Quinquela": local_seleccionado = "Quinquela"
-    elif st.session_state.rol == "Local_Number18": local_seleccionado = "Number 18"
-    else: local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
-        
-    activos_disponibles = []
-    for r in reg[1:]:
-        if len(r)>3:
-            tkt = str(r[0]).strip()
-            h_sal = str(r[3]).strip()
-            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                pat = str(r[1]).upper()
-                h_ing = r[2]
-                if not obtener_validacion_local(pat, tkt, h_ing, q_data):
-                    activos_disponibles.append(r)
-                    
-    def get_sort_key(r):
-        val = str(r[0]).strip()
-        nums = ''.join(filter(str.isdigit, val))
-        return int(nums) if nums else 999999
-        
-    activos_disponibles = sorted(activos_disponibles, key=get_sort_key)
-    opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
-    seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
     
-    if local_seleccionado in ["Quinquela", "Number 18"]:
-        mozo = st.text_input("Nombre del Mozo / Recepción:")
-        factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
-    else:
-        mozo = "Recepción RB"
-        factura = "N/A"
+    # VISTA PARA RESTAURANTES / ADMIN (Cargar Validaciones)
+    if st.session_state.rol.startswith("Local_") or es_admin:
+        st.subheader("Cargar Validación de Local")
         
-    if st.button("Aplicar Validación y Avisar"):
-        if seleccion_mozo:
-            if local_seleccionado in ["Quinquela", "Number 18"] and (not mozo or len(factura) < 4):
-                st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
+        if st.session_state.rol == "Local_Quinquela": local_seleccionado = "Quinquela"
+        elif st.session_state.rol == "Local_Number18": local_seleccionado = "Number 18"
+        else: local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
+            
+        activos_disponibles = []
+        for r in reg[1:]:
+            if len(r)>3:
+                tkt = str(r[0]).strip()
+                h_sal = str(r[3]).strip()
+                if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                    pat = str(r[1]).upper()
+                    h_ing = r[2]
+                    if not obtener_validacion_local(pat, tkt, h_ing, q_data):
+                        activos_disponibles.append(r)
+                        
+        def get_sort_key(r):
+            val = str(r[0]).strip()
+            nums = ''.join(filter(str.isdigit, val))
+            return int(nums) if nums else 999999
+            
+        activos_disponibles = sorted(activos_disponibles, key=get_sort_key)
+        opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
+        
+        with st.expander("➕ Cargar Nueva Validación", expanded=True):
+            seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
+            
+            if local_seleccionado in ["Quinquela", "Number 18"]:
+                mozo = st.text_input("Nombre del Mozo / Recepción:")
+                factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
             else:
-                tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
-                pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
-                try:
-                    fecha_val = hora_actual_uy()
-                    sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
-                    st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
-                    
-                    msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
-                    st.markdown("### 📲 Avisar a los Valets:")
-                    st.markdown(f"[➡️ Notificar al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})", unsafe_allow_html=True)
-                    st.markdown(f"[➡️ Notificar al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})", unsafe_allow_html=True)
-                    obtener_datos.clear()
-                except Exception as e:
-                    st.error(f"Error al conectar con Google Sheets: {e}")
+                mozo = "Recepción RB"
+                factura = "N/A"
+                
+            if st.button("Aplicar Validación y Avisar"):
+                if seleccion_mozo:
+                    if local_seleccionado in ["Quinquela", "Number 18"] and (not mozo or len(factura) < 4):
+                        st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
+                    else:
+                        tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
+                        pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
+                        try:
+                            fecha_val = hora_actual_uy()
+                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
+                            st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
+                            
+                            # MENSAJE DE WHATSAPP MEJORADO (Permite seleccionar varios)
+                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
+                            st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
+                            st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
+                            st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                            st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
+                            obtener_datos.clear()
+                        except Exception as e:
+                            st.error(f"Error al conectar con Google Sheets: {e}")
+                else:
+                    st.error("Selecciona un vehículo de la lista.")
+
+    st.markdown("---")
+
+    # VISTA PARA VALETS / ADMIN (Panel de Historial de Hoy)
+    if st.session_state.rol == "Valet" or es_admin:
+        c_head1, c_head2 = st.columns([3, 1])
+        c_head1.subheader("🔔 Historial de Validaciones del Día")
+        if c_head2.button("🔄 Refrescar Panel", key="ref_panel_val"):
+            obtener_datos.clear()
+            st.rerun()
+            
+        if not val_hoy_global:
+            st.info("Aún no hay validaciones registradas por los locales en el día de hoy.")
         else:
-            st.error("Selecciona un vehículo de la lista.")
+            for val in reversed(val_hoy_global):
+                try:
+                    hora_val = str(val[0]).split()[1][:5]
+                    local_v = str(val[5]) if len(val)>5 else "Local"
+                    pat_v = str(val[3]).upper()
+                    tkt_v = str(val[2]).strip()
+                    mozo_v = str(val[1]).strip()
+                    st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - Mozo: {mozo_v}")
+                except:
+                    pass
 
 # ------------------------------------------
 # EXTRAS
@@ -1427,7 +1468,7 @@ elif menu == "📖 Ayuda":
     ### 👥 1. PERFILES DE USUARIO
     El sistema detecta automáticamente tu rol según el PIN de 4 dígitos:
     *   **🛡️ Administrador (Admin):** Tiene acceso total. Puede ver la pestaña **📈 Reportes** (Recaudación, cobros a locales, auditoría de cámaras y deudas).
-    *   **🚗 Valet:** Perfil operativo. Tiene acceso a Personal, Ingreso, Activos, Lavadero, Extras y Salida.
+    *   **🚗 Valet:** Perfil operativo. Tiene acceso a Personal, Ingreso, Activos, Lavadero, Extras, Validaciones y Salida.
     *   **🏪 Local (Quinquela / Number 18):** Solo ven la pantalla de **✅ Validaciones** para aplicar descuentos.
     
     ---
