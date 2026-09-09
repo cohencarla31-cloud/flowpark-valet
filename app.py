@@ -144,7 +144,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-# 🛡️ LECTURA CACHEADA DE CLAVES
+# LECTURA DE USUARIOS EN TIEMPO REAL
 @st.cache_data(ttl=60, show_spinner=False)
 def cargar_usuarios_desde_db():
     pins_dict = {}
@@ -156,8 +156,6 @@ def cargar_usuarios_desde_db():
                 pin = str(r[1]).strip()
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
-        if "1000" not in pins_dict:
-            pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
         return pins_dict
     except Exception as e:
         return None
@@ -216,9 +214,6 @@ if st.session_state.usuario is None:
                 st.error("❌ Clave incorrecta o no autorizada en el sistema.")
     st.stop() 
 
-if st.session_state.pin_usado == "1000" or "rodrigo" in str(st.session_state.usuario).lower():
-    st.session_state.rol = "Admin"
-
 st.markdown("<br>", unsafe_allow_html=True)
 c_user, c_out = st.columns([3, 1])
 c_user.markdown(f"👤 **{st.session_state.usuario}** | 🛡️ {st.session_state.rol}")
@@ -239,11 +234,8 @@ st.divider()
 def obtener_datos():
     try:
         if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
-        
         hojas = sh.worksheets()
         titulos = [h.title for h in hojas]
-        
-        # Google trae las 14 pestañas en 1 sola lectura
         batch = sh.values_batch_get(titulos)
         
         data_dict = {}
@@ -295,6 +287,7 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
+# MAPEO DE MENSUALISTAS GLOBAL
 datos_mensualistas_map = {}
 patentes_mensualistas = []
 try:
@@ -312,7 +305,7 @@ except Exception as e:
     pass
 
 emp = st.session_state.usuario
-es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
+es_admin = st.session_state.rol == "Admin"
 
 ultimo_est_operador = verificar_estado_empleado(emp, asistencia_data)
 if st.session_state.local_emp == emp and st.session_state.local_estado != "":
@@ -321,16 +314,16 @@ if st.session_state.local_emp == emp and st.session_state.local_estado != "":
 st.markdown("### 📍 Menú Principal")
 opciones_menu = []
 
-if not es_admin_rodrigo and st.session_state.rol == "Valet":
+if not es_admin and st.session_state.rol == "Valet":
     opciones_menu.append("⏰ Personal")
 
-if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "Valet") or es_admin_rodrigo:
-    opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🍔 Extras", "📤 Salida"])
+if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "Valet") or es_admin:
+    opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🧽 Lavadero", "🍔 Extras", "📤 Salida"])
 
-if (st.session_state.rol and st.session_state.rol.startswith("Local_")) or es_admin_rodrigo:
+if (st.session_state.rol and st.session_state.rol.startswith("Local_")) or es_admin:
     opciones_menu.append("✅ Validaciones")
 
-if es_admin_rodrigo:
+if es_admin:
     opciones_menu.append("📈 Reportes")
 
 if not opciones_menu:
@@ -342,22 +335,6 @@ st.divider()
 
 if st.session_state.rol == "Valet" and ultimo_est_operador == "Salida" and menu != "⏰ Personal":
     st.warning("⚠️ **¡ATENCIÓN! No olvides registrar tu ENTRADA en el módulo Personal para habilitar el sistema operativo.**")
-
-def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
-    try:
-        ws_ex = sh.worksheet("Extras")
-        rows = ws_ex.get_all_values()
-        for idx, r in enumerate(rows[1:], start=2):
-            if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
-                vendidos_actuales = float(r[3]) if r[3] and r[3] != "" else 0
-                stock_actual = float(r[4]) if r[4] and r[4] != "" else 0
-                nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
-                nuevo_stock = stock_actual - float(cantidad_vendida)
-                ws_ex.update_cell(idx, 4, nuevo_vendidos)
-                ws_ex.update_cell(idx, 5, nuevo_stock)
-                break
-    except Exception as e:
-        pass
 
 # ------------------------------------------
 # INGRESO
@@ -371,6 +348,7 @@ if menu == "📥 Ingreso":
 
     k = st.session_state.form_key_count
     hoy_str = hora_actual_uy().split()[0]
+    mes_actual_str = hora_actual_uy()[:7] # YYYY-MM
     
     invitados_hoy_map = {}
     nombres_invitados_map = {}
@@ -407,6 +385,8 @@ if menu == "📥 Ingreso":
     nombre_sug, cel_sug = "", "598"
     es_deudor = False
     excede_cupo_mensual = False
+    lavados_usados = 0
+    lavados_permitidos = 0
     
     if pat_final:
         for rc in clientes[1:]:
@@ -443,8 +423,22 @@ if menu == "📥 Ingreso":
                     st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
                 
             bene = datos_m.get("beneficio", "")
-            if "LAVADO" in bene and not excede_cupo_mensual:
-                st.info(f"💦 **Aviso: Este Mensualista cuenta con beneficio de: {bene}**")
+            
+            # CÁLCULO DE LAVADOS USADOS
+            if "LAVADO" in bene:
+                if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lavados_permitidos = 2
+                else: lavados_permitidos = 1
+                
+                for h in historial_data[1:]:
+                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat_final:
+                        if "Lavado Beneficio Usado" in str(h[7]):
+                            lavados_usados += 1
+                            
+                if not excede_cupo_mensual:
+                    if lavados_usados >= lavados_permitidos:
+                        st.warning(f"⚠️ **Atención Lavadero:** Este Mensualista ya consumió su límite de {lavados_permitidos} lavado(s) este mes. Si solicita otro, **DEBERÁ ABONARLO**.")
+                    else:
+                        st.info(f"💦 **Beneficio Activo:** Cuenta con {lavados_permitidos} lavado(s) al mes. Lleva usados: **{lavados_usados}**.")
 
     if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
         
@@ -458,6 +452,10 @@ if menu == "📥 Ingreso":
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
+    st.markdown("---")
+    solicita_lavado = st.checkbox("🧽 **¿El cliente solicita servicio de Lavado ahora?**", key=f"wash_{k}")
+    st.markdown("---")
+
     eventos_hoy = []
     cupos_evento = {}
     for ev in eventos_data[1:]:
@@ -556,6 +554,9 @@ if menu == "📥 Ingreso":
                         
                     if excede_cupo_mensual:
                         estado_txt += " [EXCEDE CUPO]"
+                        
+                    if solicita_lavado:
+                        estado_txt += " | 🧽 LAVADO PENDIENTE"
 
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                     
@@ -573,6 +574,8 @@ if menu == "📥 Ingreso":
                         msg_ingreso += f"\n🎟️ *Invitado Especial:* {evento_sel}"
                     if es_deudor and not excede_cupo_mensual and texto_deuda_completo:
                         msg_ingreso += f"\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
+                    if solicita_lavado:
+                        msg_ingreso += "\n\n🧽 *Servicio de Lavado Solicitado*"
                         
                     msg_ingreso += "\n\n¡Gracias por elegirnos!"
                     
@@ -602,6 +605,7 @@ elif menu == "📊 Activos":
         obtener_datos.clear()
         st.rerun()
         
+    activos_lista = []
     for r in reversed(reg[1:]):
         if len(r) > 3:
             tkt = str(r[0]).strip()
@@ -611,7 +615,88 @@ elif menu == "📊 Activos":
                 h_ing = r[2]
                 local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
                 tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
-                st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}")
+                tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
+                
+                activos_lista.append(r)
+                st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
+
+    # ✏️ CORREGIR PATENTE (NUEVO)
+    if activos_lista:
+        st.divider()
+        with st.expander("✏️ Corregir Patente (Error de Tipeo)", expanded=False):
+            st.markdown("Si cargaste mal una patente al ingresar, buscala en la lista y escribí la correcta.")
+            opciones_corregir = [f"#{r[0]} - Patente actual: {r[1]}" for r in activos_lista]
+            auto_a_corregir = st.selectbox("Seleccionar vehículo a corregir:", [""] + opciones_corregir)
+            patente_corregida = st.text_input("Escribir la patente CORRECTA:").upper().replace("-", "").replace(" ", "")
+            
+            if st.button("Guardar Corrección"):
+                if auto_a_corregir and patente_corregida:
+                    tkt_corregir = auto_a_corregir.split(" - ")[0].replace("#", "").strip()
+                    try:
+                        for idx, row in enumerate(reg):
+                            if str(row[0]).strip() == tkt_corregir and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                                sh.worksheet("Registro").update_cell(idx + 1, 2, patente_corregida)
+                                st.success(f"✅ ¡Patente corregida exitosamente a {patente_corregida}!")
+                                obtener_datos.clear()
+                                time.sleep(1)
+                                st.rerun()
+                                break
+                    except Exception as e:
+                        st.error("Hubo un error al guardar la corrección.")
+                else:
+                    st.warning("Seleccioná un auto y escribí la patente nueva.")
+
+# ------------------------------------------
+# LAVADERO (NUEVO MÓDULO)
+# ------------------------------------------
+elif menu == "🧽 Lavadero":
+    c_head1, c_head2 = st.columns([3, 1])
+    c_head1.subheader("Panel de Lavadero")
+    if c_head2.button("🔄 Refrescar", key="ref_lav"):
+        obtener_datos.clear()
+        st.rerun()
+        
+    autos_para_lavar = []
+    autos_terminados = []
+    
+    for r in reg[1:]:
+        if len(r) > 4:
+            tkt = str(r[0]).strip()
+            h_sal = str(r[3]).strip()
+            estado = str(r[4])
+            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                if "LAVADO PENDIENTE" in estado: autos_para_lavar.append(r)
+                elif "LAVADO TERMINADO" in estado: autos_terminados.append(r)
+                
+    st.markdown("### 🔴 Pendientes de Lavado")
+    if not autos_para_lavar:
+        st.success("¡Excelente! No hay autos esperando lavado.")
+    else:
+        for auto in autos_para_lavar:
+            c1, c2 = st.columns([3, 1])
+            tkt = str(auto[0]).strip()
+            pat = str(auto[1]).upper()
+            c1.error(f"🚗 **{pat}** | Tkt #{tkt} | Ingresó: {auto[2].split()[1]}")
+            if c2.button("✅ Marcar Terminado", key=f"lav_{tkt}"):
+                try:
+                    for idx, row in enumerate(reg):
+                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                            nuevo_estado = str(row[4]).replace(" | 🧽 LAVADO PENDIENTE", " | ✨ LAVADO TERMINADO")
+                            sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
+                            st.toast("¡Lavado marcado como terminado!")
+                            obtener_datos.clear()
+                            time.sleep(1)
+                            st.rerun()
+                            break
+                except:
+                    st.error("Error al actualizar estado.")
+                    
+    st.markdown("### 🟢 Lavados Terminados en Playa")
+    if not autos_terminados:
+        st.info("Ningún lavado terminado pendiente de salida.")
+    else:
+        for auto in autos_terminados:
+            st.success(f"✨ **{str(auto[1]).upper()}** | Tkt #{str(auto[0]).strip()} - Listo para entregar.")
 
 # ------------------------------------------
 # VALIDACIONES PRIVADAS
@@ -736,6 +821,7 @@ elif menu == "📤 Salida":
         obtener_datos.clear()
         st.rerun()
 
+    mes_actual_str = hora_actual_uy()[:7]
     temp_activos = {}
     for r in reg[1:]:
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
@@ -762,6 +848,7 @@ elif menu == "📤 Salida":
         
         estado_txt = str(datos[4]) if len(datos) > 4 else ""
         excede_cupo_flag = "[EXCEDE CUPO]" in estado_txt.upper()
+        pidio_lavado_flag = "LAVADO" in estado_txt.upper()
         
         nombre_cliente_encontrado = "Cliente"
         cel_encontrado = "598"
@@ -774,6 +861,8 @@ elif menu == "📤 Salida":
                 
         beneficio_encontrado = ""
         estado_mensual_encontrado = ""
+        lavados_usados = 0
+        lavados_permitidos = 0
         
         if patente in datos_mensualistas_map:
             datos_m = datos_mensualistas_map[patente]
@@ -781,16 +870,38 @@ elif menu == "📤 Salida":
             if datos_m["telefono"]: cel_encontrado = datos_m["telefono"]
             beneficio_encontrado = datos_m["beneficio"]
             estado_mensual_encontrado = datos_m["estado"]
+            
+            if "LAVADO" in beneficio_encontrado:
+                if "2 LAVADO" in beneficio_encontrado or ("2" in beneficio_encontrado and "LAVADO" in beneficio_encontrado): lavados_permitidos = 2
+                else: lavados_permitidos = 1
+                
+                for h in historial_data[1:]:
+                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
+                        if "Lavado Beneficio Usado" in str(h[7]):
+                            lavados_usados += 1
                 
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
-        # 💦 AVISO Y SELECTOR DE LAVADO
+        # 💦 LÓGICA INTELIGENTE DEL SELECTOR DE LAVADO
         if "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
-            st.info(f"💦 **Aviso al Valet: Este Mensualista cuenta con: {beneficio_encontrado}**")
+            st.info(f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})")
+        
+        if pidio_lavado_flag:
+            st.warning("🧽 **¡ATENCIÓN! Este vehículo tiene registrado un servicio de lavadero en su estadía.** Verifique cobrarlo o descontarlo del plan.")
+        
+        opcion_por_defecto = 0
+        if pidio_lavado_flag:
+            if lavados_permitidos > lavados_usados and not excede_cupo_flag:
+                opcion_por_defecto = 3 # Sugiere descontar del plan
+            else:
+                opcion_por_defecto = 2 # Sugiere cobrarlo (Completo por defecto)
+                
+        lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", 
+            ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)", "Lavado Incluido (Plan Mensualista)"], index=opcion_por_defecto)
             
-        lavado_opcion = st.selectbox("🧼 Servicio de Lavado en esta estadía:", 
-            ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)", "Lavado Incluido (Plan Mensualista)"])
+        if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos and lavados_permitidos > 0 and not excede_cupo_flag:
+            st.error("❌ **ALERTA:** Estás seleccionando 'Lavado Incluido' pero el cliente ya gastó sus lavados de este mes. Deberías cobrarlo.")
         
         if st.button("Calcular y Generar Salida"):
             h_salida = hora_actual_uy()
@@ -877,10 +988,14 @@ elif menu == "📤 Salida":
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
             
+            obs_salida_final = obs_salida if obs_salida else "-"
             if lavado_opcion != "Ninguno":
                 nom_lavado = lavado_opcion.split(" (")[0]
                 if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
                 else: detalle_extras_txt += f" | 🧼 {nom_lavado}"
+                
+                if lavado_opcion == "Lavado Incluido (Plan Mensualista)":
+                    obs_salida_final += " | Lavado Beneficio Usado"
                 
             total_a_pagar = monto_estacionamiento + total_extras
             
@@ -920,7 +1035,7 @@ Op: {emp}
                 ws_h.append_row([
                     h_salida, emp, patente, f"#{tkt}", float(monto_estacionamiento), 
                     float(total_extras), float(total_a_pagar), 
-                    obs_salida if obs_salida else "-", 
+                    obs_salida_final.strip(" | -"), 
                     local_val_guardar,
                     float(monto_excedente_local) 
                 ])
