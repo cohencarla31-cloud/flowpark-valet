@@ -144,7 +144,6 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-# LECTURA DE USUARIOS EN TIEMPO REAL
 @st.cache_data(ttl=60, show_spinner=False)
 def cargar_usuarios_desde_db():
     pins_dict = {}
@@ -184,11 +183,11 @@ if st.session_state.usuario is None:
         
         **Paso 2: Operativa 🚗**
         * **📥 Ingreso:** Anotá la patente y enviá el comprobante al cliente.
-        * **✅ Validaciones:** Si los locales Quinquela o Nro 18 aplican un descuento, se mostrará en los activos.
+        * **✅ Validaciones:** Si los locales aplican un descuento, se mostrará en los activos.
         
         **Paso 3: Cobro y Salida 📤**
-        * Andá a **Salida**, buscá el auto, y el sistema calculará automáticamente el mejor precio.
-        * Al finalizar el turno, volvé a **Personal** para registrar tu Salida con el conteo final de caja.
+        * Andá a **Salida**, buscá el auto, y el sistema calculará automáticamente el precio o aplicará eventos/mensualidades.
+        * Al finalizar el turno, volvé a **Personal** para registrar tu Salida.
         """)
     
     st.markdown("Ingrese su clave numérica para iniciar el turno:")
@@ -229,7 +228,6 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# 🛡️ MOTOR DE EXTRACCIÓN EN BLOQUE (BATCH) - SÚPER RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
     try:
@@ -287,7 +285,6 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
-# MAPEO DE MENSUALISTAS GLOBAL
 datos_mensualistas_map = {}
 patentes_mensualistas = []
 try:
@@ -333,8 +330,30 @@ if not opciones_menu:
 menu = st.radio("Navegación:", opciones_menu, horizontal=True, label_visibility="collapsed")
 st.divider()
 
-if st.session_state.rol == "Valet" and ultimo_est_operador == "Salida" and menu != "⏰ Personal":
-    st.warning("⚠️ **¡ATENCIÓN! No olvides registrar tu ENTRADA en el módulo Personal para habilitar el sistema operativo.**")
+# 🚨 SISTEMA DE CARTELES DE ADVERTENCIA PARA VALETS 🚨
+if st.session_state.rol == "Valet":
+    if ultimo_est_operador == "Salida":
+        st.error("🚨 **¡ALERTA MÁXIMA! NO HAS REGISTRADO TU ENTRADA.**\n\nDebes ir obligatoriamente a la pestaña **'Personal'** y hacer tu inventario inicial. Si no lo hacés, estás operando de forma incorrecta.")
+    elif ultimo_est_operador == "Fichaje":
+        st.warning("⚠️ **¡ATENCIÓN! ENTRADA INCOMPLETA.**\n\nTocaste el botón de entrar pero no completaste la plata y el stock. Ve a **'Personal'** y finalizá el inventario.")
+    elif ultimo_est_operador == "Entrada":
+        st.info("⏰ **RECORDATORIO CONSTANTE:**\n\nAl finalizar tu turno, **¡NO TE VAYAS SIN MARCAR TU SALIDA!** Debes ir a la pestaña **'Personal'** y declarar la caja para cerrar correctamente.")
+
+def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
+    try:
+        ws_ex = sh.worksheet("Extras")
+        rows = ws_ex.get_all_values()
+        for idx, r in enumerate(rows[1:], start=2):
+            if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
+                vendidos_actuales = float(r[3]) if r[3] and r[3] != "" else 0
+                stock_actual = float(r[4]) if r[4] and r[4] != "" else 0
+                nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
+                nuevo_stock = stock_actual - float(cantidad_vendida)
+                ws_ex.update_cell(idx, 4, nuevo_vendidos)
+                ws_ex.update_cell(idx, 5, nuevo_stock)
+                break
+    except Exception as e:
+        pass
 
 # ------------------------------------------
 # INGRESO
@@ -348,7 +367,7 @@ if menu == "📥 Ingreso":
 
     k = st.session_state.form_key_count
     hoy_str = hora_actual_uy().split()[0]
-    mes_actual_str = hora_actual_uy()[:7] # YYYY-MM
+    mes_actual_str = hora_actual_uy()[:7]
     
     invitados_hoy_map = {}
     nombres_invitados_map = {}
@@ -404,9 +423,9 @@ if menu == "📥 Ingreso":
                 cel_sug = datos_m["telefono"]
             
             estado_visual = datos_m["estado"]
-            
             cupos_cliente = datos_m["cupos"]
             autos_en_playa = 0
+            
             for r_act in reg[1:]:
                 if len(r_act) > 3 and (not r_act[3] or str(r_act[3]).lower() == "nan") and str(r_act[0]).strip().upper() != "EXTRA":
                     pat_activa = str(r_act[1]).strip().upper()
@@ -424,7 +443,6 @@ if menu == "📥 Ingreso":
                 
             bene = datos_m.get("beneficio", "")
             
-            # CÁLCULO DE LAVADOS USADOS
             if "LAVADO" in bene:
                 if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lavados_permitidos = 2
                 else: lavados_permitidos = 1
@@ -596,7 +614,7 @@ if st.session_state.exito_msg != "":
     st.session_state.exito_wp = ""
 
 # ------------------------------------------
-# ACTIVOS
+# ACTIVOS Y CORRECCIÓN DE PATENTES
 # ------------------------------------------
 elif menu == "📊 Activos":
     c_head1, c_head2 = st.columns([3, 1])
@@ -620,7 +638,6 @@ elif menu == "📊 Activos":
                 activos_lista.append(r)
                 st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
 
-    # ✏️ CORREGIR PATENTE (NUEVO)
     if activos_lista:
         st.divider()
         with st.expander("✏️ Corregir Patente (Error de Tipeo)", expanded=False):
@@ -647,7 +664,7 @@ elif menu == "📊 Activos":
                     st.warning("Seleccioná un auto y escribí la patente nueva.")
 
 # ------------------------------------------
-# LAVADERO (NUEVO MÓDULO)
+# LAVADERO
 # ------------------------------------------
 elif menu == "🧽 Lavadero":
     c_head1, c_head2 = st.columns([3, 1])
@@ -848,7 +865,7 @@ elif menu == "📤 Salida":
         
         estado_txt = str(datos[4]) if len(datos) > 4 else ""
         excede_cupo_flag = "[EXCEDE CUPO]" in estado_txt.upper()
-        pidio_lavado_flag = "LAVADO" in estado_txt.upper()
+        pidio_lavado_flag = "LAVADO PENDIENTE" in estado_txt.upper() or "LAVADO TERMINADO" in estado_txt.upper()
         
         nombre_cliente_encontrado = "Cliente"
         cel_encontrado = "598"
@@ -883,7 +900,6 @@ elif menu == "📤 Salida":
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
-        # 💦 LÓGICA INTELIGENTE DEL SELECTOR DE LAVADO
         if "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
             st.info(f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})")
         
@@ -893,9 +909,9 @@ elif menu == "📤 Salida":
         opcion_por_defecto = 0
         if pidio_lavado_flag:
             if lavados_permitidos > lavados_usados and not excede_cupo_flag:
-                opcion_por_defecto = 3 # Sugiere descontar del plan
+                opcion_por_defecto = 3 
             else:
-                opcion_por_defecto = 2 # Sugiere cobrarlo (Completo por defecto)
+                opcion_por_defecto = 2 
                 
         lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", 
             ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)", "Lavado Incluido (Plan Mensualista)"], index=opcion_por_defecto)
