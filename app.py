@@ -144,7 +144,7 @@ def verificar_estado_empleado(nombre_emp, asistencia_rows):
                 return estado
     return "Salida"
 
-@st.cache_data(ttl=300, show_spinner=False)
+# 🛑 SIN CACHÉ: Lee en tiempo real para no trabarse si Google falla
 def cargar_usuarios_desde_db():
     pins_dict = {}
     try:
@@ -155,13 +155,11 @@ def cargar_usuarios_desde_db():
                 pin = str(r[1]).strip()
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
+        if "1000" not in pins_dict:
+            pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
+        return pins_dict
     except Exception as e:
-        pass
-    if "1000" not in pins_dict:
-        pins_dict["1000"] = {"nombre": "Rodrigo Bueno", "rol": "Admin"}
-    return pins_dict
-
-usuarios_pins = cargar_usuarios_desde_db()
+        return None # Devuelve None si Google bloqueó la lectura
 
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
@@ -204,7 +202,10 @@ if st.session_state.usuario is None:
         if not pin_clean:
             st.error("⚠️ Debe ingresar su clave.")
         else:
-            if pin_clean in usuarios_pins:
+            usuarios_pins = cargar_usuarios_desde_db()
+            if usuarios_pins is None:
+                st.error("⏳ Google está verificando la conexión por seguridad. Por favor, espere 15 segundos y vuelva a intentar ingresar.")
+            elif pin_clean in usuarios_pins:
                 datos_u = usuarios_pins[pin_clean]
                 st.session_state.usuario = datos_u["nombre"]
                 st.session_state.rol = datos_u["rol"]
@@ -232,7 +233,7 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# 🛡️ SISTEMA ROBUSTO DE EXTRACCIÓN DE DATOS Y MANEJO DE LÍMITE DE GOOGLE
+# 🛡️ SISTEMA ROBUSTO DE EXTRACCIÓN DE DATOS
 @st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
     try:
@@ -269,7 +270,7 @@ def obtener_datos():
                    for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
         
-        st.session_state.ultimo_error_db = "" # Limpiamos errores si conectó bien
+        st.session_state.ultimo_error_db = ""
         return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv
     except Exception as e:
         st.session_state.ultimo_error_db = str(e)
