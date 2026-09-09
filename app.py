@@ -228,6 +228,7 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
+# 🛡️ MOTOR DE EXTRACCIÓN EN BLOQUE (BATCH)
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
     try:
@@ -323,15 +324,19 @@ if (st.session_state.rol and st.session_state.rol.startswith("Local_")) or es_ad
 if es_admin:
     opciones_menu.append("📈 Reportes")
 
+# NUEVA OPCIÓN: AYUDA / MANUAL PARA TODOS
+if st.session_state.rol:
+    opciones_menu.append("📖 Ayuda")
+
 if not opciones_menu:
     st.error("⚠️ No tienes permisos activos o no has marcado tu Entrada. Ve al módulo Personal para habilitar el sistema.")
-    opciones_menu = ["⏰ Personal"] 
+    opciones_menu = ["⏰ Personal", "📖 Ayuda"] 
 
 menu = st.radio("Navegación:", opciones_menu, horizontal=True, label_visibility="collapsed")
 st.divider()
 
 # 🚨 SISTEMA DE CARTELES DE ADVERTENCIA PARA VALETS 🚨
-if st.session_state.rol == "Valet":
+if st.session_state.rol == "Valet" and menu != "📖 Ayuda":
     if ultimo_est_operador == "Salida":
         st.error("🚨 **¡ALERTA MÁXIMA! NO HAS REGISTRADO TU ENTRADA.**\n\nDebes ir obligatoriamente a la pestaña **'Personal'** y hacer tu inventario inicial. Si no lo hacés, estás operando de forma incorrecta.")
     elif ultimo_est_operador == "Fichaje":
@@ -1364,7 +1369,7 @@ elif menu == "📈 Reportes":
             activos_eventos = []
             for r_ev in reg[1:]:
                 if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
-                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0]
+                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
                     activos_eventos.append({"Evento": ev_name, "Patente": str(r_ev[1]).upper(), "Ticket": f"#{r_ev[0]}", "Hora Ingreso": r_ev[2]})
             
             if activos_eventos:
@@ -1407,3 +1412,102 @@ elif menu == "📈 Reportes":
         else: st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
         st.error(f"Error conectando con el historial: {e}")
+
+# ------------------------------------------
+# MANUAL Y AYUDA INTERACTIVA (NUEVO)
+# ------------------------------------------
+elif menu == "📖 Ayuda":
+    st.subheader("📖 Manual de Operaciones - FlowPark VIP")
+    
+    st.markdown("""
+    Este manual explica el funcionamiento del estacionamiento, los roles de cada integrante y los procedimientos obligatorios.
+    
+    ---
+    
+    ### 👥 1. PERFILES DE USUARIO
+    El sistema detecta automáticamente tu rol según el PIN de 4 dígitos:
+    *   **🛡️ Administrador (Admin):** Tiene acceso total. Puede ver la pestaña **📈 Reportes** (Recaudación, cobros a locales, auditoría de cámaras y deudas).
+    *   **🚗 Valet:** Perfil operativo. Tiene acceso a Personal, Ingreso, Activos, Lavadero, Extras y Salida.
+    *   **🏪 Local (Quinquela / Number 18):** Solo ven la pantalla de **✅ Validaciones** para aplicar descuentos.
+    
+    ---
+    
+    ### ⏰ 2. MÓDULO PERSONAL: FICHAJE Y CAJA (🚨 SÚPER IMPORTANTE 🚨)
+    **Todo Valet TIENE LA OBLIGACIÓN de utilizar este módulo al llegar y al irse.**
+    *   **📥 Al Iniciar el Turno (ENTRADA):** Ir a la pestaña **⏰ Personal**, ingresar el dinero físico de la gaveta y el stock inicial. Hacer clic en "Confirmar Inventario". **Si no lo haces, la app mostrará un cartel ROJO.**
+    *   **📤 Al Finalizar el Turno (SALIDA):** Ir nuevamente a **⏰ Personal**. Ingresar el recuento final de billetes y productos. Tocar "Registrar Salida Oficial".
+    
+    ---
+    
+    ### 🎫 3. IDENTIFICACIÓN VISUAL (TICKETS Y PATENTES)
+    El sistema asigna letras al número de ticket (tarjeta) para reconocer clientes rápidamente:
+    *   **`MEN-`** Mensualistas y Autorizados (Ej: *MEN-1051*).
+    *   **`EV[Nombre]`** Invitados a un Evento VIP (Ej: *EVSEDAL1*).
+    *   **Solo Números:** Cliente Estándar (Ej: *1052*).
+    
+    ---
+    
+    ### 🏢 4. CLIENTES MENSUALIZADOS Y AUTORIZADOS
+    Al tipear la patente, la app muestra un aviso de color:
+    *   **🟢 Al Día / Autorizado:** El auto pasa directo. Cobro en la salida: $0.
+    *   **🔴 Cliente Deudor:** Alerta roja en pantalla. Al salir se le cobra $0 en caja, pero el sistema le enviará por WhatsApp un **Aviso de Deuda**.
+    *   **🚨 Control de Cupos (Límite de autos):** Si una persona paga 1 cochera pero registró 2 patentes. El primer auto pasa gratis. Si llega el segundo auto, el sistema alerta: *"Ya hay 1 auto adentro. Este vehículo DEBE ABONAR ESTADÍA"*.
+    
+    ---
+    
+    ### 🧽 5. MÓDULO DE LAVADERO INTEGRADO
+    *   **El Ingreso:** El Valet debe preguntar si desea lavado y marcar la casilla `🧽 Solicita Lavado`.
+    *   **Control Inteligente de Mensualistas:** Si el mensualista tiene "1 Lavado" incluido por mes y ya lo gastó, la app avisa: *"Beneficio agotado. El lavado deberá cobrarse"*.
+    *   **Panel de Lavadero:** En la pestaña **🧽 Lavadero**, los chicos ven qué autos lavar. Cuando terminan, tocan "Marcar Terminado" y aparece una estrellita (`✨ LAVADO TERMINADO`).
+    *   **Salida (Cobro):** El Valet selecciona qué lavado le hizo. La app decide si lo descuenta del plan mensual o si se lo cobra aplicando promos.
+    
+    ---
+    
+    ### 🎉 6. EVENTOS VIP Y LISTA DE INVITADOS
+    *   **Auto-Completado:** Escribí la patente. Si está en la lista de hoy, el sistema llena el nombre y selecciona el evento solo.
+    *   **Control de Cupo:** Si el evento contrató 20 lugares y llega el 21, la app avisa el exceso de cupo.
+    *   **El Reloj Invisible:** A los invitados VIP **nunca se les cobra dinero** ($0). Pero si el evento terminaba a las 03:00 AM y retiran el auto a las 10:00 AM, el sistema factura esas horas extras al Organizador del evento internamente.
+    
+    ---
+    
+    ### ✏️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
+    Si escribiste mal una patente (ej: `ABC124` en vez de `ABC123`):
+    1. Ir a la pestaña **📊 Activos**.
+    2. Bajar hasta el panel **"✏️ Corregir Patente"**.
+    3. Seleccionar el auto mal cargado y escribir la patente correcta.
+    
+    ---
+    
+    ### 🗺️ 8. DIAGRAMA OPERATIVO DEL VALET
+    """)
+    
+    st.code("""
+    [ 🔐 Ingresa PIN de 4 Dígitos ]
+      │
+      ▼
+    [ ⏰ Pestaña 'Personal' ] ──► Ficha ENTRADA y cuenta la caja inicial.
+      │
+      ├─────────────────────────────────────────────────┐
+      │                                                 │
+    [ 📥 INGRESO ]                                      [ 🧽 LAVADERO ] 
+      │                                                 │
+      ├─ Escribe Patente                                ├─ Revisa autos pendientes
+      ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Lava el auto
+      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
+      ├─ ¿Pide Lavado?    ──► Tilda la casilla          │
+      ▼                                                 │
+    [ Envía Ticket WP ]                                 │
+      │                                                 │
+      ├─────────────────────────────────────────────────┘
+      │
+    [ 📤 SALIDA Y COBRO ]
+      │
+      ├─ Selecciona Patente
+      ├─ Agrega Extras (kiosco) o tipo de Lavado
+      ├─ Cobra (O pasa gratis si es VIP/Mensualista)
+      ▼
+    [ Envía Comprobante de Pago WP ]
+      │
+      ▼
+    [ ⏰ Pestaña 'Personal' ] ──► Ficha SALIDA y cuenta la caja final.
+    """, language="text")
