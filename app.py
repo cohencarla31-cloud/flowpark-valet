@@ -232,6 +232,7 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
+# 🛡️ SISTEMA ROBUSTO DE EXTRACCIÓN DE DATOS Y MANEJO DE LÍMITE DE GOOGLE
 @st.cache_data(ttl=300, show_spinner=False)
 def obtener_datos():
     try:
@@ -267,13 +268,27 @@ def obtener_datos():
                                        "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
                    for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if r[0]}
+        
+        st.session_state.ultimo_error_db = "" # Limpiamos errores si conectó bien
         return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv
     except Exception as e:
+        st.session_state.ultimo_error_db = str(e)
         return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
 
 resultado_datos = obtener_datos()
+
+# 🛡️ PANTALLA INTELIGENTE DE RECONEXIÓN
 if not resultado_datos[0] and st.session_state.rol != "Admin":
-    st.warning("🔄 Hubo un pequeño corte de conexión con la base de datos. Intentando reconectar... presione 'F5' o recargue la página en unos segundos.")
+    error_detectado = st.session_state.get("ultimo_error_db", "")
+    st.markdown("### 📡 Enlace pausado por seguridad")
+    if "429" in error_detectado or "Quota" in error_detectado or "limit" in error_detectado.lower():
+        st.warning("⏱️ **Límite Anti-Spam de Google activado:** Hiciste varias actualizaciones muy rápido. Por favor, **esperá 60 segundos exactos** y luego tocá el botón de reconectar.")
+    else:
+        st.warning("🔄 Hubo un pequeño corte de conexión con el Excel de Google. Esperá unos segundos y reintentá.")
+        
+    if st.button("🔄 Reconectar Ahora"):
+        obtener_datos.clear()
+        st.rerun()
     st.stop()
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
@@ -356,7 +371,6 @@ if menu == "📥 Ingreso":
     k = st.session_state.form_key_count
     hoy_str = hora_actual_uy().split()[0]
     
-    # 🎟️ MAPEO DE INVITADOS VIP DEL DÍA
     invitados_hoy_map = {}
     nombres_invitados_map = {}
     patentes_invitados = []
@@ -410,7 +424,6 @@ if menu == "📥 Ingreso":
             
             estado_visual = datos_m["estado"]
             
-            # CONTROL DE CUPOS DE MENSUALISTAS
             cupos_cliente = datos_m["cupos"]
             autos_en_playa = 0
             for r_act in reg[1:]:
@@ -444,7 +457,6 @@ if menu == "📥 Ingreso":
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
     
-    # 🎟️ MÓDULO EVENTOS VIP
     eventos_hoy = []
     cupos_evento = {}
     for ev in eventos_data[1:]:
@@ -472,7 +484,6 @@ if menu == "📥 Ingreso":
             else:
                 st.info(f"✅ Cupo disponible para '{evento_sel}': {autos_en_evento} / {cupos_evento[evento_sel]} autos ingresados.")
 
-    # 🚨 PREPARAR ALERTA Y TEXTO DE DEUDA
     texto_deuda_completo = ""
     if es_deudor and not excede_cupo_mensual:
         st.error(f"🚨 **¡ATENCIÓN! El mensualista {cli_nom or nombre_sug} REGISTRA DEUDA.**")
@@ -490,7 +501,6 @@ if menu == "📥 Ingreso":
             
         tkt_final = str(tkt).strip()
         
-        # 🎫 GENERAR TICKET CONSECUTIVO AUTOMÁTICO
         if not tkt_final: 
             if evento_sel:
                 prefijo_evento = f"EV{evento_sel.replace(' ', '').upper()}"
@@ -543,7 +553,6 @@ if menu == "📥 Ingreso":
                     if evento_sel:
                         estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
                         
-                    # FLAG SECRETO DE EXCESO DE CUPO
                     if excede_cupo_mensual:
                         estado_txt += " [EXCEDE CUPO]"
 
@@ -793,7 +802,6 @@ elif menu == "📤 Salida":
             
             if es_evento:
                 nombre_evento_salida = estado_txt.split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
-                # ⏰ Reloj Invisible: Cobro al Local por Excedente de Hora
                 hora_fin_str = ""
                 fecha_ev = ""
                 for ev in eventos_data[1:]:
