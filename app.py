@@ -286,7 +286,7 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
-# 🔔 SISTEMA GLOBAL DE ALERTAS PARA VALETS (NUEVAS VALIDACIONES)
+# 🔔 SISTEMA GLOBAL DE ALERTAS PARA VALETS
 hoy_str_global = hora_actual_uy().split()[0]
 val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
 
@@ -678,7 +678,7 @@ elif menu == "📊 Activos":
                     st.warning("Seleccioná un auto y escribí la patente nueva.")
 
 # ------------------------------------------
-# LAVADERO (RENOVADO)
+# LAVADERO
 # ------------------------------------------
 elif menu == "🧽 Lavadero":
     c_head1, c_head2 = st.columns([3, 1])
@@ -701,14 +701,11 @@ elif menu == "🧽 Lavadero":
             estado = str(r[4])
             
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                # Si ya está en cola de lavado
                 if "LAVADO PENDIENTE" in estado: 
                     autos_para_lavar.append(r)
-                # Si ya se terminó de lavar
                 elif "LAVADO TERMINADO" in estado: 
                     autos_terminados.append(r)
                 else:
-                    # Si NO se pidió en puerta, verificamos si es mensualista y tiene lavados a favor
                     if pat in datos_mensualistas_map:
                         bene = datos_mensualistas_map[pat]["beneficio"].upper()
                         if "LAVADO" in bene:
@@ -721,7 +718,6 @@ elif menu == "🧽 Lavadero":
                                     if "Lavado Beneficio Usado" in str(h[7]):
                                         lav_usados += 1
                             
-                            # Si le quedan lavados, lo mostramos en la sugerencia
                             if lav_usados < lav_perm:
                                 mensualistas_con_lavado.append({
                                     "patente": pat, 
@@ -731,7 +727,7 @@ elif menu == "🧽 Lavadero":
                                     "permitidos": lav_perm, 
                                     "ingreso": h_ing,
                                     "estado_txt": estado,
-                                    "idx_reg": reg.index(r) # Para ubicar la fila exacta
+                                    "idx_reg": reg.index(r) 
                                 })
                 
     st.markdown("### 🔴 Pendientes de Lavado (Solicitados en Puerta)")
@@ -743,7 +739,6 @@ elif menu == "🧽 Lavadero":
             tkt = str(auto[0]).strip()
             pat = str(auto[1]).upper()
             
-            # Badge visual si resulta ser mensualista con beneficio
             badge = ""
             if pat in datos_mensualistas_map and "LAVADO" in datos_mensualistas_map[pat]["beneficio"].upper():
                 badge = " 🎁 [Mensualista con Beneficio]"
@@ -1004,24 +999,31 @@ elif menu == "📤 Salida":
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
+        # 💦 AVISO Y SELECTOR DE LAVADO INTELIGENTE
         if "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
             st.info(f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})")
-        
+            
         if pidio_lavado_flag:
-            st.warning("🧽 **¡ATENCIÓN! Este vehículo tiene registrado un servicio de lavadero en su estadía.** Verifique cobrarlo o descontarlo del plan.")
-        
+            if lavados_permitidos > 0:
+                st.warning("🧽 **¡ATENCIÓN LAVADERO!** Este vehículo se lavó. Como es Mensualista, seleccioná abajo si lo **descontás del plan** o si se lo **cobrás**.")
+            else:
+                st.error("🧽 **¡ATENCIÓN LAVADERO!** Este vehículo se lavó en esta estadía. **RECORDÁ COBRARLO** seleccionando el lavado correcto abajo.")
+                
+        opciones_lavado_disponibles = ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)"]
+        if lavados_permitidos > 0:
+            opciones_lavado_disponibles.append("Lavado Incluido (Plan Mensualista)")
+            
         opcion_por_defecto = 0
         if pidio_lavado_flag:
             if lavados_permitidos > lavados_usados and not excede_cupo_flag:
-                opcion_por_defecto = 3 
+                opcion_por_defecto = len(opciones_lavado_disponibles) - 1 # Selecciona "Lavado Incluido" por defecto
             else:
-                opcion_por_defecto = 2 
+                opcion_por_defecto = 2 # Selecciona "Lavado Completo" por defecto
                 
-        lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", 
-            ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)", "Lavado Incluido (Plan Mensualista)"], index=opcion_por_defecto)
-            
-        if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos and lavados_permitidos > 0 and not excede_cupo_flag:
-            st.error("❌ **ALERTA:** Estás seleccionando 'Lavado Incluido' pero el cliente ya gastó sus lavados de este mes. Deberías cobrarlo.")
+        lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
+        
+        if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos and not excede_cupo_flag:
+            st.error("❌ **ALERTA:** Seleccionaste 'Lavado Incluido' pero este mensualista ya gastó sus lavados gratis del mes. **Deberías cobrarlo.**")
         
         if st.button("Calcular y Generar Salida"):
             h_salida = hora_actual_uy()
