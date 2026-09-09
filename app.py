@@ -278,6 +278,23 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
+# MAPEO DE MENSUALISTAS GLOBAL
+datos_mensualistas_map = {}
+patentes_mensualistas = []
+try:
+    for m in mensualistas_data[1:]:
+        if len(m) > 0 and str(m[0]).strip():
+            pat_m = str(m[0]).strip().upper().replace("-", "").replace(" ", "")
+            patentes_mensualistas.append(pat_m)
+            nom_m = str(m[1]).strip() if len(m) > 1 and str(m[1]).strip() else "Mensualista/Autorizado"
+            estado_m = str(m[2]).strip().upper() if len(m) > 2 else ""
+            tel_m = str(m[3]).strip() if len(m) > 3 else ""
+            bene_m = str(m[4]).strip().upper() if len(m) > 4 else ""
+            cupos_m = int(str(m[5]).strip()) if len(m) > 5 and str(m[5]).strip().isdigit() else 1
+            datos_mensualistas_map[pat_m] = {"nombre": nom_m, "estado": estado_m, "telefono": tel_m, "beneficio": bene_m, "cupos": cupos_m}
+except Exception as e:
+    pass
+
 emp = st.session_state.usuario
 es_admin_rodrigo = "rodrigo" in emp.lower() or st.session_state.rol == "Admin"
 
@@ -359,21 +376,6 @@ if menu == "📥 Ingreso":
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
     
-    patentes_mensualistas = []
-    datos_mensualistas_map = {}
-    try:
-        for m in mensualistas_data[1:]:
-            if len(m) > 0 and str(m[0]).strip():
-                pat_m = str(m[0]).strip().upper().replace("-", "").replace(" ", "")
-                patentes_mensualistas.append(pat_m)
-                nom_m = str(m[1]).strip() if len(m) > 1 and str(m[1]).strip() else "Mensualista/Autorizado"
-                estado_m = str(m[2]).strip().upper() if len(m) > 2 else ""
-                tel_m = str(m[3]).strip() if len(m) > 3 else ""
-                bene_m = str(m[4]).strip().upper() if len(m) > 4 else ""
-                datos_mensualistas_map[pat_m] = {"nombre": nom_m, "estado": estado_m, "telefono": tel_m, "beneficio": bene_m}
-    except:
-        pass
-
     patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec + patentes_mensualistas + patentes_invitados)))
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
@@ -389,6 +391,7 @@ if menu == "📥 Ingreso":
 
     nombre_sug, cel_sug = "", "598"
     es_deudor = False
+    excede_cupo_mensual = False
     
     if pat_final:
         for rc in clientes[1:]:
@@ -406,13 +409,27 @@ if menu == "📥 Ingreso":
                 cel_sug = datos_m["telefono"]
             
             estado_visual = datos_m["estado"]
-            if estado_visual == "DEUDOR":
-                es_deudor = True
-            elif estado_visual in ["AL DIA", "AUTORIZADO"]:
-                st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
+            
+            # CONTROL DE CUPOS DE MENSUALISTAS
+            cupos_cliente = datos_m["cupos"]
+            autos_en_playa = 0
+            for r_act in reg[1:]:
+                if len(r_act) > 3 and (not r_act[3] or str(r_act[3]).lower() == "nan") and str(r_act[0]).strip().upper() != "EXTRA":
+                    pat_activa = str(r_act[1]).strip().upper()
+                    if pat_activa in datos_mensualistas_map and datos_mensualistas_map[pat_activa]["nombre"] == nombre_sug:
+                        autos_en_playa += 1
+                        
+            if autos_en_playa >= cupos_cliente:
+                excede_cupo_mensual = True
+                st.error(f"🚨 **¡ATENCIÓN! {nombre_sug} tiene un cupo de {cupos_cliente} vehículo(s) y ya hay {autos_en_playa} adentro.** Este auto que entra DEBERÁ ABONAR ESTADÍA.")
+            else:
+                if estado_visual == "DEUDOR":
+                    es_deudor = True
+                elif estado_visual in ["AL DIA", "AUTORIZADO"]:
+                    st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
                 
             bene = datos_m.get("beneficio", "")
-            if "LAVADO" in bene:
+            if "LAVADO" in bene and not excede_cupo_mensual:
                 st.info(f"💦 **Aviso: Este Mensualista cuenta con beneficio de: {bene}**")
 
     if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
@@ -457,7 +474,7 @@ if menu == "📥 Ingreso":
 
     # 🚨 PREPARAR ALERTA Y TEXTO DE DEUDA
     texto_deuda_completo = ""
-    if es_deudor:
+    if es_deudor and not excede_cupo_mensual:
         st.error(f"🚨 **¡ATENCIÓN! El mensualista {cli_nom or nombre_sug} REGISTRA DEUDA.**")
         nombre_cliente = cli_nom.strip().title() if cli_nom else nombre_sug.strip().title()
         saludo = f"Buen día {nombre_cliente}," if nombre_cliente and nombre_cliente != "Cliente" else "Buen día,"
@@ -509,7 +526,7 @@ if menu == "📥 Ingreso":
                         elif t_val.isdigit():
                             max_t = max(max_t, int(t_val))
                 
-                if pat_final in datos_mensualistas_map:
+                if pat_final in datos_mensualistas_map and not excede_cupo_mensual:
                     tkt_final = f"MEN-{max_t + 1}"
                 else:
                     tkt_final = str(max_t + 1)
@@ -525,6 +542,10 @@ if menu == "📥 Ingreso":
                     estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
                     if evento_sel:
                         estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
+                        
+                    # FLAG SECRETO DE EXCESO DE CUPO
+                    if excede_cupo_mensual:
+                        estado_txt += " [EXCEDE CUPO]"
 
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                     
@@ -540,7 +561,7 @@ if menu == "📥 Ingreso":
                     msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or nombre_sug or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}"
                     if evento_sel:
                         msg_ingreso += f"\n🎟️ *Invitado Especial:* {evento_sel}"
-                    if es_deudor and texto_deuda_completo:
+                    if es_deudor and not excede_cupo_mensual and texto_deuda_completo:
                         msg_ingreso += f"\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
                         
                     msg_ingreso += "\n\n¡Gracias por elegirnos!"
@@ -726,7 +747,10 @@ elif menu == "📤 Salida":
         h_ingreso = datos[2]
         
         tipo_vehi = "Auto"
-        if "Camioneta" in str(datos[4]): tipo_vehi = "Camioneta"
+        if len(datos) > 4 and "Camioneta" in str(datos[4]): tipo_vehi = "Camioneta"
+        
+        estado_txt = str(datos[4]) if len(datos) > 4 else ""
+        excede_cupo_flag = "[EXCEDE CUPO]" in estado_txt.upper()
         
         nombre_cliente_encontrado = "Cliente"
         cel_encontrado = "598"
@@ -738,18 +762,20 @@ elif menu == "📤 Salida":
                 break
                 
         beneficio_encontrado = ""
-        for m in mensualistas_data[1:]:
-            if len(m) > 0 and str(m[0]).upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
-                if len(m) > 1 and m[1].strip(): nombre_cliente_encontrado = str(m[1]).strip()
-                if len(m) > 3 and m[3].strip(): cel_encontrado = str(m[3]).strip()
-                if len(m) > 4 and m[4].strip(): beneficio_encontrado = str(m[4]).strip()
-                break
+        estado_mensual_encontrado = ""
+        
+        if patente in datos_mensualistas_map:
+            datos_m = datos_mensualistas_map[patente]
+            nombre_cliente_encontrado = datos_m["nombre"]
+            if datos_m["telefono"]: cel_encontrado = datos_m["telefono"]
+            beneficio_encontrado = datos_m["beneficio"]
+            estado_mensual_encontrado = datos_m["estado"]
                 
         cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
         obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
         # 💦 AVISO Y SELECTOR DE LAVADO
-        if "LAVADO" in beneficio_encontrado.upper():
+        if "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
             st.info(f"💦 **Aviso al Valet: Este Mensualista cuenta con: {beneficio_encontrado}**")
             
         lavado_opcion = st.selectbox("🧼 Servicio de Lavado en esta estadía:", 
@@ -761,12 +787,12 @@ elif menu == "📤 Salida":
             mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
             local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
             
-            es_evento = "Evento:" in str(datos[4])
+            es_evento = "Evento:" in estado_txt
             nombre_evento_salida = ""
             monto_excedente_local = 0
             
             if es_evento:
-                nombre_evento_salida = str(datos[4]).split("Evento: ")[1].split(" (")[0]
+                nombre_evento_salida = estado_txt.split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
                 # ⏰ Reloj Invisible: Cobro al Local por Excedente de Hora
                 hora_fin_str = ""
                 fecha_ev = ""
@@ -783,7 +809,6 @@ elif menu == "📤 Salida":
                         hora_f = int(h_m[0])
                         min_f = int(h_m[1])
                         
-                        # Si la hora de fin es de madrugada (menor a las 10 AM), asume que es del día siguiente
                         if hora_f < 10:
                             ev_fecha_dt += timedelta(days=1)
                             
@@ -792,30 +817,16 @@ elif menu == "📤 Salida":
                         
                         if salida_dt > ev_fin_dt:
                             mins_extra = int((salida_dt - ev_fin_dt).total_seconds() / 60)
-                            # Calcula el excedente usando la tarifa estándar pura (Ninguna validación)
                             monto_excedente_local = calcular_mejor_precio(mins_extra, tipo_vehi, "Ninguna", tarifas)
                     except:
                         pass
-            
-            estado_mensual_encontrado = ""
-            nombre_men = ""
-            for m in mensualistas_data[1:]:
-                if len(m) > 0 and str(m[0]).strip().upper().replace("-", "").replace(" ", "") == patente.replace("-", "").replace(" ", ""):
-                    texto_fila = " ".join([str(val) for val in m]).upper()
-                    if "AUTORIZADO" in texto_fila: estado_mensual_encontrado = "AUTORIZADO"
-                    elif "DEUDA" in texto_fila or "DEUDOR" in texto_fila: estado_mensual_encontrado = "DEUDOR"
-                    else: estado_mensual_encontrado = "AL DIA"
-                    
-                    nombre_men = str(m[1]).strip() if len(m) > 1 else "Mensualista"
-                    if "DEUDOR" in nombre_men.upper() or "AL DIA" in nombre_men.upper() or "AUTORIZADO" in nombre_men.upper():
-                        nombre_men = str(m[2]).strip() if len(m) > 2 else "Mensualista"
-                    break
             
             if es_evento:
                 monto_estacionamiento = 0
                 info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
                 st.success(info_desc)
-            elif estado_mensual_encontrado == "AUTORIZADO" or estado_mensual_encontrado == "AL DIA":
+                
+            elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
                 monto_lavado = 0
                 if lavado_opcion == "Lavado Exterior (Cobrar)":
                     monto_lavado = tarifas.get("Lavado_Exterior", {}).get(tipo_vehi, 350)
@@ -823,17 +834,19 @@ elif menu == "📤 Salida":
                     monto_lavado = tarifas.get("Lavado_Completo", {}).get(tipo_vehi, 500)
                     
                 monto_estacionamiento = monto_lavado
-                info_desc = f"✅ Vehículo Mensualista ({nombre_men}). Parking $0."
+                info_desc = f"✅ Vehículo Mensualista ({nombre_cliente_encontrado}). Parking $0."
                 if monto_lavado > 0: info_desc += f" Se cobra extra: {lavado_opcion.split(' (')[0]}."
                 elif "Incluido" in lavado_opcion: info_desc += " Lavado descontado de su plan mensual."
                 st.success(info_desc)
-            elif estado_mensual_encontrado == "DEUDOR":
+                
+            elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag:
                 monto_estacionamiento = 0
                 nombre_cliente = nombre_cliente_encontrado.strip().title()
                 saludo = f"Buen día {nombre_cliente}," if nombre_cliente and nombre_cliente != "Cliente" else "Buen día,"
                 texto_deuda_completo = f"{saludo} desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
-                info_desc = f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
-                st.warning(f"🛑 Mensualista con DEUDA ({nombre_men}). Costo de estadía $0 (El atraso se gestiona en su cuota).")
+                info_desc = f"🛑 Mensualista con DEUDA ({nombre_cliente_encontrado}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
+                st.warning(f"🛑 Mensualista con DEUDA ({nombre_cliente_encontrado}). Costo de estadía $0 (El atraso se gestiona en su cuota).")
+                
             else:
                 monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion)
                 if local_val in ["Rodrigo Bueno", "Number 18"]: 
@@ -841,14 +854,19 @@ elif menu == "📤 Salida":
                 elif local_val == "Quinquela": 
                     info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
                 else: 
-                    if "Aplica Promos" in lavado_opcion: info_desc = "Tarifa y combos de lavado calculados automáticamente según tiempo."
-                    elif lavado_opcion != "Ninguno": info_desc = "Tarifa estándar + Lavado cobrado."
-                    else: info_desc = "Tarifa estándar aplicada."
+                    if excede_cupo_flag:
+                        info_desc = "⚠️ Tarifa cobrada por exceder el cupo simultáneo del plan mensual. "
+                        st.warning("⚠️ **ATENCIÓN:** A este vehículo se le cobra la estadía porque excedió el cupo de autos de su mensualidad.")
+                    else:
+                        info_desc = ""
+                    
+                    if "Aplica Promos" in lavado_opcion: info_desc += "Tarifa y combos de lavado calculados automáticamente según tiempo."
+                    elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
+                    else: info_desc += "Tarifa estándar aplicada."
             
             total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
             
-            # Incorporar el lavado al texto del ticket
             if lavado_opcion != "Ninguno":
                 nom_lavado = lavado_opcion.split(" (")[0]
                 if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
@@ -894,7 +912,7 @@ Op: {emp}
                     float(total_extras), float(total_a_pagar), 
                     obs_salida if obs_salida else "-", 
                     local_val_guardar,
-                    float(monto_excedente_local) # COLUMNA 10 OCULTA PARA REPORTES
+                    float(monto_excedente_local) 
                 ])
                 obtener_datos.clear() 
                 
