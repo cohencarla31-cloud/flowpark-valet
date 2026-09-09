@@ -678,7 +678,7 @@ elif menu == "📊 Activos":
                     st.warning("Seleccioná un auto y escribí la patente nueva.")
 
 # ------------------------------------------
-# LAVADERO
+# LAVADERO (RENOVADO)
 # ------------------------------------------
 elif menu == "🧽 Lavadero":
     c_head1, c_head2 = st.columns([3, 1])
@@ -687,19 +687,54 @@ elif menu == "🧽 Lavadero":
         obtener_datos.clear()
         st.rerun()
         
+    mes_actual_str = hora_actual_uy()[:7]
     autos_para_lavar = []
     autos_terminados = []
+    mensualistas_con_lavado = []
     
     for r in reg[1:]:
         if len(r) > 4:
             tkt = str(r[0]).strip()
+            pat = str(r[1]).strip().upper()
+            h_ing = r[2]
             h_sal = str(r[3]).strip()
             estado = str(r[4])
+            
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                if "LAVADO PENDIENTE" in estado: autos_para_lavar.append(r)
-                elif "LAVADO TERMINADO" in estado: autos_terminados.append(r)
+                # Si ya está en cola de lavado
+                if "LAVADO PENDIENTE" in estado: 
+                    autos_para_lavar.append(r)
+                # Si ya se terminó de lavar
+                elif "LAVADO TERMINADO" in estado: 
+                    autos_terminados.append(r)
+                else:
+                    # Si NO se pidió en puerta, verificamos si es mensualista y tiene lavados a favor
+                    if pat in datos_mensualistas_map:
+                        bene = datos_mensualistas_map[pat]["beneficio"].upper()
+                        if "LAVADO" in bene:
+                            if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
+                            else: lav_perm = 1
+                            
+                            lav_usados = 0
+                            for h in historial_data[1:]:
+                                if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
+                                    if "Lavado Beneficio Usado" in str(h[7]):
+                                        lav_usados += 1
+                            
+                            # Si le quedan lavados, lo mostramos en la sugerencia
+                            if lav_usados < lav_perm:
+                                mensualistas_con_lavado.append({
+                                    "patente": pat, 
+                                    "tkt": tkt, 
+                                    "nombre": datos_mensualistas_map[pat]["nombre"], 
+                                    "usados": lav_usados, 
+                                    "permitidos": lav_perm, 
+                                    "ingreso": h_ing,
+                                    "estado_txt": estado,
+                                    "idx_reg": reg.index(r) # Para ubicar la fila exacta
+                                })
                 
-    st.markdown("### 🔴 Pendientes de Lavado")
+    st.markdown("### 🔴 Pendientes de Lavado (Solicitados en Puerta)")
     if not autos_para_lavar:
         st.success("¡Excelente! No hay autos esperando lavado.")
     else:
@@ -707,7 +742,13 @@ elif menu == "🧽 Lavadero":
             c1, c2 = st.columns([3, 1])
             tkt = str(auto[0]).strip()
             pat = str(auto[1]).upper()
-            c1.error(f"🚗 **{pat}** | Tkt #{tkt} | Ingresó: {auto[2].split()[1]}")
+            
+            # Badge visual si resulta ser mensualista con beneficio
+            badge = ""
+            if pat in datos_mensualistas_map and "LAVADO" in datos_mensualistas_map[pat]["beneficio"].upper():
+                badge = " 🎁 [Mensualista con Beneficio]"
+                
+            c1.error(f"🚗 **{pat}** {badge} | Tkt #{tkt} | Ingresó: {auto[2].split()[1]}")
             if c2.button("✅ Marcar Terminado", key=f"lav_{tkt}"):
                 try:
                     for idx, row in enumerate(reg):
@@ -729,12 +770,31 @@ elif menu == "🧽 Lavadero":
         for auto in autos_terminados:
             st.success(f"✨ **{str(auto[1]).upper()}** | Tkt #{str(auto[0]).strip()} - Listo para entregar.")
 
+    st.markdown("---")
+    st.markdown("### 🎁 Mensualistas Estacionados (Con Lavado a Favor)")
+    st.markdown("Estos vehículos están en la playa y tienen lavados gratis disponibles este mes. El Valet no los marcó en la puerta, pero podés lavarlos si lo desean.")
+    if not mensualistas_con_lavado:
+        st.info("No hay mensualistas con lavados a favor estacionados en este momento.")
+    else:
+        for m in mensualistas_con_lavado:
+            c_m1, c_m2 = st.columns([3, 1])
+            c_m1.info(f"👤 **{m['nombre']}** | 🚗 **{m['patente']}** (Tkt #{m['tkt']})\n\nDisponibles: **{m['permitidos'] - m['usados']}** (Usó {m['usados']} de {m['permitidos']}) | Ingresó: {m['ingreso'].split()[1]}")
+            if c_m2.button("➕ Lavar Ahora", key=f"add_lav_{m['tkt']}"):
+                try:
+                    nuevo_estado_m = str(m["estado_txt"]) + " | 🧽 LAVADO PENDIENTE"
+                    sh.worksheet("Registro").update_cell(m["idx_reg"] + 1, 5, nuevo_estado_m)
+                    st.toast(f"Vehículo {m['patente']} agregado a la cola de lavado.")
+                    obtener_datos.clear()
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error("Error al agregar a la cola.")
+
 # ------------------------------------------
 # VALIDACIONES (FORMULARIO Y PANEL)
 # ------------------------------------------
 elif menu == "✅ Validaciones":
     
-    # VISTA PARA RESTAURANTES / ADMIN (Cargar Validaciones)
     if st.session_state.rol.startswith("Local_") or es_admin:
         st.subheader("Cargar Validación de Local")
         
@@ -783,7 +843,6 @@ elif menu == "✅ Validaciones":
                             sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
-                            # MENSAJE DE WHATSAPP MEJORADO (Permite seleccionar varios)
                             msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
@@ -797,7 +856,6 @@ elif menu == "✅ Validaciones":
 
     st.markdown("---")
 
-    # VISTA PARA VALETS / ADMIN (Panel de Historial de Hoy)
     if st.session_state.rol == "Valet" or es_admin:
         c_head1, c_head2 = st.columns([3, 1])
         c_head1.subheader("🔔 Historial de Validaciones del Día")
@@ -1499,7 +1557,7 @@ elif menu == "📖 Ayuda":
     ### 🧽 5. MÓDULO DE LAVADERO INTEGRADO
     *   **El Ingreso:** El Valet debe preguntar si desea lavado y marcar la casilla `🧽 Solicita Lavado`.
     *   **Control Inteligente de Mensualistas:** Si el mensualista tiene "1 Lavado" incluido por mes y ya lo gastó, la app avisa: *"Beneficio agotado. El lavado deberá cobrarse"*.
-    *   **Panel de Lavadero:** En la pestaña **🧽 Lavadero**, los chicos ven qué autos lavar. Cuando terminan, tocan "Marcar Terminado" y aparece una estrellita (`✨ LAVADO TERMINADO`).
+    *   **Panel de Lavadero:** En la pestaña **🧽 Lavadero**, los chicos ven qué autos lavar. También les avisa si hay un Mensualista con lavados gratis en la playa para que vayan a ofrecerle. Cuando terminan, tocan "Marcar Terminado".
     *   **Salida (Cobro):** El Valet selecciona qué lavado le hizo. La app decide si lo descuenta del plan mensual o si se lo cobra aplicando promos.
     
     ---
@@ -1533,9 +1591,9 @@ elif menu == "📖 Ayuda":
     [ 📥 INGRESO ]                                      [ 🧽 LAVADERO ] 
       │                                                 │
       ├─ Escribe Patente                                ├─ Revisa autos pendientes
-      ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Lava el auto
-      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
-      ├─ ¿Pide Lavado?    ──► Tilda la casilla          │
+      ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Revisa Mensualistas estacionados
+      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Lava el auto
+      ├─ ¿Pide Lavado?    ──► Tilda la casilla          ├─ Toca "Marcar Terminado"
       ▼                                                 │
     [ Envía Ticket WP ]                                 │
       │                                                 │
