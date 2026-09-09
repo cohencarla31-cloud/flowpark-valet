@@ -85,22 +85,24 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
 
 def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno"):
     if local_validacion in ["Rodrigo Bueno", "Number 18"]:
-        m_cobro = 0
-    else:
-        descuento = 150 if local_validacion == "Quinquela" else 0
-        m_cobro = max(0, minutos - descuento)
+        return 0
+
+    descuento = 150 if local_validacion == "Quinquela" else 0
+    m_cobro = max(0, minutos - descuento)
 
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
 
+    # Lectura exacta de las tarifas según la imagen proporcionada
     v_hora = tarifas.get("Hora", {}).get(tipo_vehi, 110)
     v_promo4h = tarifas.get("Promo_4h", {}).get(tipo_vehi, 330)
     v_dia = tarifas.get("Dia_Completo", {}).get(tipo_vehi, 550)
 
-    v_lavado_ext = tarifas.get("Lavado_Exterior", {}).get(tipo_vehi, 350)
-    v_lavado_comp = tarifas.get("Lavado_Completo", {}).get(tipo_vehi, 500)
-    p_2h_lavado = tarifas.get("Promo_2h_Lavado", {}).get(tipo_vehi, 600)
-    p_4h_lavado = tarifas.get("Promo_4h_Lavado", {}).get(tipo_vehi, 720)
-    p_8h_lavado = tarifas.get("Promo_8h_Lavado", {}).get(tipo_vehi, 880)
+    v_lavado_ext = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
+    v_lavado_comp = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
+    
+    p_2h_lavado = tarifas.get("Promo 2 Horas + Lavado", {}).get(tipo_vehi, 600)
+    p_4h_lavado = tarifas.get("Promo 4 Horas + Lavado", {}).get(tipo_vehi, 720)
+    p_8h_lavado = tarifas.get("Promo 8 Horas + Lavado", {}).get(tipo_vehi, 880)
 
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
@@ -228,7 +230,6 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
-# 🛡️ MOTOR DE EXTRACCIÓN EN BLOQUE (BATCH)
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
     try:
@@ -286,7 +287,6 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
 
 empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
 
-# 🔔 SISTEMA GLOBAL DE ALERTAS PARA VALETS
 hoy_str_global = hora_actual_uy().split()[0]
 val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
 
@@ -468,7 +468,7 @@ if menu == "📥 Ingreso":
                             
                 if not excede_cupo_mensual:
                     if lavados_usados >= lavados_permitidos:
-                        st.warning(f"⚠️ **Atención Lavadero:** Este Mensualista ya consumió su límite de {lavados_permitidos} lavado(s) este mes. Si solicita otro, **DEBERÁ ABONARLO**.")
+                        st.warning(f"⚠️ **Atención Lavadero:** Este Mensualista ya usó sus {lavados_permitidos} lavado(s) de este mes. (Aplicar beneficio solo si tiene lavados acumulados de meses anteriores, sino cobrar).")
                     else:
                         st.info(f"💦 **Beneficio Activo:** Cuenta con {lavados_permitidos} lavado(s) al mes. Lleva usados: **{lavados_usados}**.")
 
@@ -928,7 +928,7 @@ elif menu == "🍔 Extras":
                 st.error("Hubo un error cargando el extra. Intente nuevamente.")
 
 # ------------------------------------------
-# SALIDA
+# SALIDA Y COBRO INTELIGENTE
 # ------------------------------------------
 elif menu == "📤 Salida":
     c_head1, c_head2 = st.columns([3, 1])
@@ -987,8 +987,8 @@ elif menu == "📤 Salida":
             beneficio_encontrado = datos_m["beneficio"]
             estado_mensual_encontrado = datos_m["estado"]
             
-            if "LAVADO" in beneficio_encontrado:
-                if "2 LAVADO" in beneficio_encontrado or ("2" in beneficio_encontrado and "LAVADO" in beneficio_encontrado): lavados_permitidos = 2
+            if "LAVADO" in beneficio_encontrado.upper():
+                if "2 LAVADO" in beneficio_encontrado.upper() or ("2" in beneficio_encontrado and "LAVADO" in beneficio_encontrado.upper()): lavados_permitidos = 2
                 else: lavados_permitidos = 1
                 
                 for h in historial_data[1:]:
@@ -1000,30 +1000,34 @@ elif menu == "📤 Salida":
         obs_salida = st.text_input("Observaciones de Salida (Opcional):")
         
         # 💦 AVISO Y SELECTOR DE LAVADO INTELIGENTE
-        if "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
+        if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
             st.info(f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})")
             
         if pidio_lavado_flag:
-            if lavados_permitidos > 0:
-                st.warning("🧽 **¡ATENCIÓN LAVADERO!** Este vehículo se lavó. Como es Mensualista, seleccioná abajo si lo **descontás del plan** o si se lo **cobrás**.")
+            if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
+                st.warning("🧽 **¡ATENCIÓN LAVADERO!** Este vehículo se lavó. Como es Mensualista con beneficio, seleccioná abajo si lo **descontás del plan** o si se lo **cobrás**.")
             else:
-                st.error("🧽 **¡ATENCIÓN LAVADERO!** Este vehículo se lavó en esta estadía. **RECORDÁ COBRARLO** seleccionando el lavado correcto abajo.")
+                st.error("🧽 **¡ATENCIÓN LAVADERO!** Este vehículo se lavó en esta estadía y NO tiene plan de lavados. **RECORDÁ COBRARLO** seleccionando la opción correcta abajo.")
                 
-        opciones_lavado_disponibles = ["Ninguno", "Lavado Exterior (Cobrar)", "Lavado Completo (Cobrar / Aplica Promos)"]
-        if lavados_permitidos > 0:
-            opciones_lavado_disponibles.append("Lavado Incluido (Plan Mensualista)")
+        opciones_lavado_disponibles = ["Ninguno", "Lavado Exterior", "Lavado Completo", "Promo 2 Horas + Lavado", "Promo 4 Horas + Lavado", "Promo 8 Horas + Lavado"]
+        
+        if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
+            opciones_lavado_disponibles.insert(1, "Lavado Incluido (Plan Mensualista)")
             
         opcion_por_defecto = 0
         if pidio_lavado_flag:
-            if lavados_permitidos > lavados_usados and not excede_cupo_flag:
-                opcion_por_defecto = len(opciones_lavado_disponibles) - 1 # Selecciona "Lavado Incluido" por defecto
+            if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
+                if lavados_permitidos > lavados_usados:
+                    opcion_por_defecto = 1 # Selecciona "Lavado Incluido"
+                else:
+                    opcion_por_defecto = 3 # Sugiere "Lavado Completo" para cobrarlo puro
             else:
-                opcion_por_defecto = 2 # Selecciona "Lavado Completo" por defecto
+                opcion_por_defecto = 2 # Sugiere "Lavado Completo" por defecto para clientes estandar
                 
         lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
         
-        if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos and not excede_cupo_flag:
-            st.error("❌ **ALERTA:** Seleccionaste 'Lavado Incluido' pero este mensualista ya gastó sus lavados gratis del mes. **Deberías cobrarlo.**")
+        if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos:
+            st.warning("⚠️ **Nota:** El sistema registra que ya gastó su cupo de este mes. Se está aplicando el lavado gratis asumiendo que tiene uno ACUMULADO de un mes anterior.")
         
         if st.button("Calcular y Generar Salida"):
             h_salida = hora_actual_uy()
@@ -1071,10 +1075,13 @@ elif menu == "📤 Salida":
                 
             elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
                 monto_lavado = 0
-                if lavado_opcion == "Lavado Exterior (Cobrar)":
-                    monto_lavado = tarifas.get("Lavado_Exterior", {}).get(tipo_vehi, 350)
-                elif lavado_opcion == "Lavado Completo (Cobrar / Aplica Promos)":
-                    monto_lavado = tarifas.get("Lavado_Completo", {}).get(tipo_vehi, 500)
+                if lavado_opcion == "Lavado Exterior":
+                    monto_lavado = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
+                elif lavado_opcion == "Lavado Completo" or "Promo" in lavado_opcion:
+                    # Al mensualista siempre se le cobra el Lavado Completo puro si excede, no combos de horas
+                    monto_lavado = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
+                    if "Promo" in lavado_opcion:
+                        st.info("ℹ️ Se aplicó tarifa de Lavado Completo puro, sin cobro de estacionamiento.")
                     
                 monto_estacionamiento = monto_lavado
                 info_desc = f"✅ Vehículo Mensualista ({nombre_cliente_encontrado}). Parking $0."
@@ -1103,7 +1110,7 @@ elif menu == "📤 Salida":
                     else:
                         info_desc = ""
                     
-                    if "Aplica Promos" in lavado_opcion: info_desc += "Tarifa y combos de lavado calculados automáticamente según tiempo."
+                    if "Promo" in lavado_opcion: info_desc += "Tarifa de promoción calculada automáticamente."
                     elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
                     else: info_desc += "Tarifa estándar aplicada."
             
@@ -1515,7 +1522,7 @@ elif menu == "📈 Reportes":
         st.error(f"Error conectando con el historial: {e}")
 
 # ------------------------------------------
-# MANUAL Y AYUDA INTERACTIVA (NUEVO)
+# MANUAL Y AYUDA INTERACTIVA
 # ------------------------------------------
 elif menu == "📖 Ayuda":
     st.subheader("📖 Manual de Operaciones - FlowPark VIP")
@@ -1558,7 +1565,7 @@ elif menu == "📖 Ayuda":
     
     ### 🧽 5. MÓDULO DE LAVADERO INTEGRADO
     *   **El Ingreso:** El Valet debe preguntar si desea lavado y marcar la casilla `🧽 Solicita Lavado`.
-    *   **Control Inteligente de Mensualistas:** Si el mensualista tiene "1 Lavado" incluido por mes y ya lo gastó, la app avisa: *"Beneficio agotado. El lavado deberá cobrarse"*.
+    *   **Control Inteligente de Mensualistas:** Si el mensualista tiene "1 Lavado" incluido por mes y ya lo gastó, la app avisa: *"Ya gastó su cupo del mes"*. Podés usar uno acumulado si tiene, o cobrarlo.
     *   **Panel de Lavadero:** En la pestaña **🧽 Lavadero**, los chicos ven qué autos lavar. También les avisa si hay un Mensualista con lavados gratis en la playa para que vayan a ofrecerle. Cuando terminan, tocan "Marcar Terminado".
     *   **Salida (Cobro):** El Valet selecciona qué lavado le hizo. La app decide si lo descuenta del plan mensual o si se lo cobra aplicando promos.
     
