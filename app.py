@@ -92,11 +92,9 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
 
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
 
-    # Lectura de Tarifas
     v_hora = tarifas.get("Hora", {}).get(tipo_vehi, 110)
     v_promo4h = tarifas.get("Promo_4h", {}).get(tipo_vehi, 330)
     
-    # Paracaídas de compatibilidad: busca Promo_8h, si no está, busca Dia_Completo, sino usa 550.
     tarifas_8h = tarifas.get("Promo_8h")
     if not tarifas_8h: tarifas_8h = tarifas.get("Dia_Completo", {})
     v_promo8h = tarifas_8h.get(tipo_vehi, 550)
@@ -114,8 +112,6 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
         restante = mins % 480
         
         costo = bloques_8h * v_promo8h
-        
-        # Redondea siempre hacia arriba. 1 minuto extra ya es 1 hora.
         horas_extra = math.ceil(restante / 60)
         
         if restante <= 240:
@@ -144,8 +140,6 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
         elif m_cobro <= 480:
             return min(costo_normal, p_8h_lavado)
         else:
-            # Si se pasa de las 8 horas (ej: 9 horas y media)
-            # Cobra la Promo 8h+Lavado a las primeras 8hs, y suma el costo de tiempo extra normal.
             return p_8h_lavado + costo_solo_tiempo(m_cobro - 480)
     else:
         return 0
@@ -655,45 +649,67 @@ elif menu == "📊 Activos":
         obtener_datos.clear()
         st.rerun()
         
-    activos_lista = []
-    for r in reversed(reg[1:]):
-        if len(r) > 3:
-            tkt = str(r[0]).strip()
-            h_sal = str(r[3]).strip()
-            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                pat = str(r[1]).upper()
-                h_ing = r[2]
-                local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
-                tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
-                tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
-                
-                activos_lista.append(r)
-                st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
+    # NUEVO: TABS PARA VER ACTIVOS O EL HISTORIAL DE HOY
+    tab_activos, tab_historial_valet = st.tabs(["🚗 Vehículos Activos", "🏁 Salidas de Hoy (Valets)"])
+    
+    with tab_activos:
+        activos_lista = []
+        for r in reversed(reg[1:]):
+            if len(r) > 3:
+                tkt = str(r[0]).strip()
+                h_sal = str(r[3]).strip()
+                if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                    pat = str(r[1]).upper()
+                    h_ing = r[2]
+                    local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
+                    tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
+                    tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
+                    
+                    activos_lista.append(r)
+                    st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
 
-    if activos_lista:
-        st.divider()
-        with st.expander("✏️ Corregir Patente (Error de Tipeo)", expanded=False):
-            st.markdown("Si cargaste mal una patente al ingresar, buscala en la lista y escribí la correcta.")
-            opciones_corregir = [f"#{r[0]} - Patente actual: {r[1]}" for r in activos_lista]
-            auto_a_corregir = st.selectbox("Seleccionar vehículo a corregir:", [""] + opciones_corregir)
-            patente_corregida = st.text_input("Escribir la patente CORRECTA:").upper().replace("-", "").replace(" ", "")
-            
-            if st.button("Guardar Corrección"):
-                if auto_a_corregir and patente_corregida:
-                    tkt_corregir = auto_a_corregir.split(" - ")[0].replace("#", "").strip()
-                    try:
-                        for idx, row in enumerate(reg):
-                            if str(row[0]).strip() == tkt_corregir and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
-                                sh.worksheet("Registro").update_cell(idx + 1, 2, patente_corregida)
-                                st.success(f"✅ ¡Patente corregida exitosamente a {patente_corregida}!")
-                                obtener_datos.clear()
-                                time.sleep(1)
-                                st.rerun()
-                                break
-                    except Exception as e:
-                        st.error("Hubo un error al guardar la corrección.")
-                else:
-                    st.warning("Seleccioná un auto y escribí la patente nueva.")
+        if activos_lista:
+            st.divider()
+            with st.expander("✏️ Corregir Patente (Error de Tipeo)", expanded=False):
+                st.markdown("Si cargaste mal una patente al ingresar, buscala en la lista y escribí la correcta.")
+                opciones_corregir = [f"#{r[0]} - Patente actual: {r[1]}" for r in activos_lista]
+                auto_a_corregir = st.selectbox("Seleccionar vehículo a corregir:", [""] + opciones_corregir)
+                patente_corregida = st.text_input("Escribir la patente CORRECTA:").upper().replace("-", "").replace(" ", "")
+                
+                if st.button("Guardar Corrección"):
+                    if auto_a_corregir and patente_corregida:
+                        tkt_corregir = auto_a_corregir.split(" - ")[0].replace("#", "").strip()
+                        try:
+                            for idx, row in enumerate(reg):
+                                if str(row[0]).strip() == tkt_corregir and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                                    sh.worksheet("Registro").update_cell(idx + 1, 2, patente_corregida)
+                                    st.success(f"✅ ¡Patente corregida exitosamente a {patente_corregida}!")
+                                    obtener_datos.clear()
+                                    time.sleep(1)
+                                    st.rerun()
+                                    break
+                        except Exception as e:
+                            st.error("Hubo un error al guardar la corrección.")
+                    else:
+                        st.warning("Seleccioná un auto y escribí la patente nueva.")
+
+    with tab_historial_valet:
+        hoy_str = hora_actual_uy().split()[0]
+        salidas_hoy = []
+        for h in historial_data[1:]:
+            if len(h) >= 7 and str(h[0]).startswith(hoy_str):
+                hora_salida = str(h[0]).split()[1][:5]
+                op = str(h[1])
+                pat = str(h[2]).upper()
+                tkt = str(h[3])
+                try: total_num = float(str(h[6]).replace(',', '.'))
+                except: total_num = 0
+                salidas_hoy.append({"Hora": hora_salida, "Patente": pat, "Ticket": tkt, "Cobro ($)": f"${total_num:,.0f}", "Valet": op})
+        
+        if salidas_hoy:
+            st.dataframe(pd.DataFrame(salidas_hoy).sort_values("Hora", ascending=False), use_container_width=True)
+        else:
+            st.info("Aún no hay vehículos retirados en el día de hoy.")
 
 # ------------------------------------------
 # LAVADERO
@@ -1025,7 +1041,7 @@ elif menu == "📤 Salida":
                         if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
                             if "Lavado Beneficio Usado" in str(h[7]):
                                 lavados_usados += 1
-                    
+                
             cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
             obs_salida = st.text_input("Observaciones de Salida (Opcional):")
             
@@ -1047,11 +1063,11 @@ elif menu == "📤 Salida":
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                     if lavados_permitidos > lavados_usados:
-                        opcion_por_defecto = 1 # Selecciona "Lavado Incluido"
+                        opcion_por_defecto = 1 # Lavado Incluido
                     else:
                         opcion_por_defecto = 3 # Sugiere "Lavado Completo" para cobrarlo puro
                 else:
-                    opcion_por_defecto = 2 # Sugiere "Lavado Completo" por defecto para clientes estandar
+                    opcion_por_defecto = 2 # Lavado Completo para estandar
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
@@ -1261,14 +1277,17 @@ elif menu == "⏰ Personal":
             if hab_entrada_rap and usr_caja != emp:
                 st.success(f"🤝 **¡Compañerismo!** Tu compañero **{usr_caja}** ya realizó el conteo de la plata y el stock a las {h_caja.split()[1]}. Podés registrar tu entrada sin tener que contarlo de nuevo.")
                 if st.button("⚡ Confirmar Entrada Rápida"):
-                    hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
-                    sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Entrada conjunta con {usr_caja}"])
-                    st.session_state.local_emp = emp
-                    st.session_state.local_estado = "Entrada"
-                    st.session_state.cartel_entrada_msg = ""
-                    obtener_datos.clear()
-                    time.sleep(1)
-                    st.rerun()
+                    if st.session_state.local_estado == "Entrada":
+                        st.warning("⚠️ Su entrada ya fue procesada.")
+                    else:
+                        hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                        sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Entrada conjunta con {usr_caja}"])
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Entrada"
+                        st.session_state.cartel_entrada_msg = ""
+                        obtener_datos.clear()
+                        time.sleep(1)
+                        st.rerun()
             else:
                 st.warning("⚠️ Recuerde: su turno no quedará sellado de manera definitiva hasta que complete el Inventario debajo.")
                 with st.form("form_inventario_entrada"):
@@ -1285,23 +1304,26 @@ elif menu == "⏰ Personal":
                     submit_entrada = st.form_submit_button("✅ Confirmar Inventario y Finalizar Entrada")
                     
                     if submit_entrada:
-                        try:
-                            hora_fichada_final = st.session_state.get("hora_fichaje_temporal", hora_actual_uy())
-                            sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
-                            
-                            filas_stock = []
-                            for prod, cant in conteo_stock.items():
-                                filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
-                            if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                        if st.session_state.local_estado == "Entrada":
+                            st.warning("⚠️ Su entrada ya fue procesada.")
+                        else:
+                            try:
+                                hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                                sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
                                 
-                            sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
-                            
-                            st.session_state.local_emp = emp
-                            st.session_state.local_estado = "Entrada"
-                            st.session_state.cartel_entrada_msg = ""
-                            obtener_datos.clear()
-                            st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
-                        except Exception as e: st.error(f"Error al guardar inventario: {e}")
+                                filas_stock = []
+                                for prod, cant in conteo_stock.items():
+                                    filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
+                                if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                                    
+                                sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
+                                
+                                st.session_state.local_emp = emp
+                                st.session_state.local_estado = "Entrada"
+                                st.session_state.cartel_entrada_msg = ""
+                                obtener_datos.clear()
+                                st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
+                            except Exception as e: st.error(f"Error al guardar inventario: {e}")
                 
         else:
             st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
@@ -1326,13 +1348,16 @@ elif menu == "⏰ Personal":
             if hab_salida_rap and usr_caja != emp:
                 st.success(f"🤝 **¡Compañerismo!** Tu compañero **{usr_caja}** ya realizó el recuento de cierre general a las {h_caja.split()[1]}. Podés registrar tu salida directamente.")
                 if st.button("⚡ Confirmar Salida Rápida"):
-                    hora_fichada = hora_actual_uy()
-                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Salida conjunta con {usr_caja}"])
-                    st.session_state.local_emp = emp
-                    st.session_state.local_estado = "Salida"
-                    st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA A LAS {hora_fichada.split()[1]}. (Cierre conjunto con {usr_caja})."
-                    obtener_datos.clear()
-                    st.rerun()
+                    if st.session_state.local_estado == "Salida":
+                        st.warning("⚠️ Su salida ya fue procesada.")
+                    else:
+                        hora_fichada = hora_actual_uy()
+                        sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Salida conjunta con {usr_caja}"])
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Salida"
+                        st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA A LAS {hora_fichada.split()[1]}. (Cierre conjunto con {usr_caja})."
+                        obtener_datos.clear()
+                        st.rerun()
             else:
                 with st.form("form_inventario_salida"):
                     st.markdown("### 📤 Registrar Salida e Inventario Final")
@@ -1348,23 +1373,26 @@ elif menu == "⏰ Personal":
                     submit_salida = st.form_submit_button("🚪 Registrar Salida Oficial")
                     
                     if submit_salida:
-                        try:
-                            hora_fichada = hora_actual_uy()
-                            sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
-                            
-                            filas_stock = []
-                            for prod, cant in conteo_stock_salida.items():
-                                filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
-                            if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
-                            
-                            sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
-                            
-                            st.session_state.local_emp = emp
-                            st.session_state.local_estado = "Salida"
-                            st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
-                            obtener_datos.clear() 
-                            st.rerun()
-                        except Exception as e: st.error(f"Error al registrar salida: {e}")
+                        if st.session_state.local_estado == "Salida":
+                            st.warning("⚠️ Su salida ya fue procesada.")
+                        else:
+                            try:
+                                hora_fichada = hora_actual_uy()
+                                sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                                
+                                filas_stock = []
+                                for prod, cant in conteo_stock_salida.items():
+                                    filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
+                                if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                                
+                                sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
+                                
+                                st.session_state.local_emp = emp
+                                st.session_state.local_estado = "Salida"
+                                st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
+                                obtener_datos.clear() 
+                                st.rerun()
+                            except Exception as e: st.error(f"Error al registrar salida: {e}")
 
     if st.session_state.cartel_salida_msg != "":
         st.success(st.session_state.cartel_salida_msg)
