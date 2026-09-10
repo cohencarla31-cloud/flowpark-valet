@@ -857,7 +857,7 @@ elif menu == "✅ Validaciones":
                 mozo = st.text_input("Nombre del Mozo / Recepción:")
                 factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
             else:
-                mozo = "Recepción RB"
+                mozo = "Gerente de Operaciones"
                 factura = "N/A"
                 
             if st.button("Aplicar Validación y Avisar"):
@@ -873,7 +873,7 @@ elif menu == "✅ Validaciones":
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
                             etiqueta_autoriza = f"Mozo: {mozo}" if local_seleccionado in ["Quinquela", "Number 18"] else f"Autoriza: {mozo}"
-msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
+                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
@@ -904,7 +904,7 @@ msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pa
                     tkt_v = str(val[2]).strip()
                     mozo_v = str(val[1]).strip()
                     etiqueta_historial = f"Mozo: {mozo_v}" if local_v in ["Quinquela", "Number 18"] else f"Autoriza: {mozo_v}"
-st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - {etiqueta_historial}")
+                    st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - {etiqueta_historial}")
                 except:
                     pass
 
@@ -1065,11 +1065,11 @@ elif menu == "📤 Salida":
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                     if lavados_permitidos > lavados_usados:
-                        opcion_por_defecto = 1 # Lavado Incluido
+                        opcion_por_defecto = 1 # Selecciona "Lavado Incluido"
                     else:
                         opcion_por_defecto = 3 # Sugiere "Lavado Completo" para cobrarlo puro
                 else:
-                    opcion_por_defecto = 2 # Lavado Completo para estandar
+                    opcion_por_defecto = 2 # Sugiere "Lavado Completo" por defecto para clientes estandar
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
