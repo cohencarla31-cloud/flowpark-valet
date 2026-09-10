@@ -872,7 +872,8 @@ elif menu == "✅ Validaciones":
                             sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
-                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 Mozo: {mozo}")
+                            etiqueta_autoriza = f"Mozo: {mozo}" if local_seleccionado in ["Quinquela", "Number 18"] else f"Autoriza: {mozo}"
+msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
@@ -902,7 +903,8 @@ elif menu == "✅ Validaciones":
                     pat_v = str(val[3]).upper()
                     tkt_v = str(val[2]).strip()
                     mozo_v = str(val[1]).strip()
-                    st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - Mozo: {mozo_v}")
+                    etiqueta_historial = f"Mozo: {mozo_v}" if local_v in ["Quinquela", "Number 18"] else f"Autoriza: {mozo_v}"
+st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - {etiqueta_historial}")
                 except:
                     pass
 
