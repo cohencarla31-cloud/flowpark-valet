@@ -92,9 +92,14 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
 
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
 
+    # Lectura de Tarifas
     v_hora = tarifas.get("Hora", {}).get(tipo_vehi, 110)
     v_promo4h = tarifas.get("Promo_4h", {}).get(tipo_vehi, 330)
-    v_dia = tarifas.get("Dia_Completo", {}).get(tipo_vehi, 550)
+    
+    # Paracaídas de compatibilidad: busca Promo_8h, si no está, busca Dia_Completo, sino usa 550.
+    tarifas_8h = tarifas.get("Promo_8h")
+    if not tarifas_8h: tarifas_8h = tarifas.get("Dia_Completo", {})
+    v_promo8h = tarifas_8h.get(tipo_vehi, 550)
 
     v_lavado_ext = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
     v_lavado_comp = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
@@ -104,13 +109,21 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
 
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
-        dias = mins // 480
+        
+        bloques_8h = mins // 480
         restante = mins % 480
-        costo = dias * v_dia
+        
+        costo = bloques_8h * v_promo8h
+        
+        # Redondea siempre hacia arriba. 1 minuto extra ya es 1 hora.
+        horas_extra = math.ceil(restante / 60)
+        
         if restante <= 240:
-            costo += min(math.ceil(restante/60) * v_hora, v_promo4h)
+            costo += min(horas_extra * v_hora, v_promo4h)
         else:
-            costo += min(v_promo4h + math.ceil((restante-240)/60) * v_hora, v_dia)
+            horas_por_encima_de_4 = math.ceil((restante - 240) / 60)
+            costo += min(v_promo4h + horas_por_encima_de_4 * v_hora, v_promo8h)
+            
         return costo
 
     costo_base = costo_solo_tiempo(m_cobro)
@@ -119,19 +132,21 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
         return costo_base
     elif "Exterior" in tipo_lavado:
         return costo_base + v_lavado_ext
-    elif "Completo" in tipo_lavado:
+    elif "Completo" in tipo_lavado or "Promo" in tipo_lavado:
         if m_cobro <= 0: return v_lavado_comp
-        costo_normal = costo_base + v_lavado_comp
-        dias = m_cobro // 480
-        rest_mins = m_cobro % 480
-        costo_dias = dias * v_dia
         
-        if rest_mins <= 120: mejor_combo = min(costo_solo_tiempo(rest_mins) + v_lavado_comp, p_2h_lavado)
-        elif rest_mins <= 240: mejor_combo = min(costo_solo_tiempo(rest_mins) + v_lavado_comp, p_4h_lavado)
-        else: mejor_combo = min(costo_solo_tiempo(rest_mins) + v_lavado_comp, p_8h_lavado)
-            
-        if dias == 0: return min(costo_normal, mejor_combo)
-        else: return costo_dias + mejor_combo
+        costo_normal = costo_base + v_lavado_comp
+        
+        if m_cobro <= 120:
+            return min(costo_normal, p_2h_lavado)
+        elif m_cobro <= 240:
+            return min(costo_normal, p_4h_lavado)
+        elif m_cobro <= 480:
+            return min(costo_normal, p_8h_lavado)
+        else:
+            # Si se pasa de las 8 horas (ej: 9 horas y media)
+            # Cobra la Promo 8h+Lavado a las primeras 8hs, y suma el costo de tiempo extra normal.
+            return p_8h_lavado + costo_solo_tiempo(m_cobro - 480)
     else:
         return 0
 
@@ -171,7 +186,6 @@ if "local_emp" not in st.session_state: st.session_state.local_emp = ""
 if "local_estado" not in st.session_state: st.session_state.local_estado = ""
 if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaje_temporal = ""
 
-# Estados para la nueva Salida Inteligente
 if "salida_procesada" not in st.session_state: st.session_state.salida_procesada = False
 if "salida_ticket" not in st.session_state: st.session_state.salida_ticket = ""
 if "salida_wp" not in st.session_state: st.session_state.salida_wp = ""
@@ -942,7 +956,6 @@ elif menu == "📤 Salida":
         st.session_state.salida_procesada = False
         st.rerun()
 
-    # Si ya se procesó una salida, mostrar solo el ticket y el botón TERMINAR
     if st.session_state.salida_procesada:
         st.success("✅ ¡Vehículo retirado y ticket generado con éxito!")
         with st.expander("🔍 Ver comprobante de Egreso", expanded=True): 
@@ -953,7 +966,6 @@ elif menu == "📤 Salida":
             st.session_state.salida_procesada = False
             st.rerun()
     
-    # Si no se procesó salida, mostrar el formulario normal
     else:
         mes_actual_str = hora_actual_uy()[:7]
         temp_activos = {}
@@ -1035,11 +1047,11 @@ elif menu == "📤 Salida":
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                     if lavados_permitidos > lavados_usados:
-                        opcion_por_defecto = 1 # Lavado Incluido
+                        opcion_por_defecto = 1 # Selecciona "Lavado Incluido"
                     else:
                         opcion_por_defecto = 3 # Sugiere "Lavado Completo" para cobrarlo puro
                 else:
-                    opcion_por_defecto = 2 # Lavado Completo para estandar
+                    opcion_por_defecto = 2 # Sugiere "Lavado Completo" por defecto para clientes estandar
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
@@ -1184,7 +1196,6 @@ Op: {emp}
                     if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
                     link_wp = f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})"
                     
-                    # Guardamos en la memoria para mostrar el boton terminar
                     st.session_state.salida_procesada = True
                     st.session_state.salida_ticket = texto_ticket
                     st.session_state.salida_wp = link_wp
@@ -1216,7 +1227,6 @@ elif menu == "⏰ Personal":
 
     st.divider()
 
-    # DETECCIÓN DE INVENTARIO RECIENTE EN EQUIPO
     ultimo_registro_caja = efectivo_data[-1] if len(efectivo_data) > 1 else None
     hab_entrada_rap = False
     hab_salida_rap = False
@@ -1232,9 +1242,9 @@ elif menu == "⏰ Personal":
             now = datetime.utcnow() - timedelta(hours=3)
             diff_mins = (now - dt_caja).total_seconds() / 60
             
-            if tipo_caja == "Entrada" and diff_mins < 180: # Si la caja se abrió hace menos de 3 horas
+            if tipo_caja == "Entrada" and diff_mins < 180: 
                 hab_entrada_rap = True
-            elif tipo_caja == "Salida" and diff_mins < 120: # Si la caja se cerró hace menos de 2 horas
+            elif tipo_caja == "Salida" and diff_mins < 120: 
                 hab_salida_rap = True
         except:
             pass
