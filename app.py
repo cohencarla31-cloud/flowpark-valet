@@ -649,7 +649,6 @@ elif menu == "📊 Activos":
         obtener_datos.clear()
         st.rerun()
         
-    # NUEVO: TABS PARA VER ACTIVOS O EL HISTORIAL DE HOY
     tab_activos, tab_historial_valet = st.tabs(["🚗 Vehículos Activos", "🏁 Salidas de Hoy (Valets)"])
     
     with tab_activos:
@@ -938,18 +937,21 @@ elif menu == "🍔 Extras":
         else:
             fecha_act = hora_actual_uy()
             try:
+                precio_unitario = float(extras.get(prod, 0))
+                total_dinero_extra = precio_unitario * cant
+                
                 if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
-                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA"])
+                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA", precio_unitario, total_dinero_extra, fecha_act.split()[0]])
                     actualizar_stock_en_extras(prod, cant)
                     st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
                     obtener_datos.clear()
                 else:
                     tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
                     patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
-                    precio_unitario = extras.get(prod, 0)
-                    total_dinero_extra = precio_unitario * cant
-                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext])
+                    
+                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext, precio_unitario, total_dinero_extra, fecha_act.split()[0]])
                     actualizar_stock_en_extras(prod, cant)
+                    
                     for i, row in enumerate(reg, start=1):
                         if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                             texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
@@ -1065,11 +1067,11 @@ elif menu == "📤 Salida":
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                     if lavados_permitidos > lavados_usados:
-                        opcion_por_defecto = 1 # Selecciona "Lavado Incluido"
+                        opcion_por_defecto = 1 # Lavado Incluido
                     else:
                         opcion_por_defecto = 3 # Sugiere "Lavado Completo" para cobrarlo puro
                 else:
-                    opcion_por_defecto = 2 # Sugiere "Lavado Completo" por defecto para clientes estandar
+                    opcion_por_defecto = 2 # Lavado Completo para estandar
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
@@ -1315,7 +1317,7 @@ elif menu == "⏰ Personal":
                                 
                                 filas_stock = []
                                 for prod, cant in conteo_stock.items():
-                                    filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), ""])
+                                    filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), "", 0, 0, hora_fichada_final.split()[0]])
                                 if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
                                     
                                 sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
@@ -1384,7 +1386,7 @@ elif menu == "⏰ Personal":
                                 
                                 filas_stock = []
                                 for prod, cant in conteo_stock_salida.items():
-                                    filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), ""])
+                                    filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), "", 0, 0, hora_fichada.split()[0]])
                                 if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
                                 
                                 sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
