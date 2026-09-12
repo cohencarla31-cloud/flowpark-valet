@@ -84,7 +84,7 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     return None
 
 def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno"):
-    if local_validacion in ["Rodrigo Bueno", "Number 18"]:
+    if local_validacion in ["Rodrigo Bueno", "N18"]:
         return 0
 
     descuento = 150 if local_validacion == "Quinquela" else 0
@@ -174,6 +174,16 @@ if "salida_procesada" not in st.session_state: st.session_state.salida_procesada
 if "salida_ticket" not in st.session_state: st.session_state.salida_ticket = ""
 if "salida_wp" not in st.session_state: st.session_state.salida_wp = ""
 
+# --- SISTEMA DE AUTO-LOGIN (MEMORIA EN LA URL) ---
+if st.session_state.usuario is None and "pin" in st.query_params:
+    pin_q = st.query_params["pin"]
+    usuarios_pins = cargar_usuarios_desde_db()
+    if usuarios_pins and pin_q in usuarios_pins:
+        datos_u = usuarios_pins[pin_q]
+        st.session_state.usuario = datos_u["nombre"]
+        st.session_state.rol = datos_u["rol"]
+        st.session_state.pin_usado = pin_q
+
 if st.session_state.usuario is None:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("🔐 Acceso al Sistema - Parking El Globo")
@@ -211,6 +221,8 @@ if st.session_state.usuario is None:
                 st.session_state.usuario = datos_u["nombre"]
                 st.session_state.rol = datos_u["rol"]
                 st.session_state.pin_usado = pin_clean
+                # Guardamos el pin en la URL para que no se cierre la sesión si van a WhatsApp
+                st.query_params["pin"] = pin_clean
                 st.rerun()
             else:
                 st.error("❌ Clave incorrecta o no autorizada en el sistema.")
@@ -229,6 +241,8 @@ if c_out.button("🚪 Salir"):
     st.session_state.local_estado = ""
     st.session_state.hora_fichaje_temporal = ""
     st.session_state.salida_procesada = False
+    # Limpiamos la URL para salir de forma segura
+    st.query_params.clear()
     st.rerun()
 st.divider()
 
@@ -816,9 +830,10 @@ elif menu == "✅ Validaciones":
     if st.session_state.rol.startswith("Local_") or es_admin:
         st.subheader("Cargar Validación de Local")
         
+        # --- APLICAMOS EL CAMBIO A N18 ---
         if st.session_state.rol == "Local_Quinquela": local_seleccionado = "Quinquela"
-        elif st.session_state.rol == "Local_Number18": local_seleccionado = "Number 18"
-        else: local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "Number 18", "Rodrigo Bueno"])
+        elif st.session_state.rol in ["Local_Number18", "Local_N18"]: local_seleccionado = "N18"
+        else: local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "N18", "Rodrigo Bueno"])
             
         activos_disponibles = []
         for r in reg[1:]:
@@ -842,16 +857,20 @@ elif menu == "✅ Validaciones":
         with st.expander("➕ Cargar Nueva Validación", expanded=True):
             seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
             
-            if local_seleccionado in ["Quinquela", "Number 18"]:
+            # --- APLICAMOS LA LÓGICA SIMPLIFICADA PARA N18 ---
+            if local_seleccionado == "Quinquela":
                 mozo = st.text_input("Nombre del Mozo / Recepción:")
                 factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
+            elif local_seleccionado == "N18":
+                mozo = "Recepción N18"
+                factura = "N/A"
             else:
                 mozo = "Gerente de Operaciones"
                 factura = "N/A"
                 
             if st.button("Aplicar Validación y Avisar"):
                 if seleccion_mozo:
-                    if local_seleccionado in ["Quinquela", "Number 18"] and (not mozo or len(factura) < 4):
+                    if local_seleccionado == "Quinquela" and (not mozo or len(factura) < 4):
                         st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
                     else:
                         tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
@@ -861,7 +880,7 @@ elif menu == "✅ Validaciones":
                             sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
-                            etiqueta_autoriza = f"Mozo: {mozo}" if local_seleccionado in ["Quinquela", "Number 18"] else f"Autoriza: {mozo}"
+                            etiqueta_autoriza = f"Mozo: {mozo}" if local_seleccionado == "Quinquela" else f"Autoriza: {mozo}"
                             msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
@@ -892,7 +911,7 @@ elif menu == "✅ Validaciones":
                     pat_v = str(val[3]).upper()
                     tkt_v = str(val[2]).strip()
                     mozo_v = str(val[1]).strip()
-                    etiqueta_historial = f"Mozo: {mozo_v}" if local_v in ["Quinquela", "Number 18"] else f"Autoriza: {mozo_v}"
+                    etiqueta_historial = f"Mozo: {mozo_v}" if local_v == "Quinquela" else f"Autoriza: {mozo_v}"
                     st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - {etiqueta_historial}")
                 except:
                     pass
@@ -1132,7 +1151,7 @@ elif menu == "📤 Salida":
                     
                 else:
                     monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion)
-                    if local_val in ["Rodrigo Bueno", "Number 18"]: 
+                    if local_val in ["Rodrigo Bueno", "N18"]: 
                         info_desc = f"Estacionamiento 100% libre por {local_val}."
                     elif local_val == "Quinquela": 
                         info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
@@ -1237,11 +1256,9 @@ elif menu == "⏰ Personal":
 
     st.divider()
 
-    # MOTOR INTELIGENTE DE DETECCIÓN DE TURNOS
     ahora = datetime.utcnow() - timedelta(hours=3)
     hora_f = ahora.hour + ahora.minute / 60.0
 
-    # Bloques de requerimiento de inventario
     es_hora_apertura = (6.0 <= hora_f < 13.0) or (14.75 <= hora_f < 22.0)
     es_hora_cierre = (15.5 <= hora_f < 18.0) or (hora_f >= 23.0) or (hora_f < 3.0)
 
@@ -1250,7 +1267,6 @@ elif menu == "⏰ Personal":
     usr_que_abrio = ""
     usr_que_cerro = ""
 
-    # Revisar la memoria del sistema (últimos registros de caja)
     for r in reversed(efectivo_data):
         if len(r) >= 3:
             try:
@@ -1259,7 +1275,6 @@ elif menu == "⏰ Personal":
                 tipo = str(r[2])
                 usr = str(r[1])
                 
-                # Si hubo un arqueo en las últimas 6 horas, se toma como válido para el bloque
                 if diff_horas < 6.0:
                     if tipo == "Entrada" and not ya_hicieron_apertura:
                         ya_hicieron_apertura = True
@@ -1667,7 +1682,7 @@ elif menu == "📖 Ayuda":
     El sistema detecta automáticamente tu rol según el PIN de 4 dígitos:
     *   **🛡️ Administrador (Admin):** Tiene acceso total. Puede ver la pestaña **📈 Reportes** (Recaudación, cobros a locales, auditoría de cámaras y deudas).
     *   **🚗 Valet:** Perfil operativo. Tiene acceso a Personal, Ingreso, Activos, Lavadero, Extras, Validaciones y Salida.
-    *   **🏪 Local (Quinquela / Number 18):** Solo ven la pantalla de **✅ Validaciones** para aplicar descuentos.
+    *   **🏪 Local (Quinquela / N18):** Solo ven la pantalla de **✅ Validaciones** para aplicar descuentos.
     
     ---
     
