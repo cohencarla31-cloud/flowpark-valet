@@ -174,7 +174,6 @@ if "salida_procesada" not in st.session_state: st.session_state.salida_procesada
 if "salida_ticket" not in st.session_state: st.session_state.salida_ticket = ""
 if "salida_wp" not in st.session_state: st.session_state.salida_wp = ""
 
-# --- SISTEMA DE AUTO-LOGIN (MEMORIA EN LA URL) ---
 if st.session_state.usuario is None and "pin" in st.query_params:
     pin_q = st.query_params["pin"]
     usuarios_pins = cargar_usuarios_desde_db()
@@ -221,7 +220,6 @@ if st.session_state.usuario is None:
                 st.session_state.usuario = datos_u["nombre"]
                 st.session_state.rol = datos_u["rol"]
                 st.session_state.pin_usado = pin_clean
-                # Guardamos el pin en la URL para que no se cierre la sesión si van a WhatsApp
                 st.query_params["pin"] = pin_clean
                 st.rerun()
             else:
@@ -241,7 +239,6 @@ if c_out.button("🚪 Salir"):
     st.session_state.local_estado = ""
     st.session_state.hora_fichaje_temporal = ""
     st.session_state.salida_procesada = False
-    # Limpiamos la URL para salir de forma segura
     st.query_params.clear()
     st.rerun()
 st.divider()
@@ -275,9 +272,13 @@ def obtener_datos():
         lista_inv = data_dict.get("Lista de invitados", data_dict.get("Lista_Invitados", []))
         
         empleados = [r[0] for r in conf[1:] if len(r)>0 and r[0]]
-        tarifas = {str(r[0]).strip(): {"Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
-                                       "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0} 
-                   for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
+        
+        tarifas = {str(r[0]).strip(): {
+            "Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
+            "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0,
+            "Moto": int(r[3]) if len(r)>3 and str(r[3]).strip().isdigit() else 0
+        } for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
+        
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
         
         st.session_state.ultimo_error_db = ""
@@ -325,7 +326,8 @@ try:
             tel_m = str(m[3]).strip() if len(m) > 3 else ""
             bene_m = str(m[4]).strip().upper() if len(m) > 4 else ""
             cupos_m = int(str(m[5]).strip()) if len(m) > 5 and str(m[5]).strip().isdigit() else 1
-            datos_mensualistas_map[pat_m] = {"nombre": nom_m, "estado": estado_m, "telefono": tel_m, "beneficio": bene_m, "cupos": cupos_m}
+            comentario_m = str(m[6]).strip() if len(m) > 6 else ""
+            datos_mensualistas_map[pat_m] = {"nombre": nom_m, "estado": estado_m, "telefono": tel_m, "beneficio": bene_m, "cupos": cupos_m, "comentario": comentario_m}
 except Exception as e:
     pass
 
@@ -471,6 +473,9 @@ if menu == "📥 Ingreso":
                 elif estado_visual in ["AL DIA", "AUTORIZADO"]:
                     st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
                 
+                if datos_m.get("comentario"):
+                    st.warning(f"📣 **AVISO AL VALET:** {datos_m['comentario']}")
+                
             bene = datos_m.get("beneficio", "")
             
             if "LAVADO" in bene:
@@ -498,7 +503,9 @@ if menu == "📥 Ingreso":
     tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional - Se generará uno automático si se deja en blanco):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
-    tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta"], key=f"veh_{k}")
+    
+    # Se agrega Moto al selector de vehículos
+    tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta", "Moto"], key=f"veh_{k}")
     
     st.markdown("---")
     solicita_lavado = st.checkbox("🧽 **¿El cliente solicita servicio de Lavado ahora?**", key=f"wash_{k}")
@@ -697,10 +704,13 @@ elif menu == "📊 Activos":
                         st.warning("Seleccioná un auto y escribí la patente nueva.")
 
     with tab_historial_valet:
-        hoy_str = hora_actual_uy().split()[0]
+        # Aquí se incluye el nuevo selector de fechas para los valets
+        fecha_sel = st.date_input("📅 Elegir fecha de egresos:", datetime.utcnow() - timedelta(hours=3))
+        fecha_str = fecha_sel.strftime("%Y-%m-%d")
+        
         salidas_hoy = []
         for h in historial_data[1:]:
-            if len(h) >= 7 and str(h[0]).startswith(hoy_str):
+            if len(h) >= 7 and str(h[0]).startswith(fecha_str):
                 hora_salida = str(h[0]).split()[1][:5]
                 op = str(h[1])
                 pat = str(h[2]).upper()
@@ -712,7 +722,7 @@ elif menu == "📊 Activos":
         if salidas_hoy:
             st.dataframe(pd.DataFrame(salidas_hoy).sort_values("Hora", ascending=False), use_container_width=True)
         else:
-            st.info("Aún no hay vehículos retirados en el día de hoy.")
+            st.info(f"No hay vehículos retirados en la fecha seleccionada ({fecha_str}).")
 
 # ------------------------------------------
 # LAVADERO
@@ -830,7 +840,6 @@ elif menu == "✅ Validaciones":
     if st.session_state.rol.startswith("Local_") or es_admin:
         st.subheader("Cargar Validación de Local")
         
-        # --- APLICAMOS EL CAMBIO A N18 ---
         if st.session_state.rol == "Local_Quinquela": local_seleccionado = "Quinquela"
         elif st.session_state.rol in ["Local_Number18", "Local_N18"]: local_seleccionado = "N18"
         else: local_seleccionado = st.selectbox("Seleccionar Local que valida:", ["Quinquela", "N18", "Rodrigo Bueno"])
@@ -857,7 +866,6 @@ elif menu == "✅ Validaciones":
         with st.expander("➕ Cargar Nueva Validación", expanded=True):
             seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
             
-            # --- APLICAMOS LA LÓGICA SIMPLIFICADA PARA N18 ---
             if local_seleccionado == "Quinquela":
                 mozo = st.text_input("Nombre del Mozo / Recepción:")
                 factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
@@ -1020,6 +1028,7 @@ elif menu == "📤 Salida":
             
             tipo_vehi = "Auto"
             if len(datos) > 4 and "Camioneta" in str(datos[4]): tipo_vehi = "Camioneta"
+            if len(datos) > 4 and "Moto" in str(datos[4]): tipo_vehi = "Moto"
             
             estado_txt = str(datos[4]) if len(datos) > 4 else ""
             excede_cupo_flag = "[EXCEDE CUPO]" in estado_txt.upper()
@@ -1076,11 +1085,11 @@ elif menu == "📤 Salida":
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                     if lavados_permitidos > lavados_usados:
-                        opcion_por_defecto = 1 # Selecciona "Lavado Incluido"
+                        opcion_por_defecto = 1 
                     else:
-                        opcion_por_defecto = 3 # Sugiere "Lavado Completo" para cobrarlo puro
+                        opcion_por_defecto = 3 
                 else:
-                    opcion_por_defecto = 2 # Sugiere "Lavado Completo" por defecto para clientes estandar
+                    opcion_por_defecto = 2 
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
@@ -1619,7 +1628,36 @@ elif menu == "📈 Reportes":
             st.markdown("---")
             st.markdown("### 🎟️ Asistencia a Eventos")
             
-            st.markdown("#### 🟢 Actualmente en Playa (Ingresados)")
+            st.markdown("#### 📊 Resumen Total (Ingresados)")
+            eventos_resumen = {}
+            
+            for r_ev in reg[1:]:
+                if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
+                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
+                    if ev_name not in eventos_resumen: eventos_resumen[ev_name] = {'Activos': 0, 'Egresados': 0}
+                    eventos_resumen[ev_name]['Activos'] += 1
+                    
+            if not df.empty:
+                df_evts = df[df['Validación'].str.startswith('Evento:', na=False)]
+                for ev_val in df_evts['Validación']:
+                    ev_name = str(ev_val).replace("Evento: ", "").strip()
+                    if ev_name not in eventos_resumen: eventos_resumen[ev_name] = {'Activos': 0, 'Egresados': 0}
+                    eventos_resumen[ev_name]['Egresados'] += 1
+                    
+            if eventos_resumen:
+                res_list = []
+                for ev, counts in eventos_resumen.items():
+                    res_list.append({
+                        "Evento": ev, 
+                        "Activos (En Playa)": counts['Activos'], 
+                        "Egresados (Se fueron)": counts['Egresados'], 
+                        "TOTAL Asistentes": counts['Activos'] + counts['Egresados']
+                    })
+                st.dataframe(pd.DataFrame(res_list).sort_values("TOTAL Asistentes", ascending=False), use_container_width=True)
+            else:
+                st.info("No hay registros de eventos en este período.")
+
+            st.markdown("#### 🟢 Detalle: Autos actualmente en Playa")
             activos_eventos = []
             for r_ev in reg[1:]:
                 if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
@@ -1629,18 +1667,7 @@ elif menu == "📈 Reportes":
             if activos_eventos:
                 st.dataframe(pd.DataFrame(activos_eventos), use_container_width=True)
             else:
-                st.info("No hay vehículos de eventos actualmente en el estacionamiento.")
-
-            st.markdown("#### 🏁 Egresados (Finalizados)")
-            if not df.empty:
-                df_evts = df[df['Validación'].str.startswith('Evento:', na=False)].copy()
-                if not df_evts.empty:
-                    df_ev_grouped = df_evts.groupby('Validación').size().reset_index(name='Invitados')
-                    df_ev_grouped['Validación'] = df_ev_grouped['Validación'].str.replace("Evento: ", "")
-                    df_ev_grouped.columns = ['Evento', 'Invitados (Egresados)']
-                    st.dataframe(df_ev_grouped.sort_values(by='Invitados (Egresados)', ascending=False), use_container_width=True)
-                else:
-                    st.info("Aún no han egresado invitados de eventos en el período seleccionado.")
+                st.info("No hay vehículos de eventos estacionados en este momento.")
                     
             df_excedentes = df[df['Excedente_Local'] > 0]
             if not df_excedentes.empty:
