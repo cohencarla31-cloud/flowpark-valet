@@ -500,7 +500,7 @@ if menu == "📥 Ingreso":
         st.session_state[f"cli_{k}"] = nombre_sug
         st.session_state[f"cel_{k}"] = cel_sug
                 
-    tkt = st.text_input("🎫 N° Tarjeta PVC (Opcional - Se generará uno automático si se deja en blanco):", key=f"tkt_{k}")
+    tkt = st.text_input("🎫 N° Tarjeta (Completar cuando NO SON mensualistas, ni por eventos, ni autorizados  - Se generará uno automático si se deja en blanco):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     
