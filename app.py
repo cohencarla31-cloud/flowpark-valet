@@ -48,7 +48,7 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-TEL_PARKING_1 = "598062225" 
+TEL_PARKING_1 = "59898062225" 
 TEL_PARKING_2 = "59899199996" 
 
 @st.cache_resource
