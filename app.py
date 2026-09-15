@@ -48,8 +48,8 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-TEL_PARKING_1 = "59895280412" 
-TEL_PARKING_2 = "59893343092" 
+TEL_PARKING_1 = "598062225" 
+TEL_PARKING_2 = "59899199996" 
 
 @st.cache_resource
 def init_connection():
@@ -67,20 +67,27 @@ def hora_actual_uy():
     return (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
 def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
-    try: ingreso_dt = datetime.strptime(hora_ingreso_str, "%Y-%m-%d %H:%M:%S")
+    try: ingreso_dt = pd.to_datetime(hora_ingreso_str)
     except: return None
-    pat_clean = patente.upper().replace("-", "").replace(" ", "")
+    
+    pat_clean = str(patente).upper().replace("-", "").replace(" ", "")
     tkt_clean = str(tkt).strip().lstrip("0")
-    for q in q_records[1:]:
+    
+    for q in reversed(q_records[1:]): # Leemos de abajo hacia arriba para buscar la validación más reciente
         if len(q) < 4: continue
         q_time_str = str(q[0]).strip()
         q_tkt = str(q[2]).strip().lstrip("0")
         q_pat = str(q[3]).upper().replace("-", "").replace(" ", "")
         q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
-        try: q_dt = datetime.strptime(q_time_str, "%Y-%m-%d %H:%M:%S")
+        
+        try: q_dt = pd.to_datetime(q_time_str)
         except: continue
-        if (q_tkt == tkt_clean or q_pat == pat_clean) and q_dt >= ingreso_dt:
-            return q_local
+        
+        # Verificamos si coincide patente o ticket
+        if (q_tkt == tkt_clean or (q_pat == pat_clean and pat_clean != "")):
+            # Margen de 5 minutos por si el mozo validó el ticket segundos antes del registro en puerta
+            if q_dt >= (ingreso_dt - timedelta(minutes=5)):
+                return q_local
     return None
 
 def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno"):
@@ -470,6 +477,8 @@ if menu == "📥 Ingreso":
             else:
                 if estado_visual == "DEUDOR":
                     es_deudor = True
+                elif estado_visual == "INHABILITADO":
+                    st.error(f"🛑 **¡ATENCIÓN! PLAN INHABILITADO:** El plan de {nombre_sug} está suspendido. **🗣️ AVISALE AL CLIENTE QUE SE LE COBRARÁ LA ESTADÍA AL RETIRARSE.**")
                 elif estado_visual in ["AL DIA", "AUTORIZADO"]:
                     st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
                 
@@ -520,23 +529,24 @@ if menu == "📥 Ingreso":
             try: cupos_evento[nombre_ev] = int(ev[2])
             except: cupos_evento[nombre_ev] = 999
 
-    evento_sel_default_idx = 0
-    if eventos_hoy and pat_final in invitados_hoy_map:
-        evt_sugerido = invitados_hoy_map[pat_final]
-        opciones_evt = [""] + eventos_hoy
-        if evt_sugerido in opciones_evt:
-            evento_sel_default_idx = opciones_evt.index(evt_sugerido)
-            st.success(f"🌟 **¡Invitado VIP en lista!** Asignado automáticamente a: **{evt_sugerido}**")
-
     evento_sel = ""
+    es_vip_lista = False
+    
+    if pat_final and pat_final in invitados_hoy_map:
+        evento_sel = invitados_hoy_map[pat_final]
+        es_vip_lista = True
+        st.success(f"🌟 **¡Invitado VIP en lista!** Vehículo asociado automáticamente al evento: **{evento_sel}**")
+
     if eventos_hoy:
-        evento_sel = st.selectbox("🎟️ Ingreso por Evento (Opcional):", [""] + eventos_hoy, index=evento_sel_default_idx, key=f"evt_{k}")
+        if not es_vip_lista:
+            evento_sel = st.selectbox("🎟️ Ingreso por Evento (Opcional):", [""] + eventos_hoy, key=f"evt_{k}")
+            
         if evento_sel:
             autos_en_evento = sum(1 for r in reg[1:] if len(r) > 4 and f"Evento: {evento_sel}" in str(r[4]) and hoy_str in str(r[2]))
-            if autos_en_evento >= cupos_evento[evento_sel]:
-                st.warning(f"⚠️ ¡ATENCIÓN! Se superó el cupo de {cupos_evento[evento_sel]} lugares para '{evento_sel}'. (Van {autos_en_evento} autos).")
+            if autos_en_evento >= cupos_evento.get(evento_sel, 999):
+                st.warning(f"⚠️ ¡ATENCIÓN! Se superó el cupo de {cupos_evento.get(evento_sel, 999)} lugares para '{evento_sel}'. (Van {autos_en_evento} autos). Se permite el ingreso y **NO se le cobrará al cliente**, quedará registrado el excedente para el organizador.")
             else:
-                st.info(f"✅ Cupo disponible para '{evento_sel}': {autos_en_evento} / {cupos_evento[evento_sel]} autos ingresados.")
+                st.info(f"✅ Cupo disponible para '{evento_sel}': {autos_en_evento} / {cupos_evento.get(evento_sel, 999)} autos ingresados.")
 
     texto_deuda_completo = ""
     if es_deudor and not excede_cupo_mensual:
@@ -1626,38 +1636,56 @@ elif menu == "📈 Reportes":
                     st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
             
             st.markdown("---")
-            st.markdown("### 🎟️ Asistencia a Eventos")
+            st.markdown("### 🎟️ Reporte General de Eventos")
             
-            st.markdown("#### 📊 Resumen Total (Ingresados)")
-            eventos_resumen = {}
+            eventos_stats = {}
             
+            for ev in eventos_data[1:]:
+                if len(ev) > 1 and str(ev[1]).strip():
+                    ev_name = str(ev[1]).strip()
+                    if ev_name not in eventos_stats:
+                        eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                        
             for r_ev in reg[1:]:
                 if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
                     ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
-                    if ev_name not in eventos_resumen: eventos_resumen[ev_name] = {'Activos': 0, 'Egresados': 0}
-                    eventos_resumen[ev_name]['Activos'] += 1
-                    
+                    if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                    eventos_stats[ev_name]['Ingresados'] += 1
+
             if not df.empty:
                 df_evts = df[df['Validación'].str.startswith('Evento:', na=False)]
-                for ev_val in df_evts['Validación']:
-                    ev_name = str(ev_val).replace("Evento: ", "").strip()
-                    if ev_name not in eventos_resumen: eventos_resumen[ev_name] = {'Activos': 0, 'Egresados': 0}
-                    eventos_resumen[ev_name]['Egresados'] += 1
+                for _, row_ev in df_evts.iterrows():
+                    ev_name = str(row_ev['Validación']).replace("Evento: ", "").strip()
+                    if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                    eventos_stats[ev_name]['Ingresados'] += 1
                     
-            if eventos_resumen:
+                    exc_monto = float(row_ev['Excedente_Local']) if pd.notnull(row_ev['Excedente_Local']) else 0
+                    if exc_monto > 0:
+                        eventos_stats[ev_name]['Autos_Excedidos'] += 1
+                        eventos_stats[ev_name]['Monto_Excedido'] += exc_monto
+                        
+            if eventos_stats:
                 res_list = []
-                for ev, counts in eventos_resumen.items():
-                    res_list.append({
-                        "Evento": ev, 
-                        "Activos (En Playa)": counts['Activos'], 
-                        "Egresados (Se fueron)": counts['Egresados'], 
-                        "TOTAL Asistentes": counts['Activos'] + counts['Egresados']
-                    })
-                st.dataframe(pd.DataFrame(res_list).sort_values("TOTAL Asistentes", ascending=False), use_container_width=True)
+                for ev, stats in eventos_stats.items():
+                    if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0: 
+                        res_list.append({
+                            "Evento": ev, 
+                            "Total Autos Ingresados": stats['Ingresados'], 
+                            "Cant. Autos Excedidos (Hora)": stats['Autos_Excedidos'], 
+                            "A Facturar por Excedente ($)": stats['Monto_Excedido']
+                        })
+                if res_list:
+                    df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
+                    st.dataframe(
+                        df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), 
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.info("No hubo ingresos registrados por eventos.")
             else:
-                st.info("No hay registros de eventos en este período.")
+                st.info("No hay eventos configurados o registrados.")
 
-            st.markdown("#### 🟢 Detalle: Autos actualmente en Playa")
+            st.markdown("#### 🟢 Detalle: Autos actualmente en Playa (Eventos)")
             activos_eventos = []
             for r_ev in reg[1:]:
                 if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
@@ -1668,14 +1696,6 @@ elif menu == "📈 Reportes":
                 st.dataframe(pd.DataFrame(activos_eventos), use_container_width=True)
             else:
                 st.info("No hay vehículos de eventos estacionados en este momento.")
-                    
-            df_excedentes = df[df['Excedente_Local'] > 0]
-            if not df_excedentes.empty:
-                st.markdown("#### 💰 Excedentes de Horario a Facturar a Locales")
-                df_exc_grouped = df_excedentes.groupby('Validación')['Excedente_Local'].sum().reset_index()
-                df_exc_grouped.columns = ['Evento / Local', 'Monto a Facturar ($)']
-                df_exc_grouped['Evento / Local'] = df_exc_grouped['Evento / Local'].str.replace("Evento: ", "")
-                st.dataframe(df_exc_grouped.sort_values(by='Monto a Facturar ($)', ascending=False), use_container_width=True)
             
             st.markdown("---")
             st.markdown("### 📅 Detalle de Ventas por Día")
