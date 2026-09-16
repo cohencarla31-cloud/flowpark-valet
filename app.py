@@ -48,8 +48,8 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-TEL_PARKING_1 = "59898062225" 
-TEL_PARKING_2 = "59899199996" 
+TEL_PARKING_1 = "58897818770" 
+TEL_PARKING_2 = "59896185562" 
 
 @st.cache_resource
 def init_connection():
