@@ -690,7 +690,35 @@ elif menu == "📊 Activos":
                     st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
 
         if activos_lista:
+            st.markdown("### 📋 Resumen de Autos en Playa por Fecha")
+            resumen_activos = {}
+            for r in activos_lista:
+                try: t_ing = str(r[2]).split()[0]
+                except: t_ing = "Fecha Desconocida"
+                
+                tkt_val = str(r[0]).strip().upper()
+                pat_val = str(r[1]).strip().upper()
+                
+                if tkt_val.startswith("MEN-"):
+                    estado_m = datos_mensualistas_map.get(pat_val, {}).get("estado", "")
+                    if estado_m == "AUTORIZADO": cat = "Autorizados"
+                    else: cat = "Mensualistas"
+                elif tkt_val.startswith("EV"):
+                    cat = "Eventos"
+                else:
+                    cat = "Estándar (#)"
+                
+                if t_ing not in resumen_activos:
+                    resumen_activos[t_ing] = {"Estándar (#)": 0, "Mensualistas": 0, "Autorizados": 0, "Eventos": 0, "Total": 0}
+                
+                resumen_activos[t_ing][cat] += 1
+                resumen_activos[t_ing]["Total"] += 1
+                
+            df_resumen = pd.DataFrame.from_dict(resumen_activos, orient='index')
+            df_resumen.index.name = "Fecha de Ingreso"
+            st.dataframe(df_resumen, use_container_width=True)
             st.divider()
+
             with st.expander("✏️ Corregir Patente (Error de Tipeo)", expanded=False):
                 st.markdown("Si cargaste mal una patente al ingresar, buscala en la lista y escribí la correcta.")
                 opciones_corregir = [f"#{r[0]} - Patente actual: {r[1]}" for r in activos_lista]
@@ -821,6 +849,45 @@ elif menu == "🧽 Lavadero":
     else:
         for auto in autos_terminados:
             st.success(f"✨ **{str(auto[1]).upper()}** | Tkt #{str(auto[0]).strip()} - Listo para entregar.")
+
+    st.markdown("---")
+    st.markdown("### ➕ Carga Manual a Lavadero")
+    st.markdown("Si en el Ingreso olvidaste marcar que un auto (Estándar o Evento) solicitó lavado, seleccionalo aquí:")
+    
+    autos_sin_lavado = []
+    for r in reg[1:]:
+        if len(r) > 4:
+            tkt = str(r[0]).strip()
+            pat = str(r[1]).strip().upper()
+            h_sal = str(r[3]).strip()
+            estado = str(r[4])
+            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                if "LAVADO PENDIENTE" not in estado and "LAVADO TERMINADO" not in estado:
+                    autos_sin_lavado.append(r)
+                    
+    if autos_sin_lavado:
+        autos_sin_lavado = sorted(autos_sin_lavado, key=lambda x: str(x[0]).strip().upper())
+        opc_lav_man = [f"🚗 {str(r[1]).upper()} - Tkt: #{r[0]}" for r in autos_sin_lavado]
+        auto_manual = st.selectbox("Seleccionar vehículo en playa:", [""] + opc_lav_man, key="lav_man")
+        if st.button("➕ Enviar a Lavadero", key="btn_lav_man"):
+            if auto_manual:
+                t_add = auto_manual.split(" - Tkt: #")[1].strip()
+                try:
+                    for idx, row in enumerate(reg):
+                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                            nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
+                            sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
+                            st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
+                            obtener_datos.clear()
+                            time.sleep(1)
+                            st.rerun()
+                            break
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            else:
+                st.warning("Seleccioná un vehículo de la lista.")
+    else:
+        st.info("Todos los autos en playa ya tienen algún estado de lavado asignado.")
 
     st.markdown("---")
     st.markdown("### 🎁 Mensualistas Estacionados (Con Lavado a Favor)")
@@ -1065,12 +1132,30 @@ elif menu == "📤 Salida":
             if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
                 temp_activos[r[0].strip()] = r
                 
-        def get_sort_key_patente(r):
-            return str(r[1]).upper()
+        def get_sort_key_salida(r):
+            tkt_val = str(r[0]).strip().upper()
+            pat_val = str(r[1]).strip().upper()
+            if tkt_val.startswith("MEN-"):
+                est_m = datos_mensualistas_map.get(pat_val, {}).get("estado", "")
+                cat = 1 if est_m == "AUTORIZADO" else 2
+            elif tkt_val.startswith("EV"): cat = 4
+            else: cat = 3
+            return (cat, pat_val)
             
-        activos = sorted(list(temp_activos.values()), key=get_sort_key_patente)
+        activos = sorted(list(temp_activos.values()), key=get_sort_key_salida)
         
-        lista_salida_ordenada = [f"🚗 {str(r[1]).upper()} - Tkt: #{r[0]}" for r in activos]
+        lista_salida_ordenada = []
+        for r in activos:
+            t_val = str(r[0]).strip().upper()
+            p_val = str(r[1]).strip().upper()
+            if t_val.startswith("MEN-"):
+                est_m = datos_mensualistas_map.get(p_val, {}).get("estado", "")
+                tag = "[AUT]" if est_m == "AUTORIZADO" else "[MEN]"
+            elif t_val.startswith("EV"):
+                tag = "[EV]"
+            else:
+                tag = "[#]"
+            lista_salida_ordenada.append(f"🚗 {tag} {p_val} - Tkt: #{r[0]}")
         
         st.markdown("Elegir auto a retirar *(Podés hacer clic y escribir la patente para buscar más rápido)*:")
         sel = st.selectbox("Buscar por Patente:", [""] + lista_salida_ordenada, label_visibility="collapsed")
