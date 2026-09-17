@@ -290,10 +290,10 @@ def obtener_datos():
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
         
         st.session_state.ultimo_error_db = ""
-        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv
+        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw
     except Exception as e:
         st.session_state.ultimo_error_db = str(e)
-        return [], {}, {}, [], [], [], [], [], [], [], [], [], [], []
+        return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], []
 
 resultado_datos = obtener_datos()
 
@@ -310,7 +310,7 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
         st.rerun()
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data = resultado_datos
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw = resultado_datos
 
 hoy_str_global = hora_actual_uy().split()[0]
 val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
@@ -1138,9 +1138,13 @@ elif menu == "📤 Salida":
             if tkt_val.startswith("MEN-"):
                 est_m = datos_mensualistas_map.get(pat_val, {}).get("estado", "")
                 cat = 1 if est_m == "AUTORIZADO" else 2
-            elif tkt_val.startswith("EV"): cat = 4
-            else: cat = 3
-            return (cat, pat_val)
+                return (cat, 0, pat_val)
+            elif tkt_val.startswith("EV"):
+                return (4, 0, pat_val)
+            else:
+                nums = ''.join(filter(str.isdigit, tkt_val))
+                sort_num = int(nums) if nums else 999999
+                return (3, sort_num, pat_val)
             
         activos = sorted(list(temp_activos.values()), key=get_sort_key_salida)
         
@@ -1155,13 +1159,14 @@ elif menu == "📤 Salida":
                 tag = "[EV]"
             else:
                 tag = "[#]"
-            lista_salida_ordenada.append(f"🚗 {tag} {p_val} - Tkt: #{r[0]}")
+            
+            lista_salida_ordenada.append(f"{tag} Tkt: #{r[0]} - 🚗 Pat: {p_val}")
         
-        st.markdown("Elegir auto a retirar *(Podés hacer clic y escribir la patente para buscar más rápido)*:")
-        sel = st.selectbox("Buscar por Patente:", [""] + lista_salida_ordenada, label_visibility="collapsed")
+        st.markdown("Elegir auto a retirar *(Podés hacer clic y escribir la patente o ticket para buscar más rápido)*:")
+        sel = st.selectbox("Buscar por Patente o Ticket:", [""] + lista_salida_ordenada, label_visibility="collapsed")
         
         if sel:
-            tkt = sel.split(" - Tkt: #")[1].strip()
+            tkt = sel.split("Tkt: #")[1].split(" -")[0].strip()
             datos = next(r for r in activos if r[0].strip() == tkt)
             patente = str(datos[1]).upper()
             h_ingreso = datos[2]
@@ -1325,6 +1330,8 @@ elif menu == "📤 Salida":
                     
                     if lavado_opcion == "Lavado Incluido (Plan Mensualista)":
                         obs_salida_final += " | Lavado Beneficio Usado"
+                    else:
+                        obs_salida_final += f" | 🧼 {nom_lavado}"
                     
                 total_a_pagar = monto_estacionamiento + total_extras
                 
@@ -1827,6 +1834,104 @@ elif menu == "📈 Reportes":
             else:
                 st.info("No hay validaciones registradas.")
             
+            st.markdown("---")
+            st.markdown("### 📦 Control de Stock y Alertas")
+            if len(extras_raw) > 1:
+                stock_list = []
+                alertas_stock = []
+                for r in extras_raw[1:]:
+                    if len(r) > 0 and str(r[0]).strip():
+                        prod = str(r[0]).strip()
+                        if "lavado" in prod.lower(): continue 
+                        
+                        try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
+                        except: precio = 0
+                        
+                        try: vendidos = float(r[3]) if len(r) > 3 and str(r[3]).strip() else 0
+                        except: vendidos = 0
+                        
+                        try: stock_act = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
+                        except: stock_act = 0
+                        
+                        try: stock_min = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 5
+                        except: stock_min = 5
+                        
+                        estado = "🟢 OK"
+                        if stock_act <= stock_min:
+                            estado = "🔴 RE-STOCK"
+                            alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
+                        elif stock_act <= stock_min + 5:
+                            estado = "🟡 ATENCIÓN"
+                            
+                        stock_list.append({
+                            "Producto": prod,
+                            "Precio": f"${precio:,.0f}",
+                            "Vendidos": int(vendidos),
+                            "Stock Actual": int(stock_act),
+                            "Stock Mínimo": int(stock_min),
+                            "Estado": estado
+                        })
+                
+                if alertas_stock:
+                    st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
+                else:
+                    st.success("✅ Todos los productos cuentan con stock suficiente.")
+                    
+                if stock_list:
+                    df_stk = pd.DataFrame(stock_list)
+                    st.dataframe(df_stk, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay productos registrados en la pestaña Extras.")
+
+            st.markdown("---")
+            st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
+            try:
+                ws_stock = sh.worksheet("Control_Stock")
+                datos_stock = ws_stock.get_all_values()
+                if len(datos_stock) > 1:
+                    padded_stock = [r + [""] * (8 - len(r)) for r in datos_stock[1:]]
+                    df_stock = pd.DataFrame(padded_stock, columns=["Fecha", "Producto", "Cantidad", "Empleado", "Patente", "Precio_U", "Total", "Fecha_Corta"])
+                    df_stock['Fecha_dt'] = pd.to_datetime(df_stock['Fecha'], errors='coerce')
+                    df_stock = df_stock.dropna(subset=['Fecha_dt'])
+                    
+                    if filtro == "Hoy": 
+                        df_stock = df_stock[df_stock['Fecha_dt'].dt.date == hoy_dt.date()]
+                    elif filtro == "Últimos 7 días": 
+                        df_stock = df_stock[df_stock['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                        
+                    df_stock['Cantidad'] = pd.to_numeric(df_stock['Cantidad'], errors='coerce').fillna(0)
+                    df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
+                    
+                    if not df_stock.empty:
+                        df_ventas = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
+                        if not df_ventas.empty:
+                            st.dataframe(df_ventas[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+                            st.success(f"**Total recaudado por extras en el período:** ${df_ventas['Total'].sum():,.0f}")
+                        else:
+                            st.info("No hay ventas de Kiosco/Extras registradas en este período.")
+                    else:
+                        st.info("No hay movimientos de stock en este período.")
+                else:
+                    st.info("La pestaña Control_Stock está vacía.")
+            except Exception as e:
+                st.error(f"Error cargando reporte de extras: {e}")
+
+            st.markdown("---")
+            st.markdown("### 🧽 Reporte General de Lavados Realizados")
+            if not df.empty:
+                df_lavados = df[df['Obs'].str.contains('Lavado|🧼', case=False, na=False)].copy()
+                
+                if not df_lavados.empty:
+                    df_lavados['Tipo de Lavado'] = df_lavados['Obs'].apply(lambda x: [part.strip(' |-') for part in x.split('|') if 'Lavado' in part or '🧼' in part][0] if '|' in x or 'Lavado' in x else "Lavado")
+                    df_res_lav = df_lavados[['Hora', 'Patente', 'Tipo de Lavado', 'Op']].sort_values(by='Hora', ascending=False)
+                    
+                    st.dataframe(df_res_lav, use_container_width=True, hide_index=True)
+                    st.success(f"**Total de lavados realizados (Mensualistas y Estándar):** {len(df_lavados)}")
+                else:
+                    st.info("No se registraron lavados (ni cobrados ni de mensualistas) en el período seleccionado.")
+            else:
+                st.info("No hay tickets procesados en este período.")
+
             st.markdown("---")
             st.markdown("### 🎟️ Reporte General de Eventos")
             
