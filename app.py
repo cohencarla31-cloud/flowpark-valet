@@ -48,7 +48,8 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-TEL_PARKING_1 = "58897818770" 
+# NÚMEROS DE LA RAMPA
+TEL_PARKING_1 = "59897818770" 
 TEL_PARKING_2 = "59896185562" 
 
 @st.cache_resource
@@ -73,7 +74,7 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     pat_clean = str(patente).upper().replace("-", "").replace(" ", "")
     tkt_clean = str(tkt).strip().lstrip("0")
     
-    for q in reversed(q_records[1:]): # Leemos de abajo hacia arriba para buscar la validación más reciente
+    for q in reversed(q_records[1:]): 
         if len(q) < 4: continue
         q_time_str = str(q[0]).strip()
         q_tkt = str(q[2]).strip().lstrip("0")
@@ -83,9 +84,7 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
         try: q_dt = pd.to_datetime(q_time_str)
         except: continue
         
-        # Verificamos si coincide patente o ticket
         if (q_tkt == tkt_clean or (q_pat == pat_clean and pat_clean != "")):
-            # Margen de 5 minutos por si el mozo validó el ticket segundos antes del registro en puerta
             if q_dt >= (ingreso_dt - timedelta(minutes=5)):
                 return q_local
     return None
@@ -117,14 +116,16 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
         bloques_8h = mins // 480
         restante = mins % 480
         costo = bloques_8h * v_promo8h
-        horas_extra = math.ceil(restante / 60)
+        
+        # FRACCIONAMIENTO CADA MEDIA HORA
+        fracciones_media = math.ceil(restante / 30)
         
         if restante <= 240:
-            costo += min(horas_extra * v_hora, v_promo4h)
+            costo += min(fracciones_media * (v_hora / 2.0), v_promo4h)
         else:
-            horas_por_encima_de_4 = math.ceil((restante - 240) / 60)
-            costo += min(v_promo4h + horas_por_encima_de_4 * v_hora, v_promo8h)
-        return costo
+            frac_encima_de_4 = math.ceil((restante - 240) / 30)
+            costo += min(v_promo4h + frac_encima_de_4 * (v_hora / 2.0), v_promo8h)
+        return int(costo)
 
     costo_base = costo_solo_tiempo(m_cobro)
 
@@ -714,7 +715,6 @@ elif menu == "📊 Activos":
                         st.warning("Seleccioná un auto y escribí la patente nueva.")
 
     with tab_historial_valet:
-        # Aquí se incluye el nuevo selector de fechas para los valets
         fecha_sel = st.date_input("📅 Elegir fecha de egresos:", datetime.utcnow() - timedelta(hours=3))
         fecha_str = fecha_sel.strftime("%Y-%m-%d")
         
@@ -842,6 +842,35 @@ elif menu == "🧽 Lavadero":
                 except Exception as e:
                     st.error("Error al agregar a la cola.")
 
+    st.markdown("---")
+    st.markdown("### 📊 Directorio de Lavados del Mes (Mensualistas)")
+    st.markdown("Consultá rápido quiénes ya gastaron su cupo mensual y quiénes lo tienen disponible.")
+    
+    reporte_lavados_valet = []
+    for pat, datos_m in datos_mensualistas_map.items():
+        bene = str(datos_m["beneficio"]).upper()
+        if "LAVADO" in bene:
+            if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
+            else: lav_perm = 1
+            
+            lav_usados = 0
+            for h in historial_data[1:]:
+                if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                    if "Lavado Beneficio Usado" in str(h[7]):
+                        lav_usados += 1
+                        
+            reporte_lavados_valet.append({
+                "Cliente": datos_m["nombre"],
+                "Patente": pat,
+                "Usados": f"{lav_usados} / {lav_perm}",
+                "Estado": "✅ Disponible" if lav_usados < lav_perm else "❌ Agotado"
+            })
+            
+    if reporte_lavados_valet:
+        st.dataframe(pd.DataFrame(reporte_lavados_valet).sort_values("Estado", ascending=False), use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay mensualistas con beneficio de lavado registrado.")
+
 # ------------------------------------------
 # VALIDACIONES (FORMULARIO Y PANEL)
 # ------------------------------------------
@@ -898,7 +927,11 @@ elif menu == "✅ Validaciones":
                             sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
-                            etiqueta_autoriza = f"Mozo: {mozo}" if local_seleccionado == "Quinquela" else f"Autoriza: {mozo}"
+                            if local_seleccionado == "Quinquela":
+                                etiqueta_autoriza = f"Mozo: {mozo}\n🧾 Factura: {factura}"
+                            else:
+                                etiqueta_autoriza = f"Autoriza: {mozo}"
+                                
                             msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
@@ -922,17 +955,29 @@ elif menu == "✅ Validaciones":
         if not val_hoy_global:
             st.info("Aún no hay validaciones registradas por los locales en el día de hoy.")
         else:
+            val_data = []
             for val in reversed(val_hoy_global):
                 try:
                     hora_val = str(val[0]).split()[1][:5]
-                    local_v = str(val[5]) if len(val)>5 else "Local"
-                    pat_v = str(val[3]).upper()
-                    tkt_v = str(val[2]).strip()
                     mozo_v = str(val[1]).strip()
-                    etiqueta_historial = f"Mozo: {mozo_v}" if local_v == "Quinquela" else f"Autoriza: {mozo_v}"
-                    st.success(f"⏰ {hora_val} | 🏪 **{local_v}** | 🚗 Patente: **{pat_v}** (Tkt #{tkt_v}) - {etiqueta_historial}")
+                    tkt_v = str(val[2]).strip()
+                    pat_v = str(val[3]).upper()
+                    factura_v = str(val[4]).strip() if len(val) > 4 else ""
+                    local_v = str(val[5]) if len(val) > 5 else "Local"
+                    
+                    val_data.append({
+                        "Hora": hora_val,
+                        "Local": local_v,
+                        "Patente": pat_v,
+                        "Ticket": f"#{tkt_v}",
+                        "Mozo / Autoriza": mozo_v,
+                        "Factura": factura_v if local_v == "Quinquela" else "-"
+                    })
                 except:
                     pass
+                    
+            if val_data:
+                st.dataframe(pd.DataFrame(val_data), use_container_width=True, hide_index=True)
 
 # ------------------------------------------
 # EXTRAS
@@ -1516,6 +1561,41 @@ elif menu == "📈 Reportes":
 
     st.divider()
 
+    st.markdown("### 💦 Control de Lavados (Mensualistas)")
+    try:
+        mes_actual_str = hora_actual_uy()[:7]
+        reporte_lavados = []
+        for pat, datos_m in datos_mensualistas_map.items():
+            bene = str(datos_m["beneficio"]).upper()
+            if "LAVADO" in bene:
+                if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
+                else: lav_perm = 1
+                
+                lav_usados = 0
+                for h in historial_data[1:]:
+                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                        if "Lavado Beneficio Usado" in str(h[7]):
+                            lav_usados += 1
+                            
+                reporte_lavados.append({
+                    "Nombre": datos_m["nombre"],
+                    "Patente": pat,
+                    "Plan de Lavado": bene,
+                    "Límite Mensual": lav_perm,
+                    "Usados este mes": lav_usados,
+                    "Disponibles": max(0, lav_perm - lav_usados)
+                })
+                
+        if reporte_lavados:
+            df_lavados = pd.DataFrame(reporte_lavados)
+            st.dataframe(df_lavados.sort_values(by="Usados este mes", ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay mensualistas con beneficio de lavado registrado en el sistema.")
+    except Exception as e:
+        st.error(f"Error al cargar reporte de lavados: {e}")
+
+    st.divider()
+
     st.markdown("### 🕒 Control de Asistencia y Horarios de Empleados")
     try:
         ws_asis = sh.worksheet("Asistencia")
@@ -1634,6 +1714,33 @@ elif menu == "📈 Reportes":
                     df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
                     df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
                     st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 🧾 Detalle de Facturas y Validaciones de Locales")
+            if len(q_data) > 1:
+                q_data_clean = []
+                for r in q_data[1:]:
+                    row = (r + ["", "", "", "", "", ""])[:6]
+                    q_data_clean.append(row)
+                df_q = pd.DataFrame(q_data_clean, columns=["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
+                
+                df_q['Fecha_dt'] = pd.to_datetime(df_q['Fecha'], errors='coerce')
+                df_q = df_q.dropna(subset=['Fecha_dt'])
+                
+                if filtro == "Hoy": 
+                    df_q = df_q[df_q['Fecha_dt'].dt.date == hoy_dt.date()]
+                elif filtro == "Últimos 7 días": 
+                    df_q = df_q[df_q['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                
+                df_q['Fecha'] = df_q['Fecha_dt'].dt.strftime('%Y-%m-%d %H:%M')
+                df_q = df_q.drop(columns=['Fecha_dt'])
+                
+                if not df_q.empty:
+                    st.dataframe(df_q.sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay validaciones en el período seleccionado.")
+            else:
+                st.info("No hay validaciones registradas.")
             
             st.markdown("---")
             st.markdown("### 🎟️ Reporte General de Eventos")
