@@ -90,12 +90,6 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     return None
 
 def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno", tarifa_fija_override=0):
-    if local_validacion in ["Rodrigo Bueno", "N18"]:
-        return 0
-
-    descuento = 150 if local_validacion == "Quinquela" else 0
-    m_cobro = max(0, minutos - descuento)
-
     v_lavado_ext = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
     v_lavado_comp = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
     p_2h_lavado = tarifas.get("Promo 2 Horas + Lavado", {}).get(tipo_vehi, 600)
@@ -108,6 +102,16 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
         if tipo_lavado == "Ninguno": return costo_base
         elif "Exterior" in tipo_lavado: return costo_base + v_lavado_ext
         else: return costo_base + v_lavado_comp
+
+    # Estacionamiento Liberado (Descuento 100%)
+    if local_validacion in ["Rodrigo Bueno", "N18", "Quinquela 100%"]:
+        if tipo_lavado == "Ninguno": return 0
+        elif "Exterior" in tipo_lavado: return v_lavado_ext
+        elif "Completo" in tipo_lavado or "Promo" in tipo_lavado: return v_lavado_comp
+        else: return 0
+
+    descuento = 150 if local_validacion == "Quinquela" else 0
+    m_cobro = max(0, minutos - descuento)
 
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
 
@@ -337,11 +341,13 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 hoy_str_global = hora_actual_uy().split()[0]
 val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
 
+# NOTIFICACIÓN VISUAL MEJORADA
 if "cant_val_hoy" not in st.session_state:
     st.session_state.cant_val_hoy = len(val_hoy_global)
 elif len(val_hoy_global) > st.session_state.cant_val_hoy:
     if st.session_state.rol == "Valet" or st.session_state.rol == "Admin":
-        st.toast("🚨 ¡NUEVA VALIDACIÓN DE LOCAL RECIBIDA!", icon="🔔")
+        ultimo_local_notif = str(val_hoy_global[-1][5]).upper() if len(val_hoy_global[-1]) > 5 else "UN LOCAL"
+        st.toast(f"🚨 ¡NUEVA VALIDACIÓN DE {ultimo_local_notif}!", icon="🔔")
     st.session_state.cant_val_hoy = len(val_hoy_global)
 
 datos_mensualistas_map = {}
@@ -923,7 +929,7 @@ elif menu == "🧽 Lavadero":
                 t_add = auto_manual.split(" - Tkt: #")[1].strip()
                 try:
                     for idx, row in enumerate(reg):
-                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
                             nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
                             sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
                             st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
@@ -1069,15 +1075,20 @@ elif menu == "✅ Validaciones":
         with st.expander("➕ Cargar Nueva Validación", expanded=True):
             seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
             
+            tipo_validacion = "Normal"
             if local_seleccionado == "Quinquela":
+                tipo_validacion = st.radio("Tipo de Cobertura Quinquela:", ["Cortesía de 2.5 hs (Cliente abona diferencia)", "Cobertura 100% (Quinquela asume el costo)"])
                 mozo = st.text_input("Nombre del Mozo / Recepción:")
                 factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
+                local_a_guardar = "Quinquela 100%" if "100%" in tipo_validacion else "Quinquela"
             elif local_seleccionado == "N18":
                 mozo = "Recepción N18"
                 factura = "N/A"
+                local_a_guardar = "N18"
             else:
                 mozo = "Gerente de Operaciones"
                 factura = "N/A"
+                local_a_guardar = local_seleccionado
                 
             if st.button("Aplicar Validación y Avisar"):
                 if seleccion_mozo:
@@ -1088,15 +1099,15 @@ elif menu == "✅ Validaciones":
                         pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                         try:
                             fecha_val = hora_actual_uy()
-                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
-                            st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
+                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_a_guardar])
+                            st.success(f"✅ Se aplicó la validación de {local_a_guardar} al vehículo {pat_val}.")
                             
                             if local_seleccionado == "Quinquela":
                                 etiqueta_autoriza = f"Mozo: {mozo}\n🧾 Factura: {factura}"
                             else:
                                 etiqueta_autoriza = f"Autoriza: {mozo}"
                                 
-                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
+                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_a_guardar}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
@@ -1109,18 +1120,23 @@ elif menu == "✅ Validaciones":
 
     st.markdown("---")
 
-    if st.session_state.rol == "Valet" or es_admin:
+    if st.session_state.rol in ["Valet", "Admin"]:
         c_head1, c_head2 = st.columns([3, 1])
-        c_head1.subheader("🔔 Historial de Validaciones del Día")
+        c_head1.subheader("🔔 Historial de Validaciones")
         if c_head2.button("🔄 Refrescar Panel", key="ref_panel_val"):
             obtener_datos.clear()
             st.rerun()
             
-        if not val_hoy_global:
-            st.info("Aún no hay validaciones registradas por los locales en el día de hoy.")
+        fecha_val_sel = st.date_input("📅 Buscar validaciones por fecha:", datetime.utcnow() - timedelta(hours=3))
+        fecha_val_str = fecha_val_sel.strftime("%Y-%m-%d")
+        
+        val_filtradas = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(fecha_val_str)]
+        
+        if not val_filtradas:
+            st.info(f"Aún no hay validaciones registradas el {fecha_val_str}.")
         else:
             val_data = []
-            for val in reversed(val_hoy_global):
+            for val in reversed(val_filtradas):
                 try:
                     hora_val = str(val[0]).split()[1][:5]
                     mozo_v = str(val[1]).strip()
@@ -1135,7 +1151,7 @@ elif menu == "✅ Validaciones":
                         "Patente": pat_v,
                         "Ticket": f"#{tkt_v}",
                         "Mozo / Autoriza": mozo_v,
-                        "Factura": factura_v if local_v == "Quinquela" else "-"
+                        "Factura": factura_v if "Quinquela" in local_v else "-"
                     })
                 except:
                     pass
@@ -1411,6 +1427,9 @@ elif menu == "📤 Salida":
                                     monto_excedente_local = calcular_mejor_precio(mins_extra, tipo_vehi, "Ninguna", tarifas)
                             except:
                                 pass
+                    elif local_val == "Quinquela 100%":
+                        # Calculamos la plata que Quinquela debe pagar por absorber esta estadía
+                        monto_excedente_local = calcular_mejor_precio(mins, tipo_vehi, "Ninguna", tarifas, "Ninguno", tarifa_override)
                     
                     if es_evento:
                         monto_estacionamiento = 0
@@ -1437,8 +1456,12 @@ elif menu == "📤 Salida":
                         
                     else:
                         monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion, tarifa_override)
-                        if local_val in ["Rodrigo Bueno", "N18"]: 
-                            info_desc = f"Estacionamiento 100% libre por {local_val}."
+                        if local_val in ["Rodrigo Bueno", "N18", "Quinquela 100%"]: 
+                            if local_val == "Quinquela 100%":
+                                info_desc = "Estacionamiento 100% cubierto por Quinquela."
+                            else:
+                                info_desc = f"Estacionamiento 100% libre por {local_val}."
+                            if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                         elif local_val == "Quinquela": 
                             info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
                         else: 
@@ -1757,6 +1780,7 @@ elif menu == "📈 Reportes":
     st.title("📊 Panel de Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Bienvenido al resumen operativo.")
     
+    # Procesamiento general de DataFrames
     try:
         ws_hist = sh.worksheet("Historial_Tickets")
         datos_hist = ws_hist.get_all_values()
@@ -1789,6 +1813,7 @@ elif menu == "📈 Reportes":
             df['Monto_Parking_Solo'] = df['Parking'] - df['Monto_Lavado']
             df['Monto_Parking_Solo'] = df['Monto_Parking_Solo'].apply(lambda x: max(0, x))
             
+            # --- PROCESAMIENTO DE STOCK PARA KIOSCO GENERAL ---
             ws_stock = sh.worksheet("Control_Stock")
             datos_stock = ws_stock.get_all_values()
             df_ventas_kiosco = pd.DataFrame()
@@ -1800,6 +1825,7 @@ elif menu == "📈 Reportes":
                 df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
                 df_ventas_kiosco = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
             
+            # Filtro Maestro
             filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
             
@@ -1825,6 +1851,9 @@ elif menu == "📈 Reportes":
         df_ventas_kiosco = pd.DataFrame()
         st.error(f"Error cargando base de datos: {e}")
 
+    # ==========================================
+    # CREACIÓN DE PESTAÑAS (TABS)
+    # ==========================================
     tab_fin, tab_lav, tab_kio, tab_evt, tab_aud = st.tabs([
         "💰 Financiero", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría"
     ])
@@ -2073,33 +2102,27 @@ elif menu == "📈 Reportes":
                 st.info("No hubo ingresos registrados por eventos.")
                 
         st.markdown("---")
-        st.markdown("### 🏪 Uso de Validaciones (Locales)")
+        st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
         if not df.empty:
-            df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
-            df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
-            st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True, hide_index=True)
-            
-        st.markdown("### 🧾 Detalle de Facturas y Validaciones de Locales")
-        if len(q_data) > 1:
-            q_data_clean = []
-            for r in q_data[1:]:
-                row = (r + ["", "", "", "", "", ""])[:6]
-                q_data_clean.append(row)
-            df_q = pd.DataFrame(q_data_clean, columns=["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
-            df_q['Fecha_dt'] = pd.to_datetime(df_q['Fecha'], errors='coerce')
-            df_q = df_q.dropna(subset=['Fecha_dt'])
-            
-            if filtro == "Hoy": df_q = df_q[df_q['Fecha_dt'].dt.date == hoy_dt.date()]
-            elif filtro == "Últimos 7 días": df_q = df_q[df_q['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
-            
-            df_q['Fecha'] = df_q['Fecha_dt'].dt.strftime('%Y-%m-%d %H:%M')
-            df_q = df_q.drop(columns=['Fecha_dt'])
-            
-            if not df_q.empty:
-                st.dataframe(df_q.sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+            df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
+            if not df_quinquela_100.empty:
+                monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
+                st.warning(f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%.")
+                df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
+                st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
             else:
-                st.info("No hay validaciones en el período seleccionado.")
-
+                st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
+        
+        st.markdown("---")
+        st.markdown("### 🏪 Uso de Validaciones Normales")
+        if not df.empty:
+            df_validaciones = df[(~df['Validación'].str.startswith('Evento:', na=False)) & (df['Validación'] != 'Ninguna') & (df['Validación'] != 'Quinquela 100%')]
+            if not df_validaciones.empty:
+                df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No se utilizaron validaciones normales en este período.")
+            
     # ------------------------------------------
     # PESTAÑA 5: AUDITORÍA Y PERSONAL
     # ------------------------------------------
