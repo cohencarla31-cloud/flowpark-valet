@@ -411,7 +411,6 @@ if st.session_state.rol == "Valet" and menu != "📖 Ayuda":
 # FUNCIONES DE INVENTARIO Y STOCK FÍSICO
 # ==========================================
 def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
-    """Actualiza los vendidos y calcula matemáticamente el Stock Actual = Inicial - Vendidos"""
     try:
         ws_ex = sh.worksheet("Extras")
         rows = ws_ex.get_all_values()
@@ -423,14 +422,16 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
                 nuevo_stock = stock_inicial - nuevo_vendidos
                 
-                ws_ex.update_cell(idx, 4, nuevo_vendidos)
-                ws_ex.update_cell(idx, 5, nuevo_stock)
+                # OPTIMIZACIÓN LOTE
+                ws_ex.update_cells([
+                    gspread.Cell(row=idx, col=4, value=nuevo_vendidos),
+                    gspread.Cell(row=idx, col=5, value=nuevo_stock)
+                ])
                 break
     except Exception as e:
         pass
 
 def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
-    """Impacta el conteo físico del valet directo en la pestaña Extras para auditoría"""
     try:
         ws_ex = sh.worksheet("Extras")
         rows = ws_ex.get_all_values()
@@ -442,10 +443,13 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                     stock_actual_calc = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
                     diferencia = cant_fisica - stock_actual_calc
                     
-                    ws_ex.update_cell(idx, 7, cant_fisica) # Col G: Stock Físico Real
-                    ws_ex.update_cell(idx, 8, diferencia)  # Col H: Diferencia
-                    ws_ex.update_cell(idx, 10, fecha_str)  # Col J: Fecha
-                    ws_ex.update_cell(idx, 11, empleado)   # Col K: Empleado
+                    # OPTIMIZACIÓN LOTE
+                    ws_ex.update_cells([
+                        gspread.Cell(row=idx, col=7, value=cant_fisica),
+                        gspread.Cell(row=idx, col=8, value=diferencia),
+                        gspread.Cell(row=idx, col=10, value=fecha_str),
+                        gspread.Cell(row=idx, col=11, value=empleado)
+                    ])
     except Exception as e:
         pass
 
@@ -569,7 +573,6 @@ if menu == "📥 Ingreso":
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
     
-    # Se agrega Moto al selector de vehículos
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta", "Moto"], key=f"veh_{k}")
     
     st.markdown("---")
@@ -1253,9 +1256,14 @@ elif menu == "🍔 Extras":
                         if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
                             texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
                             nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
-                            sh.worksheet("Registro").update_cell(i, 6, nuevo_texto)
                             dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
-                            sh.worksheet("Registro").update_cell(i, 8, dinero_actual + total_dinero_extra)
+                            
+                            # OPTIMIZACIÓN LOTE
+                            ws_reg = sh.worksheet("Registro")
+                            ws_reg.update_cells([
+                                gspread.Cell(row=i, col=6, value=nuevo_texto),
+                                gspread.Cell(row=i, col=8, value=dinero_actual + total_dinero_extra)
+                            ])
                             break
                     st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
                     obtener_datos.clear()
@@ -1565,9 +1573,12 @@ Op: {emp}
 ¡Gracias por elegirnos!"""
 
                     try:
-                        ws_registro.update_cell(idx_real, 4, h_salida)
-                        ws_registro.update_cell(idx_real, 7, float(monto_estacionamiento))
-                        ws_registro.update_cell(idx_real, 9, float(total_a_pagar))
+                        # OPTIMIZACIÓN LOTE
+                        ws_registro.update_cells([
+                            gspread.Cell(row=idx_real, col=4, value=h_salida),
+                            gspread.Cell(row=idx_real, col=7, value=float(monto_estacionamiento)),
+                            gspread.Cell(row=idx_real, col=9, value=float(total_a_pagar))
+                        ])
                         
                         local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
                         
