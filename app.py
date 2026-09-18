@@ -929,7 +929,7 @@ elif menu == "🧽 Lavadero":
                 t_add = auto_manual.split(" - Tkt: #")[1].strip()
                 try:
                     for idx, row in enumerate(reg):
-                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
                             nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
                             sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
                             st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
@@ -1072,42 +1072,87 @@ elif menu == "✅ Validaciones":
         activos_disponibles = sorted(activos_disponibles, key=get_sort_key)
         opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
         
-        with st.expander("➕ Cargar Nueva Validación", expanded=True):
-            seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
+        if local_seleccionado == "Quinquela":
+            # --- Pestañas exclusivas para Quinquela para evitar errores ---
+            tab_q_normal, tab_q_100 = st.tabs(["⏱️ Cortesía 2.5 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
             
-            tipo_validacion = "Normal"
-            if local_seleccionado == "Quinquela":
-                tipo_validacion = st.radio("Tipo de Cobertura Quinquela:", ["Cortesía de 2.5 hs (Cliente abona diferencia)", "Cobertura 100% (Quinquela asume el costo)"])
-                mozo = st.text_input("Nombre del Mozo / Recepción:")
-                factura = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4)
-                local_a_guardar = "Quinquela 100%" if "100%" in tipo_validacion else "Quinquela"
-            elif local_seleccionado == "N18":
-                mozo = "Recepción N18"
-                factura = "N/A"
-                local_a_guardar = "N18"
-            else:
-                mozo = "Gerente de Operaciones"
-                factura = "N/A"
-                local_a_guardar = local_seleccionado
+            with tab_q_normal:
+                st.info("Esta opción bonifica las primeras 2.5 hs. El cliente abona la diferencia al retirar el vehículo.")
+                seleccion_mozo_normal = st.selectbox("Seleccionar Vehículo en Playa:", [""] + opciones_mozo, key="sel_mozo_n")
+                mozo_normal = st.text_input("Nombre del Mozo / Recepción:", key="moz_n")
+                factura_normal = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4, key="fac_n")
                 
-            if st.button("Aplicar Validación y Avisar"):
-                if seleccion_mozo:
-                    if local_seleccionado == "Quinquela" and (not mozo or len(factura) < 4):
-                        st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
+                if st.button("✅ Aplicar Validación Normal y Avisar", key="btn_n"):
+                    if seleccion_mozo_normal:
+                        if not mozo_normal or len(factura_normal) < 4:
+                            st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
+                        else:
+                            tkt_val = seleccion_mozo_normal.split(" - ")[0].replace("#", "").strip()
+                            pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
+                            try:
+                                fecha_val = hora_actual_uy()
+                                sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_normal, tkt_val, pat_val, factura_normal, "Quinquela"])
+                                st.success(f"✅ Se aplicó la validación normal a {pat_val}.")
+                                
+                                etiqueta_autoriza = f"Mozo: {mozo_normal}\n🧾 Factura: {factura_normal}"
+                                msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela\n👤 {etiqueta_autoriza}")
+                                st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                obtener_datos.clear()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
                     else:
+                        st.error("Selecciona un vehículo de la lista.")
+
+            with tab_q_100:
+                st.warning("⚠️ **ATENCIÓN:** Esta opción bonifica el 100% de la estadía al cliente. **El costo será facturado a Quinquela a fin de mes.**")
+                seleccion_mozo_100 = st.selectbox("Seleccionar Vehículo en Playa:", [""] + opciones_mozo, key="sel_mozo_100")
+                mozo_100 = st.text_input("Nombre del Gerente que autoriza:", key="moz_100")
+                factura_100 = st.text_input("Últimos 4 dígitos de la factura (Opcional):", max_chars=4, key="fac_100")
+                
+                if st.button("💯 Aplicar Cobertura Total y Avisar", key="btn_100"):
+                    if seleccion_mozo_100:
+                        if not mozo_100:
+                            st.error("⚠️ Ingrese el nombre de la persona que autoriza este gasto.")
+                        else:
+                            tkt_val = seleccion_mozo_100.split(" - ")[0].replace("#", "").strip()
+                            pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
+                            try:
+                                fecha_val = hora_actual_uy()
+                                fac_print = factura_100 if factura_100 else "N/A"
+                                sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_100, tkt_val, pat_val, fac_print, "Quinquela 100%"])
+                                st.success(f"✅ Se aplicó la cobertura del 100% a {pat_val}.")
+                                
+                                etiqueta_autoriza = f"Autoriza: {mozo_100}\n🧾 Factura: {fac_print}"
+                                msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela (100% CUBIERTO)\n👤 {etiqueta_autoriza}")
+                                st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                obtener_datos.clear()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                    else:
+                        st.error("Selecciona un vehículo de la lista.")
+
+        else:
+            # Lógica Normal para el resto de los locales (N18, Rodrigo Bueno)
+            with st.expander("➕ Cargar Nueva Validación", expanded=True):
+                seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
+                if local_seleccionado == "N18":
+                    mozo = "Recepción N18"
+                    factura = "N/A"
+                else:
+                    mozo = "Gerente de Operaciones"
+                    factura = "N/A"
+                    
+                if st.button("Aplicar Validación y Avisar"):
+                    if seleccion_mozo:
                         tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
                         pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                         try:
                             fecha_val = hora_actual_uy()
-                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_a_guardar])
-                            st.success(f"✅ Se aplicó la validación de {local_a_guardar} al vehículo {pat_val}.")
+                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
+                            st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
-                            if local_seleccionado == "Quinquela":
-                                etiqueta_autoriza = f"Mozo: {mozo}\n🧾 Factura: {factura}"
-                            else:
-                                etiqueta_autoriza = f"Autoriza: {mozo}"
-                                
-                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_a_guardar}\n👤 {etiqueta_autoriza}")
+                            etiqueta_autoriza = f"Autoriza: {mozo}"
+                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
@@ -1115,8 +1160,8 @@ elif menu == "✅ Validaciones":
                             obtener_datos.clear()
                         except Exception as e:
                             st.error(f"Error al conectar con Google Sheets: {e}")
-                else:
-                    st.error("Selecciona un vehículo de la lista.")
+                    else:
+                        st.error("Selecciona un vehículo de la lista.")
 
     st.markdown("---")
 
@@ -1127,6 +1172,7 @@ elif menu == "✅ Validaciones":
             obtener_datos.clear()
             st.rerun()
             
+        # NUEVO: Búsqueda de validaciones por calendario para no perder las de las 23:55 hs
         fecha_val_sel = st.date_input("📅 Buscar validaciones por fecha:", datetime.utcnow() - timedelta(hours=3))
         fecha_val_str = fecha_val_sel.strftime("%Y-%m-%d")
         
