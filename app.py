@@ -89,12 +89,25 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
                 return q_local
     return None
 
-def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno"):
+def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_lavado="Ninguno", tarifa_fija_override=0):
     if local_validacion in ["Rodrigo Bueno", "N18"]:
         return 0
 
     descuento = 150 if local_validacion == "Quinquela" else 0
     m_cobro = max(0, minutos - descuento)
+
+    v_lavado_ext = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
+    v_lavado_comp = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
+    p_2h_lavado = tarifas.get("Promo 2 Horas + Lavado", {}).get(tipo_vehi, 600)
+    p_4h_lavado = tarifas.get("Promo 4 Horas + Lavado", {}).get(tipo_vehi, 720)
+    p_8h_lavado = tarifas.get("Promo 8 Horas + Lavado", {}).get(tipo_vehi, 880)
+
+    # Si hay una promo de Buquebus activa, pisamos el reloj
+    if tarifa_fija_override > 0:
+        costo_base = tarifa_fija_override
+        if tipo_lavado == "Ninguno": return costo_base
+        elif "Exterior" in tipo_lavado: return costo_base + v_lavado_ext
+        else: return costo_base + v_lavado_comp
 
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
 
@@ -104,20 +117,26 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     tarifas_8h = tarifas.get("Promo_8h")
     if not tarifas_8h: tarifas_8h = tarifas.get("Dia_Completo", {})
     v_promo8h = tarifas_8h.get(tipo_vehi, 550)
-
-    v_lavado_ext = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
-    v_lavado_comp = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
-    p_2h_lavado = tarifas.get("Promo 2 Horas + Lavado", {}).get(tipo_vehi, 600)
-    p_4h_lavado = tarifas.get("Promo 4 Horas + Lavado", {}).get(tipo_vehi, 720)
-    p_8h_lavado = tarifas.get("Promo 8 Horas + Lavado", {}).get(tipo_vehi, 880)
+    
+    # Tarifa 24 Horas dinámica desde el Excel (si no existe, usa 1300 por defecto)
+    v_promo24h = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
 
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
-        bloques_8h = mins // 480
-        restante = mins % 480
-        costo = bloques_8h * v_promo8h
         
-        # FRACCIONAMIENTO CADA MEDIA HORA
+        # Bloques de 24 horas
+        bloques_24h = mins // 1440
+        restante_24h = mins % 1440
+        
+        costo = bloques_24h * v_promo24h
+        
+        # Bloques de 8 horas sobre el resto
+        bloques_8h = restante_24h // 480
+        restante = restante_24h % 480
+        
+        costo += bloques_8h * v_promo8h
+        
+        # Fraccionamiento cada media hora sobre el saldo final
         fracciones_media = math.ceil(restante / 30)
         
         if restante <= 240:
@@ -136,10 +155,13 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     elif "Completo" in tipo_lavado or "Promo" in tipo_lavado:
         if m_cobro <= 0: return v_lavado_comp
         costo_normal = costo_base + v_lavado_comp
-        if m_cobro <= 120: return min(costo_normal, p_2h_lavado)
-        elif m_cobro <= 240: return min(costo_normal, p_4h_lavado)
-        elif m_cobro <= 480: return min(costo_normal, p_8h_lavado)
-        else: return p_8h_lavado + costo_solo_tiempo(m_cobro - 480)
+        
+        if m_cobro <= 480:
+            if m_cobro <= 120: return min(costo_normal, p_2h_lavado)
+            elif m_cobro <= 240: return min(costo_normal, p_4h_lavado)
+            else: return min(costo_normal, p_8h_lavado)
+        else:
+            return min(costo_normal, p_8h_lavado + costo_solo_tiempo(m_cobro - 480))
     else:
         return 0
 
@@ -901,7 +923,7 @@ elif menu == "🧽 Lavadero":
                 t_add = auto_manual.split(" - Tkt: #")[1].strip()
                 try:
                     for idx, row in enumerate(reg):
-                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
                             nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
                             sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
                             st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
@@ -1323,6 +1345,19 @@ elif menu == "📤 Salida":
             if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos:
                 st.warning("⚠️ **Nota:** El sistema registra que ya gastó su cupo de este mes. Se está aplicando el lavado gratis asumiendo que tiene uno ACUMULADO de un mes anterior.")
             
+            st.markdown("---")
+            
+            # --- LÓGICA DINÁMICA DE PROMOS BUQUEBUS ---
+            precio_bqb_sem = tarifas.get("Promo Buquebus Semana", {}).get(tipo_vehi, 2750)
+            precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
+            
+            opciones_promo_estadia = [
+                "⏱️ Automático (Calculado por Tiempo)", 
+                f"🚢 Promo Buquebus 4 Días (Semana) - ${precio_bqb_sem}", 
+                f"🚢 Promo Buquebus 4 Días (Fin de Semana) - ${precio_bqb_finde}"
+            ]
+            promo_estadia_sel = st.selectbox("🏷️ Aplicar Tarifa Especial (Reemplaza al reloj):", opciones_promo_estadia)
+            
             if st.button("Calcular y Generar Salida"):
                 ws_registro = sh.worksheet("Registro")
                 estado_en_vivo = ws_registro.cell(idx_real, 4).value if idx_real else None
@@ -1338,6 +1373,11 @@ elif menu == "📤 Salida":
                     ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
                     mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
                     local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
+                    
+                    # --- ASIGNACIÓN DE TARIFA OVERRIDE ---
+                    tarifa_override = 0
+                    if "Semana" in promo_estadia_sel: tarifa_override = precio_bqb_sem
+                    elif "Fin de Semana" in promo_estadia_sel: tarifa_override = precio_bqb_finde
                     
                     es_evento = "Evento:" in estado_txt
                     nombre_evento_salida = ""
@@ -1396,20 +1436,24 @@ elif menu == "📤 Salida":
                         info_desc = f"🛑 Mensualista con DEUDA ({nombre_cliente_encontrado}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
                         
                     else:
-                        monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion)
+                        monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion, tarifa_override)
                         if local_val in ["Rodrigo Bueno", "N18"]: 
                             info_desc = f"Estacionamiento 100% libre por {local_val}."
                         elif local_val == "Quinquela": 
                             info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
                         else: 
-                            if excede_cupo_flag:
-                                info_desc = "⚠️ Tarifa cobrada por exceder el cupo simultáneo del plan mensual. "
+                            if tarifa_override > 0:
+                                info_desc = f"🚢 Promo Especial aplicada: {promo_estadia_sel.split(' -')[0]}."
+                                if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                             else:
-                                info_desc = ""
-                            
-                            if "Promo" in lavado_opcion: info_desc += "Tarifa de promoción calculada automáticamente."
-                            elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
-                            else: info_desc += "Tarifa estándar aplicada."
+                                if excede_cupo_flag:
+                                    info_desc = "⚠️ Tarifa cobrada por exceder el cupo simultáneo del plan mensual. "
+                                else:
+                                    info_desc = ""
+                                
+                                if "Promo" in lavado_opcion: info_desc += "Tarifa de promoción calculada automáticamente."
+                                elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
+                                else: info_desc += "Tarifa estándar aplicada."
                     
                     total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
                     detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
