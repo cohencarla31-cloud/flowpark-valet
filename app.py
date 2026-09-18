@@ -1107,7 +1107,6 @@ elif menu == "✅ Validaciones":
                 st.warning("⚠️ **ATENCIÓN:** Esta opción bonifica el 100% de la estadía al cliente. **El costo será facturado a Quinquela a fin de mes.**")
                 seleccion_mozo_100 = st.selectbox("Seleccionar Vehículo en Playa:", [""] + opciones_mozo, key="sel_mozo_100")
                 mozo_100 = st.text_input("Nombre del Gerente que autoriza:", key="moz_100")
-                factura_100 = st.text_input("Últimos 4 dígitos de la factura (Opcional):", max_chars=4, key="fac_100")
                 
                 if st.button("💯 Aplicar Cobertura Total y Avisar", key="btn_100"):
                     if seleccion_mozo_100:
@@ -1118,11 +1117,11 @@ elif menu == "✅ Validaciones":
                             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                             try:
                                 fecha_val = hora_actual_uy()
-                                fac_print = factura_100 if factura_100 else "N/A"
+                                fac_print = "N/A"
                                 sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_100, tkt_val, pat_val, fac_print, "Quinquela 100%"])
                                 st.success(f"✅ Se aplicó la cobertura del 100% a {pat_val}.")
                                 
-                                etiqueta_autoriza = f"Autoriza: {mozo_100}\n🧾 Factura: {fac_print}"
+                                etiqueta_autoriza = f"Autoriza: {mozo_100}"
                                 msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela (100% CUBIERTO)\n👤 {etiqueta_autoriza}")
                                 st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
                                 obtener_datos.clear()
