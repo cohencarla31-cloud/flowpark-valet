@@ -827,7 +827,7 @@ elif menu == "🧽 Lavadero":
                             lav_usados = 0
                             for h in historial_data[1:]:
                                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
-                                    # Búsqueda vieja por "Obs" y búsqueda nueva por columna "Servicio_Lavado"
+                                    # Búsqueda via "Obs" o "Servicio_Lavado"
                                     if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                         lav_usados += 1
                             
@@ -1234,7 +1234,6 @@ elif menu == "📤 Salida":
                     
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
-                            # Búsqueda vieja y búsqueda nueva
                             if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                 lavados_usados += 1
                 
@@ -1410,7 +1409,7 @@ Op: {emp}
                         obs_salida_final.strip(" | -"), 
                         local_val_guardar,
                         float(monto_excedente_local),
-                        lavado_para_columna # AQUÍ SE GUARDA LA NUEVA COLUMNA DE LAVADO
+                        lavado_para_columna
                     ])
                     obtener_datos.clear() 
                     
@@ -1471,41 +1470,6 @@ elif menu == "📈 Reportes":
         else: st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
     except Exception as e:
         st.info(f"ℹ️ Error leyendo la base de mensualistas: {e}")
-
-    st.divider()
-
-    st.markdown("### 💦 Control de Lavados (Mensualistas)")
-    try:
-        mes_actual_str = hora_actual_uy()[:7]
-        reporte_lavados = []
-        for pat, datos_m in datos_mensualistas_map.items():
-            bene = str(datos_m["beneficio"]).upper()
-            if "LAVADO" in bene:
-                if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
-                else: lav_perm = 1
-                
-                lav_usados = 0
-                for h in historial_data[1:]:
-                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
-                            lav_usados += 1
-                            
-                reporte_lavados.append({
-                    "Nombre": datos_m["nombre"],
-                    "Patente": pat,
-                    "Plan de Lavado": bene,
-                    "Límite Mensual": lav_perm,
-                    "Usados este mes": lav_usados,
-                    "Disponibles": max(0, lav_perm - lav_usados)
-                })
-                
-        if reporte_lavados:
-            df_lavados = pd.DataFrame(reporte_lavados)
-            st.dataframe(df_lavados.sort_values(by="Usados este mes", ascending=False), use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay mensualistas con beneficio de lavado registrado en el sistema.")
-    except Exception as e:
-        st.error(f"Error al cargar reporte de lavados: {e}")
 
     st.divider()
 
@@ -1596,10 +1560,9 @@ elif menu == "📈 Reportes":
             else:
                 df['Excedente_Local'] = 0
                 
-            # NUEVA COLUMNA DE LAVADOS AQUÍ
             if len(df.columns) > 10:
                 df.rename(columns={df.columns[10]: 'Servicio_Lavado'}, inplace=True)
-                df['Servicio_Lavado'] = df['Servicio_Lavado'].fillna("Ninguno")
+                df['Servicio_Lavado'] = df['Servicio_Lavado'].astype(str)
             else:
                 df['Servicio_Lavado'] = "Ninguno"
             
@@ -1747,9 +1710,9 @@ elif menu == "📈 Reportes":
             st.markdown("---")
             st.markdown("### 🧽 Reporte General de Lavados Realizados")
             if not df.empty:
-                # Filtrar lavados nuevos (por la columna K nueva) y viejos (por la palabra en Obs antigua)
-                df_lavados_nuevos = df[(df['Servicio_Lavado'] != 'Ninguno') & (df['Servicio_Lavado'] != '')].copy()
-                df_lavados_viejos = df[(df['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df['Servicio_Lavado'] == 'Ninguno')].copy()
+                # SECCIÓN CORREGIDA: Filtra los lavados aunque la columna nueva esté vacía/en blanco
+                df_lavados_nuevos = df[~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN'])].copy()
+                df_lavados_viejos = df[(df['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))].copy()
                 
                 if not df_lavados_viejos.empty:
                     df_lavados_viejos['Servicio_Lavado'] = df_lavados_viejos['Obs'].apply(lambda x: [part.strip(' |-') for part in str(x).split('|') if 'Lavado' in part or '🧼' in part][0] if '|' in str(x) or 'Lavado' in str(x) else "Lavado")
@@ -1831,14 +1794,28 @@ elif menu == "📈 Reportes":
             st.markdown("### 📅 Detalle de Ventas por Día")
             if not df.empty:
                 df['Fecha'] = df['Hora'].dt.date
+                # Nueva columna matemática para contar lavados del día
+                df['Cant. Lavados'] = (df['Obs'].str.contains('Lavado|🧼', case=False, na=False) | (~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))).astype(int)
+                
                 df_diario = df.groupby('Fecha', as_index=False).agg(
                     Autos=('Total', 'count'),
+                    Lavados=('Cant. Lavados', 'sum'),
                     Parking=('Parking', 'sum'),
                     Extras=('Extras', 'sum'),
                     Total_Recaudado=('Total', 'sum')
                 )
-                df_diario.rename(columns={'Autos': 'Cant. Autos', 'Parking': 'Parking ($)', 'Extras': 'Extras ($)', 'Total_Recaudado': 'Total ($)'}, inplace=True)
+                
+                # Nombres 100% claros para evitar confusiones
+                df_diario.rename(columns={
+                    'Autos': 'Cant. Autos', 
+                    'Lavados': 'Cant. Lavados', 
+                    'Parking': 'Parking + Lavados ($)', 
+                    'Extras': 'Kiosco ($)', 
+                    'Total_Recaudado': 'Total ($)'
+                }, inplace=True)
+                
                 df_diario = df_diario.sort_values(by='Fecha', ascending=False)
+                st.info("Ojo: La columna **Kiosco ($)** solo suma lo que se le cobró a autos. Si hubo gente de la calle que entró a comprar (Venta Directa), esa plata la ves detallada en el panel azul de arriba.")
                 st.dataframe(df_diario, use_container_width=True)
         else: st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
     except Exception as e:
