@@ -1927,7 +1927,8 @@ elif menu == "📈 Reportes":
     with tab_kio:
         st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
         if not df_ventas_kiosco.empty:
-            st.dataframe(df_ventas_kiosco[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado ', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+            # FIX DE COLUMN NAME: Removido el espacio extra en 'Empleado '
+            st.dataframe(df_ventas_kiosco[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
             st.success(f"**Total recaudado por Kiosco en el período:** ${total_kiosco:,.0f}")
         else:
             st.info("No hay ventas de Kiosco registradas en este período.")
