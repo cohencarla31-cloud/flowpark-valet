@@ -827,7 +827,6 @@ elif menu == "🧽 Lavadero":
                             lav_usados = 0
                             for h in historial_data[1:]:
                                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
-                                    # Búsqueda via "Obs" o "Servicio_Lavado"
                                     if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                         lav_usados += 1
                             
@@ -965,6 +964,54 @@ elif menu == "🧽 Lavadero":
         st.dataframe(pd.DataFrame(reporte_lavados_valet).sort_values("Estado", ascending=False), use_container_width=True, hide_index=True)
     else:
         st.info("No hay mensualistas con beneficio de lavado registrado.")
+
+    st.markdown("---")
+    st.markdown("### 👨‍🔧 Registro General de Lavados")
+    st.markdown("Resumen de todos los lavados procesados en caja por todos los valets, agrupados por fecha.")
+    
+    if len(historial_data) > 1 and "Total" in historial_data[0]:
+        headers_h = historial_data[0]
+        max_cols_h = max(len(row) for row in historial_data)
+        padded_h = [row + [""] * (max_cols_h - len(row)) for row in historial_data[1:]]
+        
+        df_h = pd.DataFrame(padded_h, columns=[f"Col_{i}" if i >= len(headers_h) else headers_h[i] for i in range(max_cols_h)])
+        
+        if not df_h.empty:
+            df_h['Hora'] = pd.to_datetime(df_h['Hora'], errors='coerce')
+            if 'Servicio_Lavado' not in df_h.columns and len(df_h.columns) > 10:
+                df_h.rename(columns={df_h.columns[10]: 'Servicio_Lavado'}, inplace=True)
+            elif 'Servicio_Lavado' not in df_h.columns:
+                df_h['Servicio_Lavado'] = "Ninguno"
+                
+            df_h['Servicio_Lavado'] = df_h['Servicio_Lavado'].astype(str)
+            
+            df_lav_nuevos = df_h[~df_h['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN'])].copy()
+            df_lav_viejos = df_h[(df_h['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df_h['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))].copy()
+            
+            if not df_lav_viejos.empty:
+                df_lav_viejos['Servicio_Lavado'] = df_lav_viejos['Obs'].apply(lambda x: [part.strip(' |-') for part in str(x).split('|') if 'Lavado' in part or '🧼' in part][0] if '|' in str(x) or 'Lavado' in str(x) else "Lavado")
+                
+            df_mis_lavados = pd.concat([df_lav_nuevos, df_lav_viejos])
+            
+            if not df_mis_lavados.empty:
+                df_mis_lavados['Fecha'] = df_mis_lavados['Hora'].dt.date
+                df_resumen_mis_lavados = df_mis_lavados.groupby('Fecha').size().reset_index(name='Autos Lavados')
+                df_resumen_mis_lavados = df_resumen_mis_lavados.sort_values(by='Fecha', ascending=False)
+                
+                c_ml1, c_ml2 = st.columns([1, 2])
+                with c_ml1:
+                    st.dataframe(df_resumen_mis_lavados, use_container_width=True, hide_index=True)
+                with c_ml2:
+                    with st.expander("Ver detalle de patentes lavadas"):
+                        df_det = df_mis_lavados[['Fecha', 'Hora', 'Patente', 'Servicio_Lavado', 'Op']].sort_values(by='Hora', ascending=False)
+                        df_det['Hora'] = df_det['Hora'].dt.strftime('%H:%M')
+                        st.dataframe(df_det, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay lavados procesados en el historial general.")
+        else:
+            st.info("No hay turnos cerrados ni tickets cobrados en el historial todavía.")
+    else:
+        st.info("El historial general está vacío.")
 
 # ------------------------------------------
 # VALIDACIONES (FORMULARIO Y PANEL)
@@ -1648,52 +1695,205 @@ elif menu == "⏰ Personal":
 # REPORTES (ADMIN)
 # ------------------------------------------
 elif menu == "📈 Reportes":
-    st.subheader("📊 Panel de Ventas, Control y Auditoría")
-    st.markdown("👋 ¡Hola **Rodrigo**! Aquí tenés el resumen completo de la operativa de tu estacionamiento.")
+    st.title("📊 Panel de Control y Auditoría")
+    st.markdown("👋 ¡Hola **Rodrigo**! Bienvenido al resumen operativo.")
     
-    st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
+    # Procesamiento general de DataFrames
     try:
-        ws_men = sh.worksheet("Base_Mensualistas")
-        datos_m = ws_men.get_all_values()
-        if len(datos_m) > 1:
-            total_comercial = len(datos_m) - 1
-            total_autorizados, total_al_dia = 0, 0
-            lista_deudores = []
-            
-            for fila in datos_m[1:]:
-                if not fila or not fila[0].strip(): continue
-                mat = str(fila[0]).strip().upper()
-                texto_fila_completo = " ".join([str(val).strip() for val in fila]).upper()
+        ws_hist = sh.worksheet("Historial_Tickets")
+        datos_hist = ws_hist.get_all_values()
+        if len(datos_hist) > 1 and "Total" in datos_hist[0]:
+            headers = datos_hist[0]
+            max_cols = max(len(row) for row in datos_hist)
+            while len(headers) < max_cols:
+                headers.append(f"Col_{len(headers)+1}")
                 
-                if "AUTORIZADO" in texto_fila_completo: total_autorizados += 1
-                elif "DEUDA" in texto_fila_completo or "DEUDOR" in texto_fila_completo:
-                    nombre_encontrado = str(fila[1]).strip() if len(fila) > 1 and str(fila[1]).strip() else "Sin nombre"
-                    if "DEUDOR" in nombre_encontrado.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
-                        nombre_encontrado = str(fila[2]).strip() if len(fila) > 2 else "Sin nombre"
-                    lista_deudores.append({"Matrícula": mat, "Nombre / Empresa": nombre_encontrado})
-                else: total_al_dia += 1
+            df = pd.DataFrame(datos_hist[1:], columns=headers)
+            df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+            df['Parking'] = pd.to_numeric(df['Parking'], errors='coerce').fillna(0)
+            df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
+            
+            if len(df.columns) > 10:
+                df.rename(columns={df.columns[10]: 'Servicio_Lavado'}, inplace=True)
+                df['Servicio_Lavado'] = df['Servicio_Lavado'].astype(str)
+            else:
+                df['Servicio_Lavado'] = "Ninguno"
+                
+            def calcular_monto_lavado(row):
+                obs_text = str(row['Obs']).upper() + " " + str(row.get('Servicio_Lavado', '')).upper()
+                parking = float(row['Parking'])
+                if "INCLUIDO" in obs_text or "BENEFICIO USADO" in obs_text: return 0
+                if "EXTERIOR" in obs_text: return min(parking, 350)
+                if "LAVADO" in obs_text or "🧼" in obs_text: return min(parking, 500)
+                return 0
 
-            total_deudores = len(lista_deudores)
+            df['Monto_Lavado'] = df.apply(calcular_monto_lavado, axis=1)
+            df['Monto_Parking_Solo'] = df['Parking'] - df['Monto_Lavado']
+            df['Monto_Parking_Solo'] = df['Monto_Parking_Solo'].apply(lambda x: max(0, x))
             
-            c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-            c_m1.metric(label="Total Registrados", value=total_comercial)
-            c_m2.metric(label="✅ Pagos Al Día", value=total_al_dia)
-            c_m3.metric(label="🛑 Morosos / Deuda", value=total_deudores, delta="- Deudores", delta_color="inverse")
-            c_m4.metric(label="Autorizados", value=total_autorizados)
+            # --- PROCESAMIENTO DE STOCK PARA KIOSCO GENERAL ---
+            ws_stock = sh.worksheet("Control_Stock")
+            datos_stock = ws_stock.get_all_values()
+            df_ventas_kiosco = pd.DataFrame()
+            if len(datos_stock) > 1:
+                padded_stock = [r + [""] * (8 - len(r)) for r in datos_stock[1:]]
+                df_stock = pd.DataFrame(padded_stock, columns=["Fecha", "Producto", "Cantidad", "Empleado", "Patente", "Precio_U", "Total", "Fecha_Corta"])
+                df_stock['Fecha_dt'] = pd.to_datetime(df_stock['Fecha'], errors='coerce')
+                df_stock = df_stock.dropna(subset=['Fecha_dt'])
+                df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
+                df_ventas_kiosco = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
             
-            if total_deudores > 0:
-                st.error(f"⚠️ Hay {total_deudores} mensualista(s) con deuda pendiente:")
-                df_deudores = pd.DataFrame(lista_deudores)
-                st.dataframe(df_deudores, use_container_width=True, hide_index=True)
-            else: st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
-        else: st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
+            # Filtro Maestro
+            filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
+            hoy_dt = datetime.utcnow() - timedelta(hours=3)
+            
+            if filtro == "Hoy": 
+                df = df[df['Hora'].dt.date == hoy_dt.date()]
+                if not df_ventas_kiosco.empty: df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.date == hoy_dt.date()]
+            elif filtro == "Últimos 7 días": 
+                df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                if not df_ventas_kiosco.empty: df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+            
+            total_kiosco = df_ventas_kiosco['Total'].sum() if not df_ventas_kiosco.empty else 0
+            total_parking = df['Monto_Parking_Solo'].sum() if not df.empty else 0
+            total_lavadero = df['Monto_Lavado'].sum() if not df.empty else 0
+            total_recaudacion = total_kiosco + total_parking + total_lavadero
+            
+        else:
+            df = pd.DataFrame()
+            df_ventas_kiosco = pd.DataFrame()
+            total_recaudacion = total_parking = total_lavadero = total_kiosco = 0
+            st.warning("El historial de tickets está vacío. Los reportes se generarán cuando haya ventas.")
     except Exception as e:
-        st.info(f"ℹ️ Error leyendo la base de mensualistas: {e}")
+        df = pd.DataFrame()
+        df_ventas_kiosco = pd.DataFrame()
+        st.error(f"Error cargando base de datos: {e}")
 
-    st.divider()
+    # ==========================================
+    # CREACIÓN DE PESTAÑAS (TABS)
+    # ==========================================
+    tab_fin, tab_lav, tab_kio, tab_evt, tab_aud = st.tabs([
+        "💰 Financiero", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría"
+    ])
 
-    st.markdown("### 💦 Control de Lavados (Mensualistas)")
-    try:
+    # ------------------------------------------
+    # PESTAÑA 1: FINANCIERO Y COMERCIAL
+    # ------------------------------------------
+    with tab_fin:
+        st.markdown("### 💰 Resumen Financiero")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Facturación Total", f"${total_recaudacion:,.0f}")
+        c2.metric("Estacionamiento Puro", f"${total_parking:,.0f}")
+        c3.metric("Por Lavadero", f"${total_lavadero:,.0f}")
+        c4.metric("Por Kiosco", f"${total_kiosco:,.0f}")
+        
+        st.markdown("### 📅 Detalle de Ventas por Día")
+        if not df.empty or not df_ventas_kiosco.empty:
+            df_diario_p = pd.DataFrame()
+            if not df.empty:
+                df['Fecha_str'] = df['Hora'].dt.date.astype(str)
+                df['Cant_Lavados'] = (df['Obs'].str.contains('Lavado|🧼', case=False, na=False) | (~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))).astype(int)
+                df_diario_p = df.groupby('Fecha_str', as_index=False).agg(
+                    Cant_Autos=('Total', 'count'),
+                    Cant_Lavados=('Cant_Lavados', 'sum'),
+                    Parking=('Monto_Parking_Solo', 'sum'),
+                    Lavadero=('Monto_Lavado', 'sum')
+                )
+            
+            df_diario_k = pd.DataFrame()
+            if not df_ventas_kiosco.empty:
+                df_ventas_kiosco['Fecha_str'] = df_ventas_kiosco['Fecha_dt'].dt.date.astype(str)
+                df_diario_k = df_ventas_kiosco.groupby('Fecha_str', as_index=False).agg(Kiosco=('Total', 'sum'))
+            
+            if not df_diario_p.empty and not df_diario_k.empty:
+                df_diario = pd.merge(df_diario_p, df_diario_k, on='Fecha_str', how='outer').fillna(0)
+            elif not df_diario_p.empty:
+                df_diario = df_diario_p
+                df_diario['Kiosco'] = 0
+            else:
+                df_diario = df_diario_k
+                df_diario['Cant_Autos'] = 0
+                df_diario['Cant_Lavados'] = 0
+                df_diario['Parking'] = 0
+                df_diario['Lavadero'] = 0
+
+            df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario = df_diario.sort_values(by='Fecha', ascending=False)
+            
+            st.dataframe(df_diario, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay ventas registradas.")
+            
+        st.markdown("---")
+        st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
+        try:
+            ws_men = sh.worksheet("Base_Mensualistas")
+            datos_m = ws_men.get_all_values()
+            if len(datos_m) > 1:
+                total_comercial = len(datos_m) - 1
+                total_autorizados, total_al_dia = 0, 0
+                lista_deudores = []
+                for fila in datos_m[1:]:
+                    if not fila or not fila[0].strip(): continue
+                    mat = str(fila[0]).strip().upper()
+                    texto_fila_completo = " ".join([str(val).strip() for val in fila]).upper()
+                    
+                    if "AUTORIZADO" in texto_fila_completo: total_autorizados += 1
+                    elif "DEUDA" in texto_fila_completo or "DEUDOR" in texto_fila_completo:
+                        nombre_encontrado = str(fila[1]).strip() if len(fila) > 1 and str(fila[1]).strip() else "Sin nombre"
+                        if "DEUDOR" in nombre_encontrado.upper() or "AL DIA" in nombre_encontrado.upper() or "AUTORIZADO" in nombre_encontrado.upper():
+                            nombre_encontrado = str(fila[2]).strip() if len(fila) > 2 else "Sin nombre"
+                        lista_deudores.append({"Matrícula": mat, "Nombre / Empresa": nombre_encontrado})
+                    else: total_al_dia += 1
+
+                total_deudores = len(lista_deudores)
+                
+                c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+                c_m1.metric(label="Total Registrados", value=total_comercial)
+                c_m2.metric(label="✅ Pagos Al Día", value=total_al_dia)
+                c_m3.metric(label="🛑 Morosos / Deuda", value=total_deudores, delta="- Deudores", delta_color="inverse")
+                c_m4.metric(label="Autorizados", value=total_autorizados)
+                
+                if total_deudores > 0:
+                    st.error(f"⚠️ Hay {total_deudores} mensualista(s) con deuda pendiente:")
+                    st.dataframe(pd.DataFrame(lista_deudores), use_container_width=True, hide_index=True)
+                else: st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
+        except:
+            st.info("Error cargando mensualistas.")
+
+        if not df.empty:
+            st.markdown("---")
+            st.markdown("### 👤 Rendimiento por Valet")
+            df_op = df.groupby('Op')['Total'].sum().reset_index()
+            df_op.columns = ['Valet', 'Recaudación ($)']
+            st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True, hide_index=True)
+
+    # ------------------------------------------
+    # PESTAÑA 2: LAVADERO
+    # ------------------------------------------
+    with tab_lav:
+        st.markdown("### 🧽 Reporte General de Lavados Realizados")
+        if not df.empty:
+            df_lavados_nuevos = df[~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN'])].copy()
+            df_lavados_viejos = df[(df['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))].copy()
+            
+            if not df_lavados_viejos.empty:
+                df_lavados_viejos['Servicio_Lavado'] = df_lavados_viejos['Obs'].apply(lambda x: [part.strip(' |-') for part in str(x).split('|') if 'Lavado' in part or '🧼' in part][0] if '|' in str(x) or 'Lavado' in str(x) else "Lavado")
+            
+            df_res_final = pd.concat([df_lavados_nuevos, df_lavados_viejos])
+            
+            if not df_res_final.empty:
+                df_res_lav = df_res_final[['Hora', 'Patente', 'Servicio_Lavado', 'Op']].sort_values(by='Hora', ascending=False)
+                st.dataframe(df_res_lav, use_container_width=True, hide_index=True)
+                st.success(f"**Total de lavados realizados en el período:** {len(df_res_final)}")
+            else:
+                st.info("No se registraron lavados en el período seleccionado.")
+        else:
+            st.info("No hay tickets procesados en este período.")
+
+        st.markdown("---")
+        st.markdown("### 💦 Control de Lavados (Mensualistas)")
         mes_actual_str = hora_actual_uy()[:7]
         reporte_lavados = []
         for pat, datos_m in datos_mensualistas_map.items():
@@ -1716,378 +1916,199 @@ elif menu == "📈 Reportes":
                     "Usados este mes": lav_usados,
                     "Disponibles": max(0, lav_perm - lav_usados)
                 })
-                
         if reporte_lavados:
-            df_lavados = pd.DataFrame(reporte_lavados)
-            st.dataframe(df_lavados.sort_values(by="Usados este mes", ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(reporte_lavados).sort_values(by="Usados este mes", ascending=False), use_container_width=True, hide_index=True)
         else:
-            st.info("No hay mensualistas con beneficio de lavado registrado en el sistema.")
-    except Exception as e:
-        st.error(f"Error al cargar reporte de lavados: {e}")
+            st.info("No hay mensualistas con beneficio de lavado.")
 
-    st.divider()
+    # ------------------------------------------
+    # PESTAÑA 3: KIOSCO Y STOCK
+    # ------------------------------------------
+    with tab_kio:
+        st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
+        if not df_ventas_kiosco.empty:
+            st.dataframe(df_ventas_kiosco[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado ', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+            st.success(f"**Total recaudado por Kiosco en el período:** ${total_kiosco:,.0f}")
+        else:
+            st.info("No hay ventas de Kiosco registradas en este período.")
 
-    st.markdown("### 🕒 Control de Asistencia y Horarios de Empleados")
-    try:
-        ws_asis = sh.worksheet("Asistencia")
-        datos_asis = ws_asis.get_all_values()
-        if len(datos_asis) > 1:
-            df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
-            df_asis['Hora'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
-            df_asis = df_asis.sort_values(by='Hora', ascending=False)
-            st.dataframe(df_asis.head(15), use_container_width=True)
-        else: st.info("ℹ️ Aún no hay registros de asistencia.")
-    except Exception as e: st.error(f"Error cargando asistencia: {e}")
-
-    st.divider()
-
-    st.markdown("### 💵 Auditoría de Caja y Efectivo (Control de Faltantes Entre Turnos)")
-    try:
-        ws_ef = sh.worksheet("Efectivo_Caja")
-        datos_ef = ws_ef.get_all_values()
-        if len(datos_ef) > 1:
-            df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
-            df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
-            st.dataframe(df_ef.tail(10), use_container_width=True)
-            
-            if len(df_ef) >= 2:
-                salidas = df_ef[df_ef['Tipo'] == "Salida"]
-                entradas = df_ef[df_ef['Tipo'] == "Entrada"]
-                if not salidas.empty and not entradas.empty:
-                    ult_salida = salidas.iloc[-1]
-                    ult_entrada = entradas.iloc[-1]
-                    if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
-                        monto_cierre = float(ult_salida['Monto'])
-                        monto_apertura = float(ult_entrada['Monto'])
-                        dif = monto_apertura - monto_cierre
-                        if dif != 0:
-                            st.error(f"🚨 **ALERTA DE EFECTIVO ENTRE TURNOS:** El empleado {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió el turno con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
-                        else:
-                            st.success(f"✅ El efectivo declarado al abrir el turno por {ult_entrada['Empleado']} coincide exactamente con el cierre anterior de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
-        else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
-    except Exception as e: st.info("ℹ️ Asegúrate de tener creada la pestaña 'Efectivo_Caja' en tu Google Sheet.")
-
-    st.divider()
-
-    st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
-    hoy_str = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
-    autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str in r[1]]
-    autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
-    
-    patentes_activas_playa = []
-    for r in reg[1:]:
-        if len(r) > 3:
-            tkt = str(r[0]).strip()
-            h_sal = str(r[3]).strip()
-            if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                patentes_activas_playa.append(str(r[1]).strip().upper())
-
-    fugas = []
-    for patente_camara in autos_camara:
-        if patente_camara not in patentes_activas_playa: fugas.append(patente_camara)
-            
-    if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
-    elif fugas:
-        st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
-        st.write("Patentes sin registrar:", ", ".join(set(fugas)))
-    else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
-
-    st.divider()
-
-    try:
-        ws_hist = sh.worksheet("Historial_Tickets")
-        datos_hist = ws_hist.get_all_values()
-        if len(datos_hist) > 1 and "Total" in datos_hist[0]:
-            headers = datos_hist[0]
-            max_cols = max(len(row) for row in datos_hist)
-            while len(headers) < max_cols:
-                headers.append(f"Col_{len(headers)+1}")
-                
-            df = pd.DataFrame(datos_hist[1:], columns=headers)
-            df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
-            df['Parking'] = pd.to_numeric(df['Parking'], errors='coerce').fillna(0)
-            df['Extras'] = pd.to_numeric(df['Extras'], errors='coerce').fillna(0)
-            df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
-            
-            if len(df.columns) > 9:
-                df['Excedente_Local'] = pd.to_numeric(df.iloc[:, 9], errors='coerce').fillna(0)
-            else:
-                df['Excedente_Local'] = 0
-                
-            if len(df.columns) > 10:
-                df.rename(columns={df.columns[10]: 'Servicio_Lavado'}, inplace=True)
-                df['Servicio_Lavado'] = df['Servicio_Lavado'].astype(str)
-            else:
-                df['Servicio_Lavado'] = "Ninguno"
-                
-            # --- CÁLCULO SEPARADO DE PLATA ESTACIONAMIENTO VS LAVADOS ---
-            def calcular_monto_lavado(row):
-                obs_text = str(row['Obs']).upper() + " " + str(row.get('Servicio_Lavado', '')).upper()
-                parking = float(row['Parking'])
-                
-                if "INCLUIDO" in obs_text or "BENEFICIO USADO" in obs_text: return 0
-                if "EXTERIOR" in obs_text: return min(parking, 350)
-                if "LAVADO" in obs_text or "🧼" in obs_text: return min(parking, 500)
-                return 0
-
-            df['Monto_Lavado'] = df.apply(calcular_monto_lavado, axis=1)
-            df['Monto_Parking_Solo'] = df['Parking'] - df['Monto_Lavado']
-            df['Monto_Parking_Solo'] = df['Monto_Parking_Solo'].apply(lambda x: max(0, x))
-            
-            filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
-            hoy_dt = datetime.utcnow() - timedelta(hours=3)
-            if filtro == "Hoy": df = df[df['Hora'].dt.date == hoy_dt.date()]
-            elif filtro == "Últimos 7 días": df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
-                
-            st.markdown("### 💰 Resumen Financiero")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Facturación Total", f"${df['Total'].sum():,.0f}")
-            c2.metric("Estacionamiento Puro", f"${df['Monto_Parking_Solo'].sum():,.0f}")
-            c3.metric("Por Lavadero", f"${df['Monto_Lavado'].sum():,.0f}")
-            c4.metric("Por Kiosco", f"${df['Extras'].sum():,.0f}")
-            
-            st.markdown("### 🚗 Operativa")
-            c_op1, c_op2 = st.columns(2)
-            c_op1.metric("Vehículos Egresados", len(df))
-            ticket_promedio = df['Total'].mean() if len(df) > 0 else 0
-            c_op2.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
-            
-            st.markdown("---")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.markdown("### 👤 Rendimiento por Valet")
-                if not df.empty:
-                    df_op = df.groupby('Op')['Total'].sum().reset_index()
-                    df_op.columns = ['Valet', 'Recaudación ($)']
-                    st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True)
-            with col_b:
-                st.markdown("### 🏪 Uso de Validaciones (Locales)")
-                if not df.empty:
-                    df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
-                    df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
-                    st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True)
-            
-            st.markdown("---")
-            st.markdown("### 🧾 Detalle de Facturas y Validaciones de Locales")
-            if len(q_data) > 1:
-                q_data_clean = []
-                for r in q_data[1:]:
-                    row = (r + ["", "", "", "", "", ""])[:6]
-                    q_data_clean.append(row)
-                df_q = pd.DataFrame(q_data_clean, columns=["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
-                
-                df_q['Fecha_dt'] = pd.to_datetime(df_q['Fecha'], errors='coerce')
-                df_q = df_q.dropna(subset=['Fecha_dt'])
-                
-                if filtro == "Hoy": 
-                    df_q = df_q[df_q['Fecha_dt'].dt.date == hoy_dt.date()]
-                elif filtro == "Últimos 7 días": 
-                    df_q = df_q[df_q['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
-                
-                df_q['Fecha'] = df_q['Fecha_dt'].dt.strftime('%Y-%m-%d %H:%M')
-                df_q = df_q.drop(columns=['Fecha_dt'])
-                
-                if not df_q.empty:
-                    st.dataframe(df_q.sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
-                else:
-                    st.info("No hay validaciones en el período seleccionado.")
-            else:
-                st.info("No hay validaciones registradas.")
-            
-            st.markdown("---")
-            st.markdown("### 📦 Control de Stock y Alertas")
-            if len(extras_raw) > 1:
-                stock_list = []
-                alertas_stock = []
-                for r in extras_raw[1:]:
-                    if len(r) > 0 and str(r[0]).strip():
-                        prod = str(r[0]).strip()
-                        if "lavado" in prod.lower(): continue 
-                        
-                        try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
-                        except: precio = 0
-                        
-                        try: vendidos = float(r[3]) if len(r) > 3 and str(r[3]).strip() else 0
-                        except: vendidos = 0
-                        
-                        try: stock_act = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
-                        except: stock_act = 0
-                        
-                        try: stock_min = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 5
-                        except: stock_min = 5
-                        
-                        estado = "🟢 OK"
-                        if stock_act <= stock_min:
-                            estado = "🔴 RE-STOCK"
-                            alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
-                        elif stock_act <= stock_min + 5:
-                            estado = "🟡 ATENCIÓN"
-                            
-                        stock_list.append({
-                            "Producto": prod,
-                            "Precio": f"${precio:,.0f}",
-                            "Vendidos": int(vendidos),
-                            "Stock Actual": int(stock_act),
-                            "Stock Mínimo": int(stock_min),
-                            "Estado": estado
-                        })
-                
-                if alertas_stock:
-                    st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
-                else:
-                    st.success("✅ Todos los productos cuentan con stock suficiente.")
+        st.markdown("---")
+        st.markdown("### 📦 Control de Stock y Alertas")
+        if len(extras_raw) > 1:
+            stock_list = []
+            alertas_stock = []
+            for r in extras_raw[1:]:
+                if len(r) > 0 and str(r[0]).strip():
+                    prod = str(r[0]).strip()
+                    if "lavado" in prod.lower(): continue 
                     
-                if stock_list:
-                    df_stk = pd.DataFrame(stock_list)
-                    st.dataframe(df_stk, use_container_width=True, hide_index=True)
-            else:
-                st.info("No hay productos registrados en la pestaña Extras.")
-
-            st.markdown("---")
-            st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
-            try:
-                ws_stock = sh.worksheet("Control_Stock")
-                datos_stock = ws_stock.get_all_values()
-                if len(datos_stock) > 1:
-                    padded_stock = [r + [""] * (8 - len(r)) for r in datos_stock[1:]]
-                    df_stock = pd.DataFrame(padded_stock, columns=["Fecha", "Producto", "Cantidad", "Empleado", "Patente", "Precio_U", "Total", "Fecha_Corta"])
-                    df_stock['Fecha_dt'] = pd.to_datetime(df_stock['Fecha'], errors='coerce')
-                    df_stock = df_stock.dropna(subset=['Fecha_dt'])
+                    try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
+                    except: precio = 0
+                    try: vendidos = float(r[3]) if len(r) > 3 and str(r[3]).strip() else 0
+                    except: vendidos = 0
+                    try: stock_act = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
+                    except: stock_act = 0
+                    try: stock_min = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 5
+                    except: stock_min = 5
                     
-                    if filtro == "Hoy": 
-                        df_stock = df_stock[df_stock['Fecha_dt'].dt.date == hoy_dt.date()]
-                    elif filtro == "Últimos 7 días": 
-                        df_stock = df_stock[df_stock['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                    estado = "🟢 OK"
+                    if stock_act <= stock_min:
+                        estado = "🔴 RE-STOCK"
+                        alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
+                    elif stock_act <= stock_min + 5:
+                        estado = "🟡 ATENCIÓN"
                         
-                    df_stock['Cantidad'] = pd.to_numeric(df_stock['Cantidad'], errors='coerce').fillna(0)
-                    df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
+                    stock_list.append({
+                        "Producto": prod,
+                        "Precio": f"${precio:,.0f}",
+                        "Vendidos": int(vendidos),
+                        "Stock Actual": int(stock_act),
+                        "Stock Mínimo": int(stock_min),
+                        "Estado": estado
+                    })
+            if alertas_stock:
+                st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
+            else:
+                st.success("✅ Todos los productos cuentan con stock suficiente.")
+                
+            if stock_list:
+                st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
+
+    # ------------------------------------------
+    # PESTAÑA 4: EVENTOS Y VALIDACIONES
+    # ------------------------------------------
+    with tab_evt:
+        st.markdown("### 🎟️ Reporte General de Eventos")
+        eventos_stats = {}
+        for ev in eventos_data[1:]:
+            if len(ev) > 1 and str(ev[1]).strip():
+                ev_name = str(ev[1]).strip()
+                if ev_name not in eventos_stats:
+                    eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
                     
-                    if not df_stock.empty:
-                        df_ventas = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
-                        if not df_ventas.empty:
-                            st.dataframe(df_ventas[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
-                            st.success(f"**Total recaudado por extras en el período:** ${df_ventas['Total'].sum():,.0f}")
-                        else:
-                            st.info("No hay ventas de Kiosco/Extras registradas en este período.")
-                    else:
-                        st.info("No hay movimientos de stock en este período.")
-                else:
-                    st.info("La pestaña Control_Stock está vacía.")
-            except Exception as e:
-                st.error(f"Error cargando reporte de extras: {e}")
+        for r_ev in reg[1:]:
+            if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
+                ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
+                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                eventos_stats[ev_name]['Ingresados'] += 1
 
-            st.markdown("---")
-            st.markdown("### 🧽 Reporte General de Lavados Realizados")
-            if not df.empty:
-                df_lavados_nuevos = df[~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN'])].copy()
-                df_lavados_viejos = df[(df['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))].copy()
-                
-                if not df_lavados_viejos.empty:
-                    df_lavados_viejos['Servicio_Lavado'] = df_lavados_viejos['Obs'].apply(lambda x: [part.strip(' |-') for part in str(x).split('|') if 'Lavado' in part or '🧼' in part][0] if '|' in str(x) or 'Lavado' in str(x) else "Lavado")
-                
-                df_res_final = pd.concat([df_lavados_nuevos, df_lavados_viejos])
-                
-                if not df_res_final.empty:
-                    df_res_lav = df_res_final[['Hora', 'Patente', 'Servicio_Lavado', 'Op']].sort_values(by='Hora', ascending=False)
-                    st.dataframe(df_res_lav, use_container_width=True, hide_index=True)
-                    st.success(f"**Total de lavados realizados (Mensualistas y Estándar):** {len(df_res_final)}")
-                else:
-                    st.info("No se registraron lavados (ni cobrados ni de mensualistas) en el período seleccionado.")
-            else:
-                st.info("No hay tickets procesados en este período.")
-
-            st.markdown("---")
-            st.markdown("### 🎟️ Reporte General de Eventos")
-            
-            eventos_stats = {}
-            
-            for ev in eventos_data[1:]:
-                if len(ev) > 1 and str(ev[1]).strip():
-                    ev_name = str(ev[1]).strip()
-                    if ev_name not in eventos_stats:
-                        eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
-                        
-            for r_ev in reg[1:]:
-                if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
-                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
-                    if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
-                    eventos_stats[ev_name]['Ingresados'] += 1
-
-            if not df.empty:
-                df_evts = df[df['Validación'].str.startswith('Evento:', na=False)]
-                for _, row_ev in df_evts.iterrows():
-                    ev_name = str(row_ev['Validación']).replace("Evento: ", "").strip()
-                    if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
-                    eventos_stats[ev_name]['Ingresados'] += 1
+        if not df.empty:
+            df_evts = df[df['Validación'].str.startswith('Evento:', na=False)]
+            for _, row_ev in df_evts.iterrows():
+                ev_name = str(row_ev['Validación']).replace("Evento: ", "").strip()
+                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                eventos_stats[ev_name]['Ingresados'] += 1
+                exc_monto = float(row_ev['Excedente_Local']) if pd.notnull(row_ev['Excedente_Local']) else 0
+                if exc_monto > 0:
+                    eventos_stats[ev_name]['Autos_Excedidos'] += 1
+                    eventos_stats[ev_name]['Monto_Excedido'] += exc_monto
                     
-                    exc_monto = float(row_ev['Excedente_Local']) if pd.notnull(row_ev['Excedente_Local']) else 0
-                    if exc_monto > 0:
-                        eventos_stats[ev_name]['Autos_Excedidos'] += 1
-                        eventos_stats[ev_name]['Monto_Excedido'] += exc_monto
-                        
-            if eventos_stats:
-                res_list = []
-                for ev, stats in eventos_stats.items():
-                    if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0: 
-                        res_list.append({
-                            "Evento": ev, 
-                            "Total Autos Ingresados": stats['Ingresados'], 
-                            "Cant. Autos Excedidos (Hora)": stats['Autos_Excedidos'], 
-                            "A Facturar por Excedente ($)": stats['Monto_Excedido']
-                        })
-                if res_list:
-                    df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                    st.dataframe(
-                        df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), 
-                        use_container_width=True, hide_index=True
-                    )
-                else:
-                    st.info("No hubo ingresos registrados por eventos.")
+        if eventos_stats:
+            res_list = []
+            for ev, stats in eventos_stats.items():
+                if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0: 
+                    res_list.append({
+                        "Evento": ev, 
+                        "Total Autos Ingresados": stats['Ingresados'], 
+                        "Cant. Autos Excedidos (Hora)": stats['Autos_Excedidos'], 
+                        "A Facturar por Excedente ($)": stats['Monto_Excedido']
+                    })
+            if res_list:
+                df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
             else:
-                st.info("No hay eventos configurados o registrados.")
+                st.info("No hubo ingresos registrados por eventos.")
+                
+        st.markdown("---")
+        st.markdown("### 🏪 Uso de Validaciones (Locales)")
+        if not df.empty:
+            df_validaciones = df[~df['Validación'].str.startswith('Evento:', na=False)]
+            df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+            st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True, hide_index=True)
+            
+        st.markdown("### 🧾 Detalle de Facturas y Validaciones de Locales")
+        if len(q_data) > 1:
+            q_data_clean = []
+            for r in q_data[1:]:
+                row = (r + ["", "", "", "", "", ""])[:6]
+                q_data_clean.append(row)
+            df_q = pd.DataFrame(q_data_clean, columns=["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
+            df_q['Fecha_dt'] = pd.to_datetime(df_q['Fecha'], errors='coerce')
+            df_q = df_q.dropna(subset=['Fecha_dt'])
+            
+            if filtro == "Hoy": df_q = df_q[df_q['Fecha_dt'].dt.date == hoy_dt.date()]
+            elif filtro == "Últimos 7 días": df_q = df_q[df_q['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+            
+            df_q['Fecha'] = df_q['Fecha_dt'].dt.strftime('%Y-%m-%d %H:%M')
+            df_q = df_q.drop(columns=['Fecha_dt'])
+            
+            if not df_q.empty:
+                st.dataframe(df_q.sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay validaciones en el período seleccionado.")
 
-            st.markdown("#### 🟢 Detalle: Autos actualmente en Playa (Eventos)")
-            activos_eventos = []
-            for r_ev in reg[1:]:
-                if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
-                    ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
-                    activos_eventos.append({"Evento": ev_name, "Patente": str(r_ev[1]).upper(), "Ticket": f"#{r_ev[0]}", "Hora Ingreso": r_ev[2]})
-            
-            if activos_eventos:
-                st.dataframe(pd.DataFrame(activos_eventos), use_container_width=True)
-            else:
-                st.info("No hay vehículos de eventos estacionados en este momento.")
-            
-            st.markdown("---")
-            st.markdown("### 📅 Detalle de Ventas por Día")
-            if not df.empty:
-                df['Fecha'] = df['Hora'].dt.date
-                df['Cant. Lavados'] = (df['Obs'].str.contains('Lavado|🧼', case=False, na=False) | (~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))).astype(int)
+    # ------------------------------------------
+    # PESTAÑA 5: AUDITORÍA Y PERSONAL
+    # ------------------------------------------
+    with tab_aud:
+        st.markdown("### 💵 Auditoría de Caja y Efectivo")
+        try:
+            ws_ef = sh.worksheet("Efectivo_Caja")
+            datos_ef = ws_ef.get_all_values()
+            if len(datos_ef) > 1:
+                df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
+                df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
+                st.dataframe(df_ef.tail(10), use_container_width=True, hide_index=True)
                 
-                df_diario = df.groupby('Fecha', as_index=False).agg(
-                    Autos=('Total', 'count'),
-                    Lavados=('Cant. Lavados', 'sum'),
-                    Parking_Solo=('Monto_Parking_Solo', 'sum'),
-                    Lavadero_Ingresos=('Monto_Lavado', 'sum'),
-                    Extras=('Extras', 'sum'),
-                    Total_Recaudado=('Total', 'sum')
-                )
+                if len(df_ef) >= 2:
+                    salidas = df_ef[df_ef['Tipo'] == "Salida"]
+                    entradas = df_ef[df_ef['Tipo'] == "Entrada"]
+                    if not salidas.empty and not entradas.empty:
+                        ult_salida = salidas.iloc[-1]
+                        ult_entrada = entradas.iloc[-1]
+                        if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
+                            monto_cierre = float(ult_salida['Monto'])
+                            monto_apertura = float(ult_entrada['Monto'])
+                            dif = monto_apertura - monto_cierre
+                            if dif != 0:
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                            else:
+                                st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+            else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
+        except Exception as e: st.info("Error cargando Efectivo_Caja.")
+
+        st.markdown("---")
+        st.markdown("### 🕒 Control de Asistencia y Horarios")
+        try:
+            ws_asis = sh.worksheet("Asistencia")
+            datos_asis = ws_asis.get_all_values()
+            if len(datos_asis) > 1:
+                df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
+                df_asis['Hora'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+                st.dataframe(df_asis.sort_values(by='Hora', ascending=False).head(15), use_container_width=True, hide_index=True)
+        except: st.error("Error cargando asistencia.")
+        
+        st.markdown("---")
+        st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
+        hoy_str_cam = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
+        autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str_cam in r[1]]
+        autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
+        
+        patentes_activas_playa = []
+        for r in reg[1:]:
+            if len(r) > 3:
+                tkt_val = str(r[0]).strip()
+                h_sal = str(r[3]).strip()
+                if tkt_val.upper() != "EXTRA" and not tkt_val.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                    patentes_activas_playa.append(str(r[1]).strip().upper())
+
+        fugas = [p for p in autos_camara if p not in patentes_activas_playa]
                 
-                df_diario.rename(columns={
-                    'Autos': 'Cant. Autos', 
-                    'Lavados': 'Cant. Lavados', 
-                    'Parking_Solo': 'Parking ($)', 
-                    'Lavadero_Ingresos': 'Lavadero ($)',
-                    'Extras': 'Kiosco ($)', 
-                    'Total_Recaudado': 'Total ($)'
-                }, inplace=True)
-                
-                df_diario = df_diario.sort_values(by='Fecha', ascending=False)
-                st.info("Ojo: La columna **Kiosco ($)** solo suma lo que se le cobró a autos. Si hubo gente de la calle que entró a comprar (Venta Directa), esa plata la ves detallada en el panel azul de arriba.")
-                st.dataframe(df_diario, use_container_width=True)
-        else: st.warning("⚠️ El panel de facturación está esperando la primera salida del día para generar gráficos.")
-    except Exception as e:
-        st.error(f"Error conectando con el historial: {e}")
+        if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
+        elif fugas:
+            st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
+            st.write("Patentes sin registrar:", ", ".join(set(fugas)))
+        else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
 
 # ------------------------------------------
 # MANUAL Y AYUDA INTERACTIVA
