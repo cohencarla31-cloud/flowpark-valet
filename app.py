@@ -1352,7 +1352,6 @@ elif menu == "📤 Salida":
                 
                 obs_salida_final = obs_salida if obs_salida else "-"
                 
-                # BLINDAJE ANTI OLVIDOS DE LAVADO Y COLUMNA NUEVA
                 lavado_para_columna = lavado_opcion
                 
                 if lavado_opcion != "Ninguno":
@@ -1426,6 +1425,226 @@ Op: {emp}
                     st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
 
 # ------------------------------------------
+# PERSONAL Y CAJA (INVENTARIOS AUTÓNOMOS)
+# ------------------------------------------
+elif menu == "⏰ Personal":
+    st.subheader("Control de Horarios y Caja")
+    
+    if st.button("🔄 Actualizar Datos"):
+        obtener_datos.clear()
+        st.rerun()
+
+    st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_est_operador}**")
+    
+    with st.expander("📋 Ver mi resumen de entradas y salidas recientes"):
+        try:
+            mis_asistencias = [r for r in asistencia_data[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
+            if mis_asistencias:
+                df_mis_asis = pd.DataFrame(mis_asistencias[-5:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(mis_asistencias[0])])
+                st.dataframe(df_mis_asis, use_container_width=True)
+            else: st.info("No hay registros recientes.")
+        except: st.info("Sin registros.")
+
+    st.divider()
+
+    ahora = datetime.utcnow() - timedelta(hours=3)
+    hora_f = ahora.hour + ahora.minute / 60.0
+
+    es_hora_apertura = (6.0 <= hora_f < 13.0) or (14.75 <= hora_f < 22.0)
+    es_hora_cierre = (15.5 <= hora_f < 18.0) or (hora_f >= 23.0) or (hora_f < 3.0)
+
+    ya_hicieron_apertura = False
+    ya_hicieron_cierre = False
+    usr_que_abrio = ""
+    usr_que_cerro = ""
+
+    for r in reversed(efectivo_data):
+        if len(r) >= 3:
+            try:
+                dt_caja = datetime.strptime(str(r[0]), "%Y-%m-%d %H:%M:%S")
+                diff_horas = (ahora - dt_caja).total_seconds() / 3600.0
+                tipo = str(r[2])
+                usr = str(r[1])
+                
+                if diff_horas < 6.0:
+                    if tipo == "Entrada" and not ya_hicieron_apertura:
+                        ya_hicieron_apertura = True
+                        usr_que_abrio = usr
+                    elif tipo == "Salida" and not ya_hicieron_cierre:
+                        ya_hicieron_cierre = True
+                        usr_que_cerro = usr
+            except:
+                pass
+
+    tab_entrada, tab_salida = st.tabs(["📥 ENTRADA", "📤 SALIDA"])
+    
+    with tab_entrada:
+        if ultimo_est_operador == "Entrada":
+            st.info("ℹ️ Ya te encuentras con la **Entrada** registrada y tu horario activado. Debes registrar tu salida al terminar el turno.")
+            
+        elif ultimo_est_operador == "Fichaje":
+            
+            if es_hora_apertura:
+                if ya_hicieron_apertura and usr_que_abrio != emp:
+                    st.success(f"🤝 **¡Turno Abierto!** Tu compañero **{usr_que_abrio}** ya realizó el arqueo de inicio de este turno. Podés registrar tu entrada directamente.")
+                    if st.button("⚡ Registrar Entrada Rápida", use_container_width=True):
+                        if st.session_state.local_estado == "Entrada":
+                            st.warning("⚠️ Su entrada ya fue procesada.")
+                        else:
+                            hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                            sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Entrada conjunta con {usr_que_abrio}"])
+                            st.session_state.local_emp = emp
+                            st.session_state.local_estado = "Entrada"
+                            st.session_state.cartel_entrada_msg = ""
+                            obtener_datos.clear()
+                            time.sleep(1)
+                            st.rerun()
+                else:
+                    st.warning("📝 **Apertura de Turno**\nSos el primero del turno. Es obligatorio realizar el arqueo de caja y stock.")
+                    with st.form("form_inventario_entrada"):
+                        st.markdown("### 📝 Arqueo de Entrada")
+                        efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50)
+                        
+                        st.markdown("📝 **Inventario inicial de productos:**")
+                        conteo_stock = {}
+                        for prod_nombre in list(extras.keys()):
+                            if "lavado" not in prod_nombre.lower():
+                                conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1)
+                            
+                        nota_stock = st.text_input("Observaciones (Opcional):")
+                        submit_entrada = st.form_submit_button("✅ Confirmar Inventario de Turno")
+                        
+                        if submit_entrada:
+                            if st.session_state.local_estado == "Entrada":
+                                st.warning("⚠️ Su entrada ya fue procesada.")
+                            else:
+                                try:
+                                    hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                                    
+                                    filas_stock = []
+                                    for prod, cant in conteo_stock.items():
+                                        filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), "", 0, 0, hora_fichada_final.split()[0]])
+                                    if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                                    
+                                    actualizar_arqueo_en_extras(conteo_stock, str(emp), hora_fichada_final.split()[0])
+                                        
+                                    sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
+                                    
+                                    st.session_state.local_emp = emp
+                                    st.session_state.local_estado = "Entrada"
+                                    st.session_state.cartel_entrada_msg = ""
+                                    obtener_datos.clear()
+                                    st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
+                                except Exception as e: st.error(f"Error al guardar inventario: {e}")
+            else:
+                st.info("⚡ **Horario de Refuerzo / Apoyo**\nEstás ingresando en un horario intermedio (fuera de las aperturas principales). No es necesario realizar arqueo.")
+                if st.button("⚡ Registrar Entrada (Sin Arqueo)", use_container_width=True):
+                    if st.session_state.local_estado == "Entrada":
+                        st.warning("⚠️ Su entrada ya fue procesada.")
+                    else:
+                        hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                        sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", "Ingreso de Refuerzo / Apoyo"])
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Entrada"
+                        st.session_state.cartel_entrada_msg = ""
+                        obtener_datos.clear()
+                        time.sleep(1)
+                        st.rerun()
+                
+        else:
+            st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
+            if st.button("⏰ Iniciar Fichaje de Entrada"):
+                try:
+                    hora_fichada = hora_actual_uy()
+                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Fichaje", "Fichado inicial esperando proceso"])
+                    st.session_state.hora_fichaje_temporal = hora_fichada
+                    st.session_state.local_emp = emp
+                    st.session_state.local_estado = "Fichaje"
+                    st.session_state.cartel_entrada_msg = f"✅ Su entrada se consignó correctamente a las {hora_fichada}. Pero para que quede registrada de manera definitiva deberá completarla debajo."
+                    obtener_datos.clear()
+                    st.rerun()
+                except Exception as e: st.error(f"Error al registrar entrada: {e}")
+
+    with tab_salida:
+        if ultimo_est_operador == "Salida":
+            st.info("ℹ️ No tienes una entrada activa en este momento para registrar salida.")
+        else:
+            st.warning("⚠️ **RECUERDE REGISTRAR SU SALIDA**")
+            
+            if es_hora_cierre:
+                if ya_hicieron_cierre and usr_que_cerro != emp:
+                    st.success(f"🤝 **¡Turno Cerrado!** Tu compañero **{usr_que_cerro}** ya realizó el arqueo de cierre general. Podés registrar tu salida directamente.")
+                    if st.button("⚡ Registrar Salida Rápida", use_container_width=True):
+                        if st.session_state.local_estado == "Salida":
+                            st.warning("⚠️ Su salida ya fue procesada.")
+                        else:
+                            hora_fichada = hora_actual_uy()
+                            sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Salida conjunta con {usr_que_cerro}"])
+                            st.session_state.local_emp = emp
+                            st.session_state.local_estado = "Salida"
+                            st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA A LAS {hora_fichada.split()[1]}. (Cierre conjunto con {usr_que_cerro})."
+                            obtener_datos.clear()
+                            st.rerun()
+                else:
+                    st.warning("📝 **Cierre de Turno**\nSos el encargado de realizar el recuento de caja y stock para cerrar este turno.")
+                    with st.form("form_inventario_salida"):
+                        st.markdown("### 📤 Arqueo Final")
+                        efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta:", min_value=0, value=0, step=50)
+                        
+                        st.markdown("📝 **Inventario final de productos:**")
+                        conteo_stock_salida = {}
+                        for prod_nombre in list(extras.keys()):
+                            if "lavado" not in prod_nombre.lower():
+                                conteo_stock_salida[prod_nombre] = st.number_input(f"Stock físico final [{prod_nombre}]:", min_value=0, value=0, step=1)
+                            
+                        nota_salida = st.text_input("Observaciones de Cierre (Opcional):")
+                        submit_salida = st.form_submit_button("🚪 Registrar Cierre Oficial")
+                        
+                        if submit_salida:
+                            if st.session_state.local_estado == "Salida":
+                                st.warning("⚠️ Su salida ya fue procesada.")
+                            else:
+                                try:
+                                    hora_fichada = hora_actual_uy()
+                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                                    
+                                    filas_stock = []
+                                    for prod, cant in conteo_stock_salida.items():
+                                        filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), "", 0, 0, hora_fichada.split()[0]])
+                                    if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                                    
+                                    actualizar_arqueo_en_extras(conteo_stock_salida, str(emp), hora_fichada.split()[0])
+                                    
+                                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
+                                    
+                                    st.session_state.local_emp = emp
+                                    st.session_state.local_estado = "Salida"
+                                    st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
+                                    obtener_datos.clear() 
+                                    st.rerun()
+                                except Exception as e: st.error(f"Error al registrar salida: {e}")
+            else:
+                st.info("⚡ **Salida de Refuerzo / Intermedia**\nEstás terminando tu horario de apoyo o intermedio. Tu compañero se encargará del cierre de caja al finalizar el turno principal.")
+                if st.button("⚡ Registrar Salida (Sin Arqueo)", use_container_width=True):
+                    if st.session_state.local_estado == "Salida":
+                        st.warning("⚠️ Su salida ya fue procesada.")
+                    else:
+                        hora_fichada = hora_actual_uy()
+                        sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", "Salida de Refuerzo / Apoyo"])
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Salida"
+                        st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA A LAS {hora_fichada.split()[1]}. (Sin cierre de caja)."
+                        obtener_datos.clear()
+                        st.rerun()
+
+    if st.session_state.cartel_salida_msg != "":
+        st.success(st.session_state.cartel_salida_msg)
+        if st.button("🔄 Aceptar y Finalizar"):
+            st.session_state.cartel_salida_msg = ""
+            st.rerun()
+
+# ------------------------------------------
 # REPORTES (ADMIN)
 # ------------------------------------------
 elif menu == "📈 Reportes":
@@ -1470,6 +1689,41 @@ elif menu == "📈 Reportes":
         else: st.info("ℹ️ La pestaña Base_Mensualistas está vacía.")
     except Exception as e:
         st.info(f"ℹ️ Error leyendo la base de mensualistas: {e}")
+
+    st.divider()
+
+    st.markdown("### 💦 Control de Lavados (Mensualistas)")
+    try:
+        mes_actual_str = hora_actual_uy()[:7]
+        reporte_lavados = []
+        for pat, datos_m in datos_mensualistas_map.items():
+            bene = str(datos_m["beneficio"]).upper()
+            if "LAVADO" in bene:
+                if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
+                else: lav_perm = 1
+                
+                lav_usados = 0
+                for h in historial_data[1:]:
+                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                            lav_usados += 1
+                            
+                reporte_lavados.append({
+                    "Nombre": datos_m["nombre"],
+                    "Patente": pat,
+                    "Plan de Lavado": bene,
+                    "Límite Mensual": lav_perm,
+                    "Usados este mes": lav_usados,
+                    "Disponibles": max(0, lav_perm - lav_usados)
+                })
+                
+        if reporte_lavados:
+            df_lavados = pd.DataFrame(reporte_lavados)
+            st.dataframe(df_lavados.sort_values(by="Usados este mes", ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay mensualistas con beneficio de lavado registrado en el sistema.")
+    except Exception as e:
+        st.error(f"Error al cargar reporte de lavados: {e}")
 
     st.divider()
 
@@ -1565,6 +1819,20 @@ elif menu == "📈 Reportes":
                 df['Servicio_Lavado'] = df['Servicio_Lavado'].astype(str)
             else:
                 df['Servicio_Lavado'] = "Ninguno"
+                
+            # --- CÁLCULO SEPARADO DE PLATA ESTACIONAMIENTO VS LAVADOS ---
+            def calcular_monto_lavado(row):
+                obs_text = str(row['Obs']).upper() + " " + str(row.get('Servicio_Lavado', '')).upper()
+                parking = float(row['Parking'])
+                
+                if "INCLUIDO" in obs_text or "BENEFICIO USADO" in obs_text: return 0
+                if "EXTERIOR" in obs_text: return min(parking, 350)
+                if "LAVADO" in obs_text or "🧼" in obs_text: return min(parking, 500)
+                return 0
+
+            df['Monto_Lavado'] = df.apply(calcular_monto_lavado, axis=1)
+            df['Monto_Parking_Solo'] = df['Parking'] - df['Monto_Lavado']
+            df['Monto_Parking_Solo'] = df['Monto_Parking_Solo'].apply(lambda x: max(0, x))
             
             filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
@@ -1572,16 +1840,17 @@ elif menu == "📈 Reportes":
             elif filtro == "Últimos 7 días": df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
                 
             st.markdown("### 💰 Resumen Financiero")
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("Facturación Total", f"${df['Total'].sum():,.0f}")
-            c2.metric("Por Estacionamiento", f"${df['Parking'].sum():,.0f}")
-            c3.metric("Por Extras/Lavados", f"${df['Extras'].sum():,.0f}")
+            c2.metric("Estacionamiento Puro", f"${df['Monto_Parking_Solo'].sum():,.0f}")
+            c3.metric("Por Lavadero", f"${df['Monto_Lavado'].sum():,.0f}")
+            c4.metric("Por Kiosco", f"${df['Extras'].sum():,.0f}")
             
             st.markdown("### 🚗 Operativa")
-            c4, c5 = st.columns(2)
-            c4.metric("Vehículos Egresados", len(df))
+            c_op1, c_op2 = st.columns(2)
+            c_op1.metric("Vehículos Egresados", len(df))
             ticket_promedio = df['Total'].mean() if len(df) > 0 else 0
-            c5.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
+            c_op2.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
             
             st.markdown("---")
             col_a, col_b = st.columns(2)
@@ -1710,7 +1979,6 @@ elif menu == "📈 Reportes":
             st.markdown("---")
             st.markdown("### 🧽 Reporte General de Lavados Realizados")
             if not df.empty:
-                # SECCIÓN CORREGIDA: Filtra los lavados aunque la columna nueva esté vacía/en blanco
                 df_lavados_nuevos = df[~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN'])].copy()
                 df_lavados_viejos = df[(df['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))].copy()
                 
@@ -1794,22 +2062,22 @@ elif menu == "📈 Reportes":
             st.markdown("### 📅 Detalle de Ventas por Día")
             if not df.empty:
                 df['Fecha'] = df['Hora'].dt.date
-                # Nueva columna matemática para contar lavados del día
                 df['Cant. Lavados'] = (df['Obs'].str.contains('Lavado|🧼', case=False, na=False) | (~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))).astype(int)
                 
                 df_diario = df.groupby('Fecha', as_index=False).agg(
                     Autos=('Total', 'count'),
                     Lavados=('Cant. Lavados', 'sum'),
-                    Parking=('Parking', 'sum'),
+                    Parking_Solo=('Monto_Parking_Solo', 'sum'),
+                    Lavadero_Ingresos=('Monto_Lavado', 'sum'),
                     Extras=('Extras', 'sum'),
                     Total_Recaudado=('Total', 'sum')
                 )
                 
-                # Nombres 100% claros para evitar confusiones
                 df_diario.rename(columns={
                     'Autos': 'Cant. Autos', 
                     'Lavados': 'Cant. Lavados', 
-                    'Parking': 'Parking + Lavados ($)', 
+                    'Parking_Solo': 'Parking ($)', 
+                    'Lavadero_Ingresos': 'Lavadero ($)',
                     'Extras': 'Kiosco ($)', 
                     'Total_Recaudado': 'Total ($)'
                 }, inplace=True)
