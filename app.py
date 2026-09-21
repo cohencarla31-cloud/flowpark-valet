@@ -422,7 +422,6 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
                 nuevo_stock = stock_inicial - nuevo_vendidos
                 
-                # OPTIMIZACIÓN LOTE
                 ws_ex.update_cells([
                     gspread.Cell(row=idx, col=4, value=nuevo_vendidos),
                     gspread.Cell(row=idx, col=5, value=nuevo_stock)
@@ -443,7 +442,6 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                     stock_actual_calc = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
                     diferencia = cant_fisica - stock_actual_calc
                     
-                    # OPTIMIZACIÓN LOTE
                     ws_ex.update_cells([
                         gspread.Cell(row=idx, col=7, value=cant_fisica),
                         gspread.Cell(row=idx, col=8, value=diferencia),
@@ -1076,7 +1074,6 @@ elif menu == "✅ Validaciones":
         opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
         
         if local_seleccionado == "Quinquela":
-            # --- Pestañas exclusivas para Quinquela para evitar errores ---
             tab_q_normal, tab_q_100 = st.tabs(["⏱️ Cortesía 2.5 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
             
             with tab_q_normal:
@@ -1134,7 +1131,6 @@ elif menu == "✅ Validaciones":
                         st.error("Selecciona un vehículo de la lista.")
 
         else:
-            # Lógica Normal para el resto de los locales (N18, Rodrigo Bueno)
             with st.expander("➕ Cargar Nueva Validación", expanded=True):
                 seleccion_mozo = st.selectbox("Seleccionar Vehículo en Playa (Ordenado por Ticket):", [""] + opciones_mozo)
                 if local_seleccionado == "N18":
@@ -1174,38 +1170,71 @@ elif menu == "✅ Validaciones":
             obtener_datos.clear()
             st.rerun()
             
-        # NUEVO: Búsqueda de validaciones por calendario para no perder las de las 23:55 hs
         fecha_val_sel = st.date_input("📅 Buscar validaciones por fecha:", datetime.utcnow() - timedelta(hours=3))
         fecha_val_str = fecha_val_sel.strftime("%Y-%m-%d")
         
-        val_filtradas = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(fecha_val_str)]
+        val_data = []
+        tickets_mostrados = set()
         
-        if not val_filtradas:
+        # 1. Buscar en Formulario (para tener la hora exacta de carga, mozo y factura si existen)
+        for val in reversed(q_data[1:]):
+            if len(val) >= 4 and str(val[0]).startswith(fecha_val_str):
+                hora_val = str(val[0]).split()[1][:5]
+                mozo_v = str(val[1]).strip()
+                tkt_v = str(val[2]).strip()
+                pat_v = str(val[3]).upper()
+                factura_v = str(val[4]).strip() if len(val) > 4 else ""
+                local_v = str(val[5]) if len(val) > 5 else "Local"
+                
+                tkt_clean = tkt_v.lstrip("0")
+                tickets_mostrados.add(tkt_clean)
+                
+                val_data.append({
+                    "Hora": hora_val,
+                    "Local": local_v,
+                    "Patente": pat_v,
+                    "Ticket": f"#{tkt_v}",
+                    "Mozo / Autoriza": mozo_v,
+                    "Factura": factura_v if "Quinquela" in local_v else "-"
+                })
+                
+        # 2. Rescatar desde Historial_Tickets (como respaldo de caja indestructible)
+        for h in reversed(historial_data[1:]):
+            if len(h) > 8 and str(h[0]).startswith(fecha_val_str):
+                local_v = str(h[8]).strip()
+                if local_v and local_v.lower() != "ninguna" and not local_v.lower().startswith("evento"):
+                    tkt_v = str(h[3]).replace("#", "").strip()
+                    tkt_clean = tkt_v.lstrip("0")
+                    
+                    if tkt_clean not in tickets_mostrados:
+                        hora_salida = str(h[0]).split()[1][:5]
+                        pat_v = str(h[2]).upper()
+                        
+                        mozo_v = "Rescatado de Caja"
+                        factura_v = "-"
+                        # Intentar buscar el mozo en todo el historial del formulario por si acaso
+                        for q in q_data[1:]:
+                            if len(q) >= 4 and str(q[2]).strip().lstrip("0") == tkt_clean:
+                                mozo_v = str(q[1]).strip()
+                                factura_v = str(q[4]).strip() if len(q) > 4 else ""
+                                break
+                                
+                        val_data.append({
+                            "Hora": hora_salida + " (Salida)",
+                            "Local": local_v,
+                            "Patente": pat_v,
+                            "Ticket": f"#{tkt_v}",
+                            "Mozo / Autoriza": mozo_v,
+                            "Factura": factura_v if "Quinquela" in local_v else "-"
+                        })
+                        tickets_mostrados.add(tkt_clean)
+                        
+        if not val_data:
             st.info(f"Aún no hay validaciones registradas el {fecha_val_str}.")
         else:
-            val_data = []
-            for val in reversed(val_filtradas):
-                try:
-                    hora_val = str(val[0]).split()[1][:5]
-                    mozo_v = str(val[1]).strip()
-                    tkt_v = str(val[2]).strip()
-                    pat_v = str(val[3]).upper()
-                    factura_v = str(val[4]).strip() if len(val) > 4 else ""
-                    local_v = str(val[5]) if len(val) > 5 else "Local"
-                    
-                    val_data.append({
-                        "Hora": hora_val,
-                        "Local": local_v,
-                        "Patente": pat_v,
-                        "Ticket": f"#{tkt_v}",
-                        "Mozo / Autoriza": mozo_v,
-                        "Factura": factura_v if "Quinquela" in local_v else "-"
-                    })
-                except:
-                    pass
-                    
-            if val_data:
-                st.dataframe(pd.DataFrame(val_data), use_container_width=True, hide_index=True)
+            df_val = pd.DataFrame(val_data)
+            df_val = df_val.sort_values(by="Hora", ascending=False)
+            st.dataframe(df_val, use_container_width=True, hide_index=True)
 
 # ------------------------------------------
 # EXTRAS
