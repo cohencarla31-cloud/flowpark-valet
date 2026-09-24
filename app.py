@@ -75,11 +75,14 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     tkt_clean = str(tkt).strip().lstrip("0")
     
     for q in reversed(q_records[1:]): 
-        if len(q) < 4: continue
+        if len(q) < 3: continue # <-- CORRECCIÓN CLAVE: Antes exigía 4, ahora con 3 columnas alcanza para procesar la validación.
+        
         q_time_str = str(q[0]).strip()
-        q_tkt = str(q[2]).strip().lstrip("0")
-        q_pat = str(q[3]).upper().replace("-", "").replace(" ", "")
-        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
+        
+        # En la hoja del Formulario, Local es columna 5 (índice 5), pero si está vacía la factura, la fila puede ser más corta
+        q_tkt = str(q[2]).strip().lstrip("0") if len(q) > 2 else ""
+        q_pat = str(q[3]).upper().replace("-", "").replace(" ", "") if len(q) > 3 else ""
+        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela" # Por defecto si falta asume Quinquela
         
         try: q_dt = pd.to_datetime(q_time_str)
         except: continue
@@ -110,7 +113,7 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
         elif "Completo" in tipo_lavado or "Promo" in tipo_lavado: return v_lavado_comp
         else: return 0
 
-    descuento = 150 if local_validacion == "Quinquela" else 0
+    descuento = 180 if local_validacion == "Quinquela" else 0
     m_cobro = max(0, minutos - descuento)
 
     if m_cobro <= 0 and tipo_lavado == "Ninguno": return 0
@@ -422,6 +425,7 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
                 nuevo_stock = stock_inicial - nuevo_vendidos
                 
+                # OPTIMIZACIÓN LOTE
                 ws_ex.update_cells([
                     gspread.Cell(row=idx, col=4, value=nuevo_vendidos),
                     gspread.Cell(row=idx, col=5, value=nuevo_stock)
@@ -442,6 +446,7 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                     stock_actual_calc = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
                     diferencia = cant_fisica - stock_actual_calc
                     
+                    # OPTIMIZACIÓN LOTE
                     ws_ex.update_cells([
                         gspread.Cell(row=idx, col=7, value=cant_fisica),
                         gspread.Cell(row=idx, col=8, value=diferencia),
@@ -1059,7 +1064,8 @@ elif menu == "✅ Validaciones":
             if len(r)>3:
                 tkt = str(r[0]).strip()
                 h_sal = str(r[3]).strip()
-                if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                # Ocultamos de los locales los tickets MEN- y EV
+                if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and not tkt.upper().startswith("MEN-") and not tkt.upper().startswith("EV") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
                     if not obtener_validacion_local(pat, tkt, h_ing, q_data):
@@ -1074,10 +1080,10 @@ elif menu == "✅ Validaciones":
         opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
         
         if local_seleccionado == "Quinquela":
-            tab_q_normal, tab_q_100 = st.tabs(["⏱️ Cortesía 2.5 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
+            tab_q_normal, tab_q_100 = st.tabs(["⏱️ Cortesía 3 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
             
             with tab_q_normal:
-                st.info("Esta opción bonifica las primeras 2.5 hs. El cliente abona la diferencia al retirar el vehículo.")
+                st.info("Esta opción bonifica las primeras 3 hs. El cliente abona la diferencia al retirar el vehículo.")
                 seleccion_mozo_normal = st.selectbox("Seleccionar Vehículo en Playa:", [""] + opciones_mozo, key="sel_mozo_n")
                 mozo_normal = st.text_input("Nombre del Mozo / Recepción:", key="moz_n")
                 factura_normal = st.text_input("Últimos 4 dígitos de la factura:", max_chars=4, key="fac_n")
@@ -1176,7 +1182,6 @@ elif menu == "✅ Validaciones":
         val_data = []
         tickets_mostrados = set()
         
-        # 1. Buscar en Formulario (para tener la hora exacta de carga, mozo y factura si existen)
         for val in reversed(q_data[1:]):
             if len(val) >= 4 and str(val[0]).startswith(fecha_val_str):
                 hora_val = str(val[0]).split()[1][:5]
@@ -1198,7 +1203,6 @@ elif menu == "✅ Validaciones":
                     "Factura": factura_v if "Quinquela" in local_v else "-"
                 })
                 
-        # 2. Rescatar desde Historial_Tickets (como respaldo de caja indestructible)
         for h in reversed(historial_data[1:]):
             if len(h) > 8 and str(h[0]).startswith(fecha_val_str):
                 local_v = str(h[8]).strip()
@@ -1212,7 +1216,6 @@ elif menu == "✅ Validaciones":
                         
                         mozo_v = "Rescatado de Caja"
                         factura_v = "-"
-                        # Intentar buscar el mozo en todo el historial del formulario por si acaso
                         for q in q_data[1:]:
                             if len(q) >= 4 and str(q[2]).strip().lstrip("0") == tkt_clean:
                                 mozo_v = str(q[1]).strip()
@@ -1545,7 +1548,7 @@ elif menu == "📤 Salida":
                                 info_desc = f"Estacionamiento 100% libre por {local_val}."
                             if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                         elif local_val == "Quinquela": 
-                            info_desc = f"Incluye cortesía de 2.5 hs por {local_val}."
+                            info_desc = f"Incluye cortesía de 3 hs por {local_val}."
                         else: 
                             if tarifa_override > 0:
                                 info_desc = f"🚢 Promo Especial aplicada: {promo_estadia_sel.split(' -')[0]}."
