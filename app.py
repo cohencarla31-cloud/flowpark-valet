@@ -74,15 +74,13 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     pat_clean = str(patente).upper().replace("-", "").replace(" ", "")
     tkt_clean = str(tkt).strip().lstrip("0")
     
-    for q in reversed(q_records[1:]): 
-        if len(q) < 3: continue # <-- CORRECCIÓN CLAVE: Antes exigía 4, ahora con 3 columnas alcanza para procesar la validación.
+    for q in reversed(q_records): 
+        if len(q) < 3: continue 
         
         q_time_str = str(q[0]).strip()
-        
-        # En la hoja del Formulario, Local es columna 5 (índice 5), pero si está vacía la factura, la fila puede ser más corta
         q_tkt = str(q[2]).strip().lstrip("0") if len(q) > 2 else ""
         q_pat = str(q[3]).upper().replace("-", "").replace(" ", "") if len(q) > 3 else ""
-        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela" # Por defecto si falta asume Quinquela
+        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
         
         try: q_dt = pd.to_datetime(q_time_str)
         except: continue
@@ -99,14 +97,12 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     p_4h_lavado = tarifas.get("Promo 4 Horas + Lavado", {}).get(tipo_vehi, 720)
     p_8h_lavado = tarifas.get("Promo 8 Horas + Lavado", {}).get(tipo_vehi, 880)
 
-    # Si hay una promo de Buquebus activa, pisamos el reloj
     if tarifa_fija_override > 0:
         costo_base = tarifa_fija_override
         if tipo_lavado == "Ninguno": return costo_base
         elif "Exterior" in tipo_lavado: return costo_base + v_lavado_ext
         else: return costo_base + v_lavado_comp
 
-    # Estacionamiento Liberado (Descuento 100%)
     if local_validacion in ["Rodrigo Bueno", "N18", "Quinquela 100%"]:
         if tipo_lavado == "Ninguno": return 0
         elif "Exterior" in tipo_lavado: return v_lavado_ext
@@ -125,25 +121,21 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     if not tarifas_8h: tarifas_8h = tarifas.get("Dia_Completo", {})
     v_promo8h = tarifas_8h.get(tipo_vehi, 550)
     
-    # Tarifa 24 Horas dinámica desde el Excel (si no existe, usa 1300 por defecto)
     v_promo24h = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
 
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
         
-        # Bloques de 24 horas
         bloques_24h = mins // 1440
         restante_24h = mins % 1440
         
         costo = bloques_24h * v_promo24h
         
-        # Bloques de 8 horas sobre el resto
         bloques_8h = restante_24h // 480
         restante = restante_24h % 480
         
         costo += bloques_8h * v_promo8h
         
-        # Fraccionamiento cada media hora sobre el saldo final
         fracciones_media = math.ceil(restante / 30)
         
         if restante <= 240:
@@ -283,7 +275,7 @@ st.divider()
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
     try:
-        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], []
+        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], [], []
         hojas = sh.worksheets()
         titulos = [h.title for h in hojas]
         batch = sh.values_batch_get(titulos)
@@ -298,6 +290,7 @@ def obtener_datos():
         extras_raw = data_dict.get("Extras", [])
         reg = data_dict.get("Registro", [])
         q_data = data_dict.get("Respuestas de formulario 1", [])
+        val_app_data = data_dict.get("Validaciones_App", [])
         cli = data_dict.get("Clientes_Frecuentes", [])
         asistencia = data_dict.get("Asistencia", [])
         mensualistas = data_dict.get("Base_Mensualistas", [])
@@ -319,19 +312,21 @@ def obtener_datos():
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
         
         st.session_state.ultimo_error_db = ""
-        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw
+        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data
     except Exception as e:
         st.session_state.ultimo_error_db = str(e)
-        return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], []
+        return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], [], []
 
 resultado_datos = obtener_datos()
 
-if not resultado_datos[0] and st.session_state.rol != "Admin":
+# ESTO SOLUCIONA EL MISTERIO DEL ADMINISTRADOR
+if not resultado_datos[0]:
     error_detectado = st.session_state.get("ultimo_error_db", "")
     st.markdown("### 📡 Enlace pausado por seguridad")
     if "429" in error_detectado or "Quota" in error_detectado or "limit" in error_detectado.lower():
         st.warning("⏱️ **Límite Anti-Spam de Google activado:** Hiciste varias actualizaciones muy rápido. Por favor, **esperá 60 segundos exactos** y luego tocá el botón de reconectar.")
     else:
+        st.error(f"⚠️ Error interno detectado: {error_detectado}")
         st.warning("🔄 Hubo un pequeño corte de conexión con el Excel de Google. Esperá unos segundos y reintentá.")
         
     if st.button("🔄 Reconectar Ahora"):
@@ -339,12 +334,16 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
         st.rerun()
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw = resultado_datos
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw, val_app_data = resultado_datos
 
 hoy_str_global = hora_actual_uy().split()[0]
-val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
 
-# NOTIFICACIÓN VISUAL MEJORADA
+q_data_rows = q_data[1:] if len(q_data) > 1 else []
+val_app_rows = val_app_data[1:] if len(val_app_data) > 1 else []
+val_combinadas = q_data_rows + val_app_rows
+
+val_hoy_global = [q for q in val_combinadas if len(q) >= 3 and str(q[0]).startswith(hoy_str_global)]
+
 if "cant_val_hoy" not in st.session_state:
     st.session_state.cant_val_hoy = len(val_hoy_global)
 elif len(val_hoy_global) > st.session_state.cant_val_hoy:
@@ -410,9 +409,6 @@ if st.session_state.rol == "Valet" and menu != "📖 Ayuda":
     elif ultimo_est_operador == "Entrada":
         st.info("⏰ **RECORDATORIO CONSTANTE:**\n\nAl finalizar tu turno, **¡NO TE VAYAS SIN MARCAR TU SALIDA!** Debes ir a la pestaña **'Personal'** y declarar la caja para cerrar correctamente.")
 
-# ==========================================
-# FUNCIONES DE INVENTARIO Y STOCK FÍSICO
-# ==========================================
 def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
     try:
         ws_ex = sh.worksheet("Extras")
@@ -421,11 +417,8 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
             if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
                 vendidos_actuales = float(r[3]) if len(r)>3 and str(r[3]).strip() != "" else 0
                 stock_inicial = float(r[2]) if len(r)>2 and str(r[2]).strip() != "" else 0
-                
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
                 nuevo_stock = stock_inicial - nuevo_vendidos
-                
-                # OPTIMIZACIÓN LOTE
                 ws_ex.update_cells([
                     gspread.Cell(row=idx, col=4, value=nuevo_vendidos),
                     gspread.Cell(row=idx, col=5, value=nuevo_stock)
@@ -445,8 +438,6 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                     cant_fisica = int(conteo_dict[prod])
                     stock_actual_calc = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
                     diferencia = cant_fisica - stock_actual_calc
-                    
-                    # OPTIMIZACIÓN LOTE
                     ws_ex.update_cells([
                         gspread.Cell(row=idx, col=7, value=cant_fisica),
                         gspread.Cell(row=idx, col=8, value=diferencia),
@@ -457,9 +448,6 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
         pass
 
 
-# ------------------------------------------
-# INGRESO
-# ------------------------------------------
 if menu == "📥 Ingreso":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Registro de Ingreso")
@@ -722,9 +710,6 @@ if st.session_state.exito_msg != "":
     st.session_state.exito_msg = ""
     st.session_state.exito_wp = ""
 
-# ------------------------------------------
-# ACTIVOS Y CORRECCIÓN DE PATENTES
-# ------------------------------------------
 elif menu == "📊 Activos":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Vehículos en Playa")
@@ -743,7 +728,7 @@ elif menu == "📊 Activos":
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
-                    local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
+                    local_val = obtener_validacion_local(pat, tkt, h_ing, val_combinadas)
                     tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
                     tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
                     
@@ -823,9 +808,6 @@ elif menu == "📊 Activos":
         else:
             st.info(f"No hay vehículos retirados en la fecha seleccionada ({fecha_str}).")
 
-# ------------------------------------------
-# LAVADERO
-# ------------------------------------------
 elif menu == "🧽 Lavadero":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Panel de Lavadero")
@@ -1047,9 +1029,6 @@ elif menu == "🧽 Lavadero":
     else:
         st.info("El historial general está vacío.")
 
-# ------------------------------------------
-# VALIDACIONES (FORMULARIO Y PANEL)
-# ------------------------------------------
 elif menu == "✅ Validaciones":
     
     if st.session_state.rol.startswith("Local_") or es_admin:
@@ -1064,11 +1043,10 @@ elif menu == "✅ Validaciones":
             if len(r)>3:
                 tkt = str(r[0]).strip()
                 h_sal = str(r[3]).strip()
-                # Ocultamos de los locales los tickets MEN- y EV
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and not tkt.upper().startswith("MEN-") and not tkt.upper().startswith("EV") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
-                    if not obtener_validacion_local(pat, tkt, h_ing, q_data):
+                    if not obtener_validacion_local(pat, tkt, h_ing, val_combinadas):
                         activos_disponibles.append(r)
                         
         def get_sort_key(r):
@@ -1096,16 +1074,24 @@ elif menu == "✅ Validaciones":
                             tkt_val = seleccion_mozo_normal.split(" - ")[0].replace("#", "").strip()
                             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                             try:
+                                try: ws_val_app = sh.worksheet("Validaciones_App")
+                                except: 
+                                    ws_val_app = sh.add_worksheet(title="Validaciones_App", rows="1000", cols="6")
+                                    ws_val_app.append_row(["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
+                                
                                 fecha_val = hora_actual_uy()
-                                sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_normal, tkt_val, pat_val, factura_normal, "Quinquela"])
+                                ws_val_app.append_row([fecha_val, mozo_normal, tkt_val, pat_val, factura_normal, "Quinquela"])
                                 st.success(f"✅ Se aplicó la validación normal a {pat_val}.")
                                 
                                 etiqueta_autoriza = f"Mozo: {mozo_normal}\n🧾 Factura: {factura_normal}"
                                 msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela\n👤 {etiqueta_autoriza}")
-                                st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
+                                st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                                 obtener_datos.clear()
                             except Exception as e:
-                                st.error(f"Error: {e}")
+                                st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
                     else:
                         st.error("Selecciona un vehículo de la lista.")
 
@@ -1122,17 +1108,25 @@ elif menu == "✅ Validaciones":
                             tkt_val = seleccion_mozo_100.split(" - ")[0].replace("#", "").strip()
                             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                             try:
+                                try: ws_val_app = sh.worksheet("Validaciones_App")
+                                except: 
+                                    ws_val_app = sh.add_worksheet(title="Validaciones_App", rows="1000", cols="6")
+                                    ws_val_app.append_row(["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
+                                
                                 fecha_val = hora_actual_uy()
                                 fac_print = "N/A"
-                                sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_100, tkt_val, pat_val, fac_print, "Quinquela 100%"])
+                                ws_val_app.append_row([fecha_val, mozo_100, tkt_val, pat_val, fac_print, "Quinquela 100%"])
                                 st.success(f"✅ Se aplicó la cobertura del 100% a {pat_val}.")
                                 
                                 etiqueta_autoriza = f"Autoriza: {mozo_100}"
                                 msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela (100% CUBIERTO)\n👤 {etiqueta_autoriza}")
-                                st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
+                                st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                                 obtener_datos.clear()
                             except Exception as e:
-                                st.error(f"Error: {e}")
+                                st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
                     else:
                         st.error("Selecciona un vehículo de la lista.")
 
@@ -1151,8 +1145,13 @@ elif menu == "✅ Validaciones":
                         tkt_val = seleccion_mozo.split(" - ")[0].replace("#", "").strip()
                         pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                         try:
+                            try: ws_val_app = sh.worksheet("Validaciones_App")
+                            except: 
+                                ws_val_app = sh.add_worksheet(title="Validaciones_App", rows="1000", cols="6")
+                                ws_val_app.append_row(["Fecha", "Autoriza / Mozo", "Ticket", "Patente", "Factura", "Local"])
+                                
                             fecha_val = hora_actual_uy()
-                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
+                            ws_val_app.append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
                             etiqueta_autoriza = f"Autoriza: {mozo}"
@@ -1163,7 +1162,7 @@ elif menu == "✅ Validaciones":
                             st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                             obtener_datos.clear()
                         except Exception as e:
-                            st.error(f"Error al conectar con Google Sheets: {e}")
+                            st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
                     else:
                         st.error("Selecciona un vehículo de la lista.")
 
@@ -1182,12 +1181,12 @@ elif menu == "✅ Validaciones":
         val_data = []
         tickets_mostrados = set()
         
-        for val in reversed(q_data[1:]):
-            if len(val) >= 4 and str(val[0]).startswith(fecha_val_str):
+        for val in reversed(val_combinadas):
+            if len(val) >= 3 and str(val[0]).startswith(fecha_val_str):
                 hora_val = str(val[0]).split()[1][:5]
-                mozo_v = str(val[1]).strip()
-                tkt_v = str(val[2]).strip()
-                pat_v = str(val[3]).upper()
+                mozo_v = str(val[1]).strip() if len(val) > 1 else ""
+                tkt_v = str(val[2]).strip() if len(val) > 2 else ""
+                pat_v = str(val[3]).upper() if len(val) > 3 else ""
                 factura_v = str(val[4]).strip() if len(val) > 4 else ""
                 local_v = str(val[5]) if len(val) > 5 else "Local"
                 
@@ -1216,9 +1215,9 @@ elif menu == "✅ Validaciones":
                         
                         mozo_v = "Rescatado de Caja"
                         factura_v = "-"
-                        for q in q_data[1:]:
-                            if len(q) >= 4 and str(q[2]).strip().lstrip("0") == tkt_clean:
-                                mozo_v = str(q[1]).strip()
+                        for q in val_combinadas:
+                            if len(q) >= 3 and str(q[2]).strip().lstrip("0") == tkt_clean:
+                                mozo_v = str(q[1]).strip() if len(q) > 1 else ""
                                 factura_v = str(q[4]).strip() if len(q) > 4 else ""
                                 break
                                 
@@ -1239,9 +1238,6 @@ elif menu == "✅ Validaciones":
             df_val = df_val.sort_values(by="Hora", ascending=False)
             st.dataframe(df_val, use_container_width=True, hide_index=True)
 
-# ------------------------------------------
-# EXTRAS
-# ------------------------------------------
 elif menu == "🍔 Extras":
     st.subheader("Carga de Consumos y Extras")
     st.info("ℹ️ IMPORTANTE: Los Lavados se cobran directamente en la sección SALIDA para calcular mejor las promociones.")
@@ -1290,7 +1286,6 @@ elif menu == "🍔 Extras":
                             nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
                             dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
                             
-                            # OPTIMIZACIÓN LOTE
                             ws_reg = sh.worksheet("Registro")
                             ws_reg.update_cells([
                                 gspread.Cell(row=i, col=6, value=nuevo_texto),
@@ -1302,9 +1297,6 @@ elif menu == "🍔 Extras":
             except Exception as e:
                 st.error("Hubo un error cargando el extra. Intente nuevamente.")
 
-# ------------------------------------------
-# SALIDA Y COBRO INTELIGENTE
-# ------------------------------------------
 elif menu == "📤 Salida":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Cómputo de Egreso y Ticket Final")
@@ -1448,7 +1440,6 @@ elif menu == "📤 Salida":
             
             st.markdown("---")
             
-            # --- LÓGICA DINÁMICA DE PROMOS BUQUEBUS ---
             precio_bqb_sem = tarifas.get("Promo Buquebus Semana", {}).get(tipo_vehi, 2750)
             precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
             
@@ -1473,9 +1464,8 @@ elif menu == "📤 Salida":
                     h_salida = hora_actual_uy()
                     ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
                     mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
-                    local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
+                    local_val = obtener_validacion_local(patente, tkt, h_ingreso, val_combinadas)
                     
-                    # --- ASIGNACIÓN DE TARIFA OVERRIDE ---
                     tarifa_override = 0
                     if "Semana" in promo_estadia_sel: tarifa_override = precio_bqb_sem
                     elif "Fin de Semana" in promo_estadia_sel: tarifa_override = precio_bqb_finde
@@ -1513,7 +1503,6 @@ elif menu == "📤 Salida":
                             except:
                                 pass
                     elif local_val == "Quinquela 100%":
-                        # Calculamos la plata que Quinquela debe pagar por absorber esta estadía
                         monto_excedente_local = calcular_mejor_precio(mins, tipo_vehi, "Ninguna", tarifas, "Ninguno", tarifa_override)
                     
                     if es_evento:
@@ -1605,7 +1594,6 @@ Op: {emp}
 ¡Gracias por elegirnos!"""
 
                     try:
-                        # OPTIMIZACIÓN LOTE
                         ws_registro.update_cells([
                             gspread.Cell(row=idx_real, col=4, value=h_salida),
                             gspread.Cell(row=idx_real, col=7, value=float(monto_estacionamiento)),
@@ -1641,9 +1629,6 @@ Op: {emp}
                     except Exception as e: 
                         st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
 
-# ------------------------------------------
-# PERSONAL Y CAJA (INVENTARIOS AUTÓNOMOS)
-# ------------------------------------------
 elif menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
     
@@ -1861,14 +1846,10 @@ elif menu == "⏰ Personal":
             st.session_state.cartel_salida_msg = ""
             st.rerun()
 
-# ------------------------------------------
-# REPORTES (ADMIN)
-# ------------------------------------------
 elif menu == "📈 Reportes":
     st.title("📊 Panel de Control y Auditoría")
     st.markdown("👋 ¡Hola **Rodrigo**! Bienvenido al resumen operativo.")
     
-    # Procesamiento general de DataFrames
     try:
         ws_hist = sh.worksheet("Historial_Tickets")
         datos_hist = ws_hist.get_all_values()
@@ -1901,7 +1882,6 @@ elif menu == "📈 Reportes":
             df['Monto_Parking_Solo'] = df['Parking'] - df['Monto_Lavado']
             df['Monto_Parking_Solo'] = df['Monto_Parking_Solo'].apply(lambda x: max(0, x))
             
-            # --- PROCESAMIENTO DE STOCK PARA KIOSCO GENERAL ---
             ws_stock = sh.worksheet("Control_Stock")
             datos_stock = ws_stock.get_all_values()
             df_ventas_kiosco = pd.DataFrame()
@@ -1913,7 +1893,6 @@ elif menu == "📈 Reportes":
                 df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
                 df_ventas_kiosco = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
             
-            # Filtro Maestro
             filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
             
@@ -1939,16 +1918,10 @@ elif menu == "📈 Reportes":
         df_ventas_kiosco = pd.DataFrame()
         st.error(f"Error cargando base de datos: {e}")
 
-    # ==========================================
-    # CREACIÓN DE PESTAÑAS (TABS)
-    # ==========================================
     tab_fin, tab_lav, tab_kio, tab_evt, tab_aud = st.tabs([
         "💰 Financiero", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría"
     ])
 
-    # ------------------------------------------
-    # PESTAÑA 1: FINANCIERO Y COMERCIAL
-    # ------------------------------------------
     with tab_fin:
         st.markdown("### 💰 Resumen Financiero")
         c1, c2, c3, c4 = st.columns(4)
@@ -2039,9 +2012,6 @@ elif menu == "📈 Reportes":
             df_op.columns = ['Valet', 'Recaudación ($)']
             st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True, hide_index=True)
 
-    # ------------------------------------------
-    # PESTAÑA 2: LAVADERO
-    # ------------------------------------------
     with tab_lav:
         st.markdown("### 🧽 Reporte General de Lavados Realizados")
         if not df.empty:
@@ -2091,9 +2061,6 @@ elif menu == "📈 Reportes":
         else:
             st.info("No hay mensualistas con beneficio de lavado.")
 
-    # ------------------------------------------
-    # PESTAÑA 3: KIOSCO Y STOCK
-    # ------------------------------------------
     with tab_kio:
         st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
         if not df_ventas_kiosco.empty:
@@ -2144,9 +2111,6 @@ elif menu == "📈 Reportes":
             if stock_list:
                 st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
 
-    # ------------------------------------------
-    # PESTAÑA 4: EVENTOS Y VALIDACIONES
-    # ------------------------------------------
     with tab_evt:
         st.markdown("### 🎟️ Reporte General de Eventos")
         eventos_stats = {}
@@ -2211,9 +2175,6 @@ elif menu == "📈 Reportes":
             else:
                 st.info("No se utilizaron validaciones normales en este período.")
             
-    # ------------------------------------------
-    # PESTAÑA 5: AUDITORÍA Y PERSONAL
-    # ------------------------------------------
     with tab_aud:
         st.markdown("### 💵 Auditoría de Caja y Efectivo")
         try:
@@ -2274,9 +2235,6 @@ elif menu == "📈 Reportes":
             st.write("Patentes sin registrar:", ", ".join(set(fugas)))
         else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
 
-# ------------------------------------------
-# MANUAL Y AYUDA INTERACTIVA
-# ------------------------------------------
 elif menu == "📖 Ayuda":
     st.subheader("📖 Manual de Operaciones - FlowPark VIP")
     
