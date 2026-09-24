@@ -74,15 +74,14 @@ def obtener_validacion_local(patente, tkt, hora_ingreso_str, q_records):
     pat_clean = str(patente).upper().replace("-", "").replace(" ", "")
     tkt_clean = str(tkt).strip().lstrip("0")
     
-    for q in reversed(q_records[1:]): 
-        if len(q) < 3: continue # <-- CORRECCIÓN CLAVE: Antes exigía 4, ahora con 3 columnas alcanza para procesar la validación.
+    # IMPORTANTE: q_records ya viene limpio sin encabezados desde obtener_datos()
+    for q in reversed(q_records): 
+        if len(q) < 3: continue 
         
         q_time_str = str(q[0]).strip()
-        
-        # En la hoja del Formulario, Local es columna 5 (índice 5), pero si está vacía la factura, la fila puede ser más corta
         q_tkt = str(q[2]).strip().lstrip("0") if len(q) > 2 else ""
         q_pat = str(q[3]).upper().replace("-", "").replace(" ", "") if len(q) > 3 else ""
-        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela" # Por defecto si falta asume Quinquela
+        q_local = str(q[5]).strip() if len(q) > 5 else "Quinquela"
         
         try: q_dt = pd.to_datetime(q_time_str)
         except: continue
@@ -131,19 +130,16 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
         
-        # Bloques de 24 horas
         bloques_24h = mins // 1440
         restante_24h = mins % 1440
         
         costo = bloques_24h * v_promo24h
         
-        # Bloques de 8 horas sobre el resto
         bloques_8h = restante_24h // 480
         restante = restante_24h % 480
         
         costo += bloques_8h * v_promo8h
         
-        # Fraccionamiento cada media hora sobre el saldo final
         fracciones_media = math.ceil(restante / 30)
         
         if restante <= 240:
@@ -283,7 +279,7 @@ st.divider()
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
     try:
-        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], []
+        if not sh: return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], [], []
         hojas = sh.worksheets()
         titulos = [h.title for h in hojas]
         batch = sh.values_batch_get(titulos)
@@ -298,6 +294,7 @@ def obtener_datos():
         extras_raw = data_dict.get("Extras", [])
         reg = data_dict.get("Registro", [])
         q_data = data_dict.get("Respuestas de formulario 1", [])
+        val_app_data = data_dict.get("Validaciones_App", [])
         cli = data_dict.get("Clientes_Frecuentes", [])
         asistencia = data_dict.get("Asistencia", [])
         mensualistas = data_dict.get("Base_Mensualistas", [])
@@ -319,10 +316,10 @@ def obtener_datos():
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
         
         st.session_state.ultimo_error_db = ""
-        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw
+        return empleados, tarifas, extras, reg, q_data, clientes, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data
     except Exception as e:
         st.session_state.ultimo_error_db = str(e)
-        return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], []
+        return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], [], []
 
 resultado_datos = obtener_datos()
 
@@ -339,12 +336,17 @@ if not resultado_datos[0] and st.session_state.rol != "Admin":
         st.rerun()
     st.stop()
 
-empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw = resultado_datos
+empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw, val_app_data = resultado_datos
 
 hoy_str_global = hora_actual_uy().split()[0]
-val_hoy_global = [q for q in q_data[1:] if len(q) >= 4 and str(q[0]).startswith(hoy_str_global)]
 
-# NOTIFICACIÓN VISUAL MEJORADA
+# Unificamos ambas fuentes (el form por si alguien lo usa, y la pestaña de la App)
+q_data_rows = q_data[1:] if len(q_data) > 1 else []
+val_app_rows = val_app_data[1:] if len(val_app_data) > 1 else []
+val_combinadas = q_data_rows + val_app_rows
+
+val_hoy_global = [q for q in val_combinadas if len(q) >= 3 and str(q[0]).startswith(hoy_str_global)]
+
 if "cant_val_hoy" not in st.session_state:
     st.session_state.cant_val_hoy = len(val_hoy_global)
 elif len(val_hoy_global) > st.session_state.cant_val_hoy:
@@ -421,11 +423,8 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
             if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
                 vendidos_actuales = float(r[3]) if len(r)>3 and str(r[3]).strip() != "" else 0
                 stock_inicial = float(r[2]) if len(r)>2 and str(r[2]).strip() != "" else 0
-                
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
                 nuevo_stock = stock_inicial - nuevo_vendidos
-                
-                # OPTIMIZACIÓN LOTE
                 ws_ex.update_cells([
                     gspread.Cell(row=idx, col=4, value=nuevo_vendidos),
                     gspread.Cell(row=idx, col=5, value=nuevo_stock)
@@ -445,8 +444,6 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                     cant_fisica = int(conteo_dict[prod])
                     stock_actual_calc = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
                     diferencia = cant_fisica - stock_actual_calc
-                    
-                    # OPTIMIZACIÓN LOTE
                     ws_ex.update_cells([
                         gspread.Cell(row=idx, col=7, value=cant_fisica),
                         gspread.Cell(row=idx, col=8, value=diferencia),
@@ -743,7 +740,7 @@ elif menu == "📊 Activos":
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
-                    local_val = obtener_validacion_local(pat, tkt, h_ing, q_data)
+                    local_val = obtener_validacion_local(pat, tkt, h_ing, val_combinadas)
                     tag_q = f" | 🍽️ **VALIDADO: {local_val.upper()}**" if local_val else ""
                     tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
                     
@@ -1068,7 +1065,7 @@ elif menu == "✅ Validaciones":
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and not tkt.upper().startswith("MEN-") and not tkt.upper().startswith("EV") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
-                    if not obtener_validacion_local(pat, tkt, h_ing, q_data):
+                    if not obtener_validacion_local(pat, tkt, h_ing, val_combinadas):
                         activos_disponibles.append(r)
                         
         def get_sort_key(r):
@@ -1097,15 +1094,18 @@ elif menu == "✅ Validaciones":
                             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                             try:
                                 fecha_val = hora_actual_uy()
-                                sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_normal, tkt_val, pat_val, factura_normal, "Quinquela"])
+                                sh.worksheet("Validaciones_App").append_row([fecha_val, mozo_normal, tkt_val, pat_val, factura_normal, "Quinquela"])
                                 st.success(f"✅ Se aplicó la validación normal a {pat_val}.")
                                 
                                 etiqueta_autoriza = f"Mozo: {mozo_normal}\n🧾 Factura: {factura_normal}"
                                 msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela\n👤 {etiqueta_autoriza}")
-                                st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
+                                st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                                 obtener_datos.clear()
                             except Exception as e:
-                                st.error(f"Error: {e}")
+                                st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
                     else:
                         st.error("Selecciona un vehículo de la lista.")
 
@@ -1124,15 +1124,18 @@ elif menu == "✅ Validaciones":
                             try:
                                 fecha_val = hora_actual_uy()
                                 fac_print = "N/A"
-                                sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo_100, tkt_val, pat_val, fac_print, "Quinquela 100%"])
+                                sh.worksheet("Validaciones_App").append_row([fecha_val, mozo_100, tkt_val, pat_val, fac_print, "Quinquela 100%"])
                                 st.success(f"✅ Se aplicó la cobertura del 100% a {pat_val}.")
                                 
                                 etiqueta_autoriza = f"Autoriza: {mozo_100}"
                                 msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: Quinquela (100% CUBIERTO)\n👤 {etiqueta_autoriza}")
-                                st.markdown(f"[➡️ Mandar Aviso al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
+                                st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
+                                st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                                 obtener_datos.clear()
                             except Exception as e:
-                                st.error(f"Error: {e}")
+                                st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
                     else:
                         st.error("Selecciona un vehículo de la lista.")
 
@@ -1152,7 +1155,7 @@ elif menu == "✅ Validaciones":
                         pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
                         try:
                             fecha_val = hora_actual_uy()
-                            sh.worksheet("Respuestas de formulario 1").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
+                            sh.worksheet("Validaciones_App").append_row([fecha_val, mozo, tkt_val, pat_val, factura, local_seleccionado])
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
                             etiqueta_autoriza = f"Autoriza: {mozo}"
@@ -1163,7 +1166,7 @@ elif menu == "✅ Validaciones":
                             st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                             obtener_datos.clear()
                         except Exception as e:
-                            st.error(f"Error al conectar con Google Sheets: {e}")
+                            st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
                     else:
                         st.error("Selecciona un vehículo de la lista.")
 
@@ -1182,12 +1185,12 @@ elif menu == "✅ Validaciones":
         val_data = []
         tickets_mostrados = set()
         
-        for val in reversed(q_data[1:]):
-            if len(val) >= 4 and str(val[0]).startswith(fecha_val_str):
+        for val in reversed(val_combinadas):
+            if len(val) >= 3 and str(val[0]).startswith(fecha_val_str):
                 hora_val = str(val[0]).split()[1][:5]
-                mozo_v = str(val[1]).strip()
-                tkt_v = str(val[2]).strip()
-                pat_v = str(val[3]).upper()
+                mozo_v = str(val[1]).strip() if len(val) > 1 else ""
+                tkt_v = str(val[2]).strip() if len(val) > 2 else ""
+                pat_v = str(val[3]).upper() if len(val) > 3 else ""
                 factura_v = str(val[4]).strip() if len(val) > 4 else ""
                 local_v = str(val[5]) if len(val) > 5 else "Local"
                 
@@ -1216,9 +1219,9 @@ elif menu == "✅ Validaciones":
                         
                         mozo_v = "Rescatado de Caja"
                         factura_v = "-"
-                        for q in q_data[1:]:
-                            if len(q) >= 4 and str(q[2]).strip().lstrip("0") == tkt_clean:
-                                mozo_v = str(q[1]).strip()
+                        for q in val_combinadas:
+                            if len(q) >= 3 and str(q[2]).strip().lstrip("0") == tkt_clean:
+                                mozo_v = str(q[1]).strip() if len(q) > 1 else ""
                                 factura_v = str(q[4]).strip() if len(q) > 4 else ""
                                 break
                                 
@@ -1473,9 +1476,8 @@ elif menu == "📤 Salida":
                     h_salida = hora_actual_uy()
                     ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
                     mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
-                    local_val = obtener_validacion_local(patente, tkt, h_ingreso, q_data)
+                    local_val = obtener_validacion_local(patente, tkt, h_ingreso, val_combinadas)
                     
-                    # --- ASIGNACIÓN DE TARIFA OVERRIDE ---
                     tarifa_override = 0
                     if "Semana" in promo_estadia_sel: tarifa_override = precio_bqb_sem
                     elif "Fin de Semana" in promo_estadia_sel: tarifa_override = precio_bqb_finde
@@ -1513,7 +1515,6 @@ elif menu == "📤 Salida":
                             except:
                                 pass
                     elif local_val == "Quinquela 100%":
-                        # Calculamos la plata que Quinquela debe pagar por absorber esta estadía
                         monto_excedente_local = calcular_mejor_precio(mins, tipo_vehi, "Ninguna", tarifas, "Ninguno", tarifa_override)
                     
                     if es_evento:
