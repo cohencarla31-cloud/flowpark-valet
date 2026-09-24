@@ -1548,7 +1548,7 @@ elif menu == "📤 Salida":
         st.divider()
         
         st.markdown("### 📝 Agregar Observación Post-Salida")
-        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente no tenía efectivo, etc.), dejalo asentado acá para que quede en el reporte.")
+        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente dice que no es deudor, cliente se quejó, etc.), dejalo asentado acá para que quede en el reporte.")
         obs_post = st.text_input("Escribí tu observación:")
         if st.button("💾 Guardar Observación"):
             if obs_post:
