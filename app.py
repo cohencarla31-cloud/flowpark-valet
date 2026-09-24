@@ -463,9 +463,6 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
     except Exception as e:
         pass
 
-# ==========================================
-# RUTEO DE MENÚS (RESTAURADO)
-# ==========================================
 if menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
     
@@ -1096,7 +1093,7 @@ elif menu == "🧽 Lavadero":
         st.success("¡Excelente! No hay autos esperando lavado.")
     else:
         for auto in autos_para_lavar:
-            c1, c2 = st.columns([3, 1])
+            c1, c2, c3 = st.columns([3, 1, 1])
             tkt = str(auto[0]).strip()
             pat = str(auto[1]).upper()
             
@@ -1118,6 +1115,20 @@ elif menu == "🧽 Lavadero":
                             break
                 except:
                     st.error("Error al actualizar estado.")
+            
+            if c3.button("❌ Cancelar", key=f"canc_{tkt}"):
+                try:
+                    for idx, row in enumerate(reg):
+                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                            nuevo_estado = str(row[4]).replace(" | 🧽 LAVADO PENDIENTE", "").strip()
+                            sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
+                            st.toast("🚫 Lavado cancelado.")
+                            obtener_datos.clear()
+                            time.sleep(1)
+                            st.rerun()
+                            break
+                except:
+                    st.error("Error al cancelar lavado.")
                     
     st.markdown("### 🟢 Lavados Terminados en Playa")
     if not autos_terminados:
@@ -1548,7 +1559,7 @@ elif menu == "📤 Salida":
         st.divider()
         
         st.markdown("### 📝 Agregar Observación Post-Salida")
-        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente dice que no es deudor, cliente se quejó, etc.), dejalo asentado acá para que quede en el reporte.")
+        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente no tenía efectivo, etc.), dejalo asentado acá para que quede en el reporte.")
         obs_post = st.text_input("Escribí tu observación:")
         if st.button("💾 Guardar Observación"):
             if obs_post:
