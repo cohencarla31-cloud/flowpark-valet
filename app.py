@@ -129,7 +129,7 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
         
-        # --- REGLA: PRIMERA HORA INDIVISIBLE ---
+        # --- NUEVA REGLA: PRIMERA HORA INDIVISIBLE ---
         if mins <= 60: return v_hora
         
         bloques_24h = mins // 1440
@@ -211,7 +211,6 @@ if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaj
 if "salida_procesada" not in st.session_state: st.session_state.salida_procesada = False
 if "salida_ticket" not in st.session_state: st.session_state.salida_ticket = ""
 if "salida_wp" not in st.session_state: st.session_state.salida_wp = ""
-if "salida_tkt_procesado" not in st.session_state: st.session_state.salida_tkt_procesado = ""
 
 if st.session_state.usuario is None and "pin" in st.query_params:
     pin_q = st.query_params["pin"]
@@ -278,7 +277,6 @@ if c_out.button("🚪 Salir"):
     st.session_state.local_estado = ""
     st.session_state.hora_fichaje_temporal = ""
     st.session_state.salida_procesada = False
-    st.session_state.salida_tkt_procesado = ""
     st.query_params.clear()
     st.rerun()
 st.divider()
@@ -346,6 +344,7 @@ except Exception as e:
 
 hoy_str_global = hora_actual_uy().split()[0]
 
+# --- LÓGICA INTELIGENTE ANTI-TÍTULOS Y PESTAÑAS VACÍAS ---
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
 val_app_rows = []
 
@@ -817,7 +816,7 @@ elif menu == "📊 Activos":
                 tkt = str(h[3])
                 try: total_num = float(str(h[6]).replace(',', '.'))
                 except: total_num = 0
-                salidas_hoy.append({"Hora": hora_salida, "Patente": pat, "Ticket": tkt, "Cobro ($)": f"${total_num:,.0f}", "Valet": op})
+                salidas_hoy.append({"Hora": hora_salida, "Patente": pat, "Ticket": tkt, "Cobro ()":f"{total_num:,.0f}", "Valet": op})
         
         if salidas_hoy:
             st.dataframe(pd.DataFrame(salidas_hoy).sort_values("Hora", ascending=False), use_container_width=True)
@@ -1320,7 +1319,6 @@ elif menu == "📤 Salida":
     if c_head2.button("🔄 Refrescar Datos", key="ref_sal"):
         obtener_datos.clear()
         st.session_state.salida_procesada = False
-        st.session_state.salida_tkt_procesado = ""
         st.rerun()
 
     if st.session_state.salida_procesada:
@@ -1329,39 +1327,8 @@ elif menu == "📤 Salida":
             st.code(st.session_state.salida_ticket)
         st.markdown(st.session_state.salida_wp, unsafe_allow_html=True)
         st.divider()
-        
-        # --- NUEVO: MÓDULO DE OBSERVACIONES POST-SALIDA ---
-        st.markdown("### 📝 Agregar Observación Post-Salida")
-        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente dice que está al día, cliente se quejó, etc.), dejalo asentado acá para que quede en el reporte.")
-        obs_post = st.text_input("Escribí tu observación:")
-        if st.button("💾 Guardar Observación"):
-            if obs_post:
-                try:
-                    ws_h = sh.worksheet("Historial_Tickets")
-                    hist_data = ws_h.get_all_values()
-                    tkt_to_find = f"#{st.session_state.salida_tkt_procesado}"
-                    for i in range(len(hist_data)-1, 0, -1):
-                        if len(hist_data[i]) > 3 and str(hist_data[i][3]).strip() == tkt_to_find:
-                            curr_obs = str(hist_data[i][7]) if len(hist_data[i]) > 7 else ""
-                            if curr_obs and curr_obs != "-":
-                                new_obs = f"{curr_obs} | POST-SALIDA: {obs_post}".strip(" | -")
-                            else:
-                                new_obs = f"POST-SALIDA: {obs_post}"
-                            ws_h.update_cell(i + 1, 8, new_obs)
-                            st.toast("✅ Observación guardada en el historial.")
-                            obtener_datos.clear()
-                            time.sleep(1)
-                            st.rerun()
-                            break
-                except Exception as e:
-                    st.error(f"Error al guardar la observación: {e}")
-            else:
-                st.warning("Escribí algo en el campo antes de guardar.")
-        
-        st.divider()
         if st.button("✅ Terminar y Atender Siguiente Vehículo", use_container_width=True):
             st.session_state.salida_procesada = False
-            st.session_state.salida_tkt_procesado = ""
             st.rerun()
     
     else:
@@ -1673,7 +1640,6 @@ Op: {emp}
                         st.session_state.salida_procesada = True
                         st.session_state.salida_ticket = texto_ticket
                         st.session_state.salida_wp = link_wp
-                        st.session_state.salida_tkt_procesado = tkt
                         st.rerun()
                         
                     except Exception as e: 
@@ -1799,7 +1765,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -1987,7 +1953,7 @@ elif menu == "📈 Reportes":
                     })
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
@@ -2034,7 +2000,7 @@ elif menu == "📈 Reportes":
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
@@ -2168,3 +2134,4 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
+
