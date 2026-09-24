@@ -129,7 +129,7 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
         
-        # --- NUEVA REGLA: PRIMERA HORA INDIVISIBLE ---
+        # --- REGLA: PRIMERA HORA INDIVISIBLE ---
         if mins <= 60: return v_hora
         
         bloques_24h = mins // 1440
@@ -211,6 +211,7 @@ if "hora_fichaje_temporal" not in st.session_state: st.session_state.hora_fichaj
 if "salida_procesada" not in st.session_state: st.session_state.salida_procesada = False
 if "salida_ticket" not in st.session_state: st.session_state.salida_ticket = ""
 if "salida_wp" not in st.session_state: st.session_state.salida_wp = ""
+if "salida_tkt_procesado" not in st.session_state: st.session_state.salida_tkt_procesado = ""
 
 if st.session_state.usuario is None and "pin" in st.query_params:
     pin_q = st.query_params["pin"]
@@ -277,6 +278,7 @@ if c_out.button("🚪 Salir"):
     st.session_state.local_estado = ""
     st.session_state.hora_fichaje_temporal = ""
     st.session_state.salida_procesada = False
+    st.session_state.salida_tkt_procesado = ""
     st.query_params.clear()
     st.rerun()
 st.divider()
@@ -344,7 +346,6 @@ except Exception as e:
 
 hoy_str_global = hora_actual_uy().split()[0]
 
-# --- LÓGICA INTELIGENTE ANTI-TÍTULOS Y PESTAÑAS VACÍAS ---
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
 val_app_rows = []
 
@@ -462,8 +463,225 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
     except Exception as e:
         pass
 
+# ==========================================
+# RUTEO DE MENÚS (RESTAURADO)
+# ==========================================
+if menu == "⏰ Personal":
+    st.subheader("Control de Horarios y Caja")
+    
+    if st.button("🔄 Actualizar Datos"):
+        obtener_datos.clear()
+        st.rerun()
 
-if menu == "📥 Ingreso":
+    st.info(f"👤 Empleado: **{emp}** | Estado actual: **{ultimo_est_operador}**")
+    
+    with st.expander("📋 Ver mi resumen de entradas y salidas recientes"):
+        try:
+            mis_asistencias = [r for r in asistencia_data[1:] if len(r) > 2 and str(r[1]).strip().lower() == str(emp).strip().lower()]
+            if mis_asistencias:
+                df_mis_asis = pd.DataFrame(mis_asistencias[-5:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(mis_asistencias[0])])
+                st.dataframe(df_mis_asis, use_container_width=True)
+            else: st.info("No hay registros recientes.")
+        except: st.info("Sin registros.")
+
+    st.divider()
+
+    ahora = datetime.utcnow() - timedelta(hours=3)
+    hora_f = ahora.hour + ahora.minute / 60.0
+
+    es_hora_apertura = (6.0 <= hora_f < 13.0) or (14.75 <= hora_f < 22.0)
+    es_hora_cierre = (15.5 <= hora_f < 18.0) or (hora_f >= 23.0) or (hora_f < 3.0)
+
+    ya_hicieron_apertura = False
+    ya_hicieron_cierre = False
+    usr_que_abrio = ""
+    usr_que_cerro = ""
+
+    for r in reversed(efectivo_data):
+        if len(r) >= 3:
+            try:
+                dt_caja = datetime.strptime(str(r[0]), "%Y-%m-%d %H:%M:%S")
+                diff_horas = (ahora - dt_caja).total_seconds() / 3600.0
+                tipo = str(r[2])
+                usr = str(r[1])
+                
+                if diff_horas < 6.0:
+                    if tipo == "Entrada" and not ya_hicieron_apertura:
+                        ya_hicieron_apertura = True
+                        usr_que_abrio = usr
+                    elif tipo == "Salida" and not ya_hicieron_cierre:
+                        ya_hicieron_cierre = True
+                        usr_que_cerro = usr
+            except:
+                pass
+
+    tab_entrada, tab_salida = st.tabs(["📥 ENTRADA", "📤 SALIDA"])
+    
+    with tab_entrada:
+        if ultimo_est_operador == "Entrada":
+            st.info("ℹ️ Ya te encuentras con la **Entrada** registrada y tu horario activado. Debes registrar tu salida al terminar el turno.")
+            
+        elif ultimo_est_operador == "Fichaje":
+            if es_hora_apertura:
+                if ya_hicieron_apertura and usr_que_abrio != emp:
+                    st.success(f"🤝 **¡Turno Abierto!** Tu compañero **{usr_que_abrio}** ya realizó el arqueo de inicio de este turno. Podés registrar tu entrada directamente.")
+                    if st.button("⚡ Registrar Entrada Rápida", use_container_width=True):
+                        if st.session_state.local_estado == "Entrada":
+                            st.warning("⚠️ Su entrada ya fue procesada.")
+                        else:
+                            hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                            sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Entrada conjunta con {usr_que_abrio}"])
+                            st.session_state.local_emp = emp
+                            st.session_state.local_estado = "Entrada"
+                            st.session_state.cartel_entrada_msg = ""
+                            obtener_datos.clear()
+                            time.sleep(1)
+                            st.rerun()
+                else:
+                    st.warning("📝 **Apertura de Turno**\nSos el primero del turno. Es obligatorio realizar el arqueo de caja y stock.")
+                    with st.form("form_inventario_entrada"):
+                        st.markdown("### 📝 Arqueo de Entrada")
+                        efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50)
+                        
+                        st.markdown("📝 **Inventario inicial de productos:**")
+                        conteo_stock = {}
+                        for prod_nombre in list(extras.keys()):
+                            if "lavado" not in prod_nombre.lower():
+                                conteo_stock[prod_nombre] = st.number_input(f"Stock físico [{prod_nombre}]:", min_value=0, value=0, step=1)
+                            
+                        nota_stock = st.text_input("Observaciones (Opcional):")
+                        submit_entrada = st.form_submit_button("✅ Confirmar Inventario de Turno")
+                        
+                        if submit_entrada:
+                            if st.session_state.local_estado == "Entrada":
+                                st.warning("⚠️ Su entrada ya fue procesada.")
+                            else:
+                                try:
+                                    hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                                    
+                                    filas_stock = []
+                                    for prod, cant in conteo_stock.items():
+                                        filas_stock.append([hora_fichada_final, f"Inv_Entrada_{prod}", int(cant), str(emp), "", 0, 0, hora_fichada_final.split()[0]])
+                                    if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                                    
+                                    actualizar_arqueo_en_extras(conteo_stock, str(emp), hora_fichada_final.split()[0])
+                                        
+                                    sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
+                                    
+                                    st.session_state.local_emp = emp
+                                    st.session_state.local_estado = "Entrada"
+                                    st.session_state.cartel_entrada_msg = ""
+                                    obtener_datos.clear()
+                                    st.success(f"✅ ¡Su entrada ya quedó registrada correctamente a las {hora_fichada_final} luego de realizar el inventario!")
+                                except Exception as e: st.error(f"Error al guardar inventario: {e}")
+            else:
+                st.info("⚡ **Horario de Refuerzo / Apoyo**\nEstás ingresando en un horario intermedio (fuera de las aperturas principales). No es necesario realizar arqueo.")
+                if st.button("⚡ Registrar Entrada (Sin Arqueo)", use_container_width=True):
+                    if st.session_state.local_estado == "Entrada":
+                        st.warning("⚠️ Su entrada ya fue procesada.")
+                    else:
+                        hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
+                        sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", "Ingreso de Refuerzo / Apoyo"])
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Entrada"
+                        st.session_state.cartel_entrada_msg = ""
+                        obtener_datos.clear()
+                        time.sleep(1)
+                        st.rerun()
+        else:
+            st.warning("⚠️ **RECUERDE REGISTRAR SU ENTRADA!**")
+            if st.button("⏰ Iniciar Fichaje de Entrada"):
+                try:
+                    hora_fichada = hora_actual_uy()
+                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Fichaje", "Fichado inicial esperando proceso"])
+                    st.session_state.hora_fichaje_temporal = hora_fichada
+                    st.session_state.local_emp = emp
+                    st.session_state.local_estado = "Fichaje"
+                    st.session_state.cartel_entrada_msg = f"✅ Su entrada se consignó correctamente a las {hora_fichada}. Pero para que quede registrada de manera definitiva deberá completarla debajo."
+                    obtener_datos.clear()
+                    st.rerun()
+                except Exception as e: st.error(f"Error al registrar entrada: {e}")
+
+    with tab_salida:
+        if ultimo_est_operador == "Salida":
+            st.info("ℹ️ No tienes una entrada activa en este momento para registrar salida.")
+        else:
+            st.warning("⚠️ **RECUERDE REGISTRAR SU SALIDA**")
+            
+            if es_hora_cierre:
+                if ya_hicieron_cierre and usr_que_cerro != emp:
+                    st.success(f"🤝 **¡Turno Cerrado!** Tu compañero **{usr_que_cerro}** ya realizó el arqueo de cierre general. Podés registrar tu salida directamente.")
+                    if st.button("⚡ Registrar Salida Rápida", use_container_width=True):
+                        if st.session_state.local_estado == "Salida":
+                            st.warning("⚠️ Su salida ya fue procesada.")
+                        else:
+                            hora_fichada = hora_actual_uy()
+                            sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Salida conjunta con {usr_que_cerro}"])
+                            st.session_state.local_emp = emp
+                            st.session_state.local_estado = "Salida"
+                            st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA A LAS {hora_fichada.split()[1]}. (Cierre conjunto con {usr_que_cerro})."
+                            obtener_datos.clear()
+                            st.rerun()
+                else:
+                    st.warning("📝 **Cierre de Turno**\nSos el encargado de realizar el recuento de caja y stock para cerrar este turno.")
+                    with st.form("form_inventario_salida"):
+                        st.markdown("### 📤 Arqueo Final")
+                        efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta:", min_value=0, value=0, step=50)
+                        
+                        st.markdown("📝 **Inventario final de productos:**")
+                        conteo_stock_salida = {}
+                        for prod_nombre in list(extras.keys()):
+                            if "lavado" not in prod_nombre.lower():
+                                conteo_stock_salida[prod_nombre] = st.number_input(f"Stock físico final [{prod_nombre}]:", min_value=0, value=0, step=1)
+                            
+                        nota_salida = st.text_input("Observaciones de Cierre (Opcional):")
+                        submit_salida = st.form_submit_button("🚪 Registrar Cierre Oficial")
+                        
+                        if submit_salida:
+                            if st.session_state.local_estado == "Salida":
+                                st.warning("⚠️ Su salida ya fue procesada.")
+                            else:
+                                try:
+                                    hora_fichada = hora_actual_uy()
+                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                                    
+                                    filas_stock = []
+                                    for prod, cant in conteo_stock_salida.items():
+                                        filas_stock.append([hora_fichada, f"Inv_Salida_{prod}", int(cant), str(emp), "", 0, 0, hora_fichada.split()[0]])
+                                    if filas_stock: sh.worksheet("Control_Stock").append_rows(filas_stock)
+                                    
+                                    actualizar_arqueo_en_extras(conteo_stock_salida, str(emp), hora_fichada.split()[0])
+                                    
+                                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
+                                    
+                                    st.session_state.local_emp = emp
+                                    st.session_state.local_estado = "Salida"
+                                    st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
+                                    obtener_datos.clear() 
+                                    st.rerun()
+                                except Exception as e: st.error(f"Error al registrar salida: {e}")
+            else:
+                st.info("⚡ **Salida de Refuerzo / Intermedia**\nEstás terminando tu horario de apoyo o intermedio. Tu compañero se encargará del cierre de caja al finalizar el turno principal.")
+                if st.button("⚡ Registrar Salida (Sin Arqueo)", use_container_width=True):
+                    if st.session_state.local_estado == "Salida":
+                        st.warning("⚠️ Su salida ya fue procesada.")
+                    else:
+                        hora_fichada = hora_actual_uy()
+                        sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", "Salida de Refuerzo / Apoyo"])
+                        st.session_state.local_emp = emp
+                        st.session_state.local_estado = "Salida"
+                        st.session_state.cartel_salida_msg = f"🚪 SALIDA REGISTRADA A LAS {hora_fichada.split()[1]}. (Sin cierre de caja)."
+                        obtener_datos.clear()
+                        st.rerun()
+
+    if st.session_state.cartel_salida_msg != "":
+        st.success(st.session_state.cartel_salida_msg)
+        if st.button("🔄 Aceptar y Finalizar"):
+            st.session_state.cartel_salida_msg = ""
+            st.rerun()
+
+elif menu == "📥 Ingreso":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Registro de Ingreso")
     if c_head2.button("🔄 Refrescar Datos", key="ref_ing"):
@@ -816,7 +1034,7 @@ elif menu == "📊 Activos":
                 tkt = str(h[3])
                 try: total_num = float(str(h[6]).replace(',', '.'))
                 except: total_num = 0
-                salidas_hoy.append({"Hora": hora_salida, "Patente": pat, "Ticket": tkt, "Cobro ()":f"{total_num:,.0f}", "Valet": op})
+                salidas_hoy.append({"Hora": hora_salida, "Patente": pat, "Ticket": tkt, "Cobro ($)": f"${total_num:,.0f}", "Valet": op})
         
         if salidas_hoy:
             st.dataframe(pd.DataFrame(salidas_hoy).sort_values("Hora", ascending=False), use_container_width=True)
@@ -1319,6 +1537,7 @@ elif menu == "📤 Salida":
     if c_head2.button("🔄 Refrescar Datos", key="ref_sal"):
         obtener_datos.clear()
         st.session_state.salida_procesada = False
+        st.session_state.salida_tkt_procesado = ""
         st.rerun()
 
     if st.session_state.salida_procesada:
@@ -1327,8 +1546,38 @@ elif menu == "📤 Salida":
             st.code(st.session_state.salida_ticket)
         st.markdown(st.session_state.salida_wp, unsafe_allow_html=True)
         st.divider()
+        
+        st.markdown("### 📝 Agregar Observación Post-Salida")
+        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente no tenía efectivo, etc.), dejalo asentado acá para que quede en el reporte.")
+        obs_post = st.text_input("Escribí tu observación:")
+        if st.button("💾 Guardar Observación"):
+            if obs_post:
+                try:
+                    ws_h = sh.worksheet("Historial_Tickets")
+                    hist_data = ws_h.get_all_values()
+                    tkt_to_find = f"#{st.session_state.salida_tkt_procesado}"
+                    for i in range(len(hist_data)-1, 0, -1):
+                        if len(hist_data[i]) > 3 and str(hist_data[i][3]).strip() == tkt_to_find:
+                            curr_obs = str(hist_data[i][7]) if len(hist_data[i]) > 7 else ""
+                            if curr_obs and curr_obs != "-":
+                                new_obs = f"{curr_obs} | POST-SALIDA: {obs_post}".strip(" | -")
+                            else:
+                                new_obs = f"POST-SALIDA: {obs_post}"
+                            ws_h.update_cell(i + 1, 8, new_obs)
+                            st.toast("✅ Observación guardada en el historial.")
+                            obtener_datos.clear()
+                            time.sleep(1)
+                            st.rerun()
+                            break
+                except Exception as e:
+                    st.error(f"Error al guardar la observación: {e}")
+            else:
+                st.warning("Escribí algo en el campo antes de guardar.")
+        
+        st.divider()
         if st.button("✅ Terminar y Atender Siguiente Vehículo", use_container_width=True):
             st.session_state.salida_procesada = False
+            st.session_state.salida_tkt_procesado = ""
             st.rerun()
     
     else:
@@ -1640,6 +1889,7 @@ Op: {emp}
                         st.session_state.salida_procesada = True
                         st.session_state.salida_ticket = texto_ticket
                         st.session_state.salida_wp = link_wp
+                        st.session_state.salida_tkt_procesado = tkt
                         st.rerun()
                         
                     except Exception as e: 
@@ -1765,7 +2015,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -1953,7 +2203,7 @@ elif menu == "📈 Reportes":
                     })
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
@@ -2000,7 +2250,7 @@ elif menu == "📈 Reportes":
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
@@ -2134,4 +2384,3 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
-
