@@ -312,13 +312,14 @@ def obtener_datos():
         extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
         
         st.session_state.ultimo_error_db = ""
-        return empleados, tarifas, extras, reg, q_data, clientes, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data
+        return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data
     except Exception as e:
         st.session_state.ultimo_error_db = str(e)
         return [], {}, {}, [], [], [], [], [], [], [], [], [], [], [], [], []
 
 resultado_datos = obtener_datos()
 
+# ESTO SOLUCIONA EL MISTERIO DEL ADMINISTRADOR
 if not resultado_datos[0]:
     error_detectado = st.session_state.get("ultimo_error_db", "")
     st.markdown("### 📡 Enlace pausado por seguridad")
@@ -338,16 +339,7 @@ empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas
 hoy_str_global = hora_actual_uy().split()[0]
 
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
-
-# === LÓGICA INTELIGENTE ANTI-TÍTULOS FALTANTES ===
-val_app_rows = []
-if len(val_app_data) > 0:
-    primera_celda = str(val_app_data[0][0]).strip()
-    if primera_celda.startswith("202"):
-        val_app_rows = val_app_data
-    else:
-        val_app_rows = val_app_data[1:] if len(val_app_data) > 1 else []
-
+val_app_rows = val_app_data[1:] if len(val_app_data) > 1 else []
 val_combinadas = q_data_rows + val_app_rows
 
 val_hoy_global = [q for q in val_combinadas if len(q) >= 3 and str(q[0]).startswith(hoy_str_global)]
