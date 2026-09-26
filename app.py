@@ -753,7 +753,7 @@ elif menu == "📥 Ingreso":
                 
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat_final:
-                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                             lavados_usados += 1
                             
                 if not excede_cupo_mensual:
@@ -1083,7 +1083,7 @@ elif menu == "🧽 Lavadero":
                             lav_usados = 0
                             for h in historial_data[1:]:
                                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
-                                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                                    if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                         lav_usados += 1
                             
                             if lav_usados < lav_perm:
@@ -1223,7 +1223,7 @@ elif menu == "🧽 Lavadero":
             lav_usados = 0
             for h in historial_data[1:]:
                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                    if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                         lav_usados += 1
                         
             reporte_lavados_valet.append({
@@ -1700,7 +1700,7 @@ elif menu == "📤 Salida":
                     
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
-                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                            if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                 lavados_usados += 1
                 
             cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
@@ -2148,7 +2148,7 @@ elif menu == "📈 Reportes":
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                             lav_usados += 1
                             
                 reporte_lavados.append({
@@ -2361,7 +2361,7 @@ elif menu == "📈 Reportes":
                     lav_usados_ant = 0
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_ant_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                            if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                 lav_usados_ant += 1
                                 
                     sobran = lav_perm - lav_usados_ant
