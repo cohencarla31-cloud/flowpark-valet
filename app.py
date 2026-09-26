@@ -119,31 +119,24 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
 
     v_hora = tarifas.get("Hora", {}).get(tipo_vehi, 110)
     v_promo4h = tarifas.get("Promo_4h", {}).get(tipo_vehi, 330)
-    
     tarifas_8h = tarifas.get("Promo_8h")
     if not tarifas_8h: tarifas_8h = tarifas.get("Dia_Completo", {})
     v_promo8h = tarifas_8h.get(tipo_vehi, 550)
-    
     v_promo24h = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
 
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
-        
-        # --- REGLA: PRIMERA HORA INDIVISIBLE ---
         if mins <= 60: return v_hora
         
         bloques_24h = mins // 1440
         restante_24h = mins % 1440
         
         costo = bloques_24h * v_promo24h
-        
         bloques_8h = restante_24h // 480
         restante = restante_24h % 480
-        
         costo += bloques_8h * v_promo8h
         
         fracciones_media = math.ceil(restante / 30)
-        
         if restante <= 240:
             costo_restante = fracciones_media * (v_hora / 2.0)
             costo += min(costo_restante, v_promo4h)
@@ -156,10 +149,8 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
 
     costo_base = costo_solo_tiempo(m_cobro)
 
-    if tipo_lavado == "Ninguno":
-        return costo_base
-    elif "Exterior" in tipo_lavado:
-        return costo_base + v_lavado_ext
+    if tipo_lavado == "Ninguno": return costo_base
+    elif "Exterior" in tipo_lavado: return costo_base + v_lavado_ext
     elif "Completo" in tipo_lavado or "Promo" in tipo_lavado:
         if m_cobro <= 0: return v_lavado_comp
         costo_normal = costo_base + v_lavado_comp
@@ -170,8 +161,7 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
             else: return min(costo_normal, p_8h_lavado)
         else:
             return min(costo_normal, p_8h_lavado + costo_solo_tiempo(m_cobro - 480))
-    else:
-        return 0
+    else: return 0
 
 def verificar_estado_empleado(nombre_emp, asistencia_rows):
     nombre_buscado = str(nombre_emp).strip().lower()
@@ -194,8 +184,7 @@ def cargar_usuarios_desde_db():
                 rol = r[2].strip()
                 pins_dict[pin] = {"nombre": nombre, "rol": rol}
         return pins_dict
-    except Exception as e:
-        return None
+    except Exception as e: return None
 
 if "usuario" not in st.session_state: st.session_state.usuario = None
 if "rol" not in st.session_state: st.session_state.rol = None
@@ -247,7 +236,6 @@ if st.session_state.usuario is None:
     if st.button("Ingresar"):
         time.sleep(0.5)
         pin_clean = str(pin_ingresado).strip()
-        
         if not pin_clean:
             st.error("⚠️ Debe ingresar su clave.")
         else:
@@ -285,9 +273,7 @@ st.divider()
 
 @st.cache_data(ttl=120, show_spinner=False)
 def obtener_datos():
-    if not sh: 
-        raise Exception("Sin conexión con Google Sheets.")
-    
+    if not sh: raise Exception("Sin conexión con Google Sheets.")
     hojas = sh.worksheets()
     titulos = [h.title for h in hojas]
     batch = sh.values_batch_get(titulos)
@@ -328,7 +314,6 @@ def obtener_datos():
 try:
     resultado_datos = obtener_datos()
     empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw, val_app_data = resultado_datos
-
 except Exception as e:
     error_detectado = str(e)
     st.markdown("### 📡 Enlace pausado por seguridad")
@@ -337,7 +322,6 @@ except Exception as e:
     else:
         st.error(f"⚠️ Error interno detectado: {error_detectado}")
         st.warning("🔄 Hubo un pequeño corte de conexión con el Excel de Google. Esperá unos segundos y reintentá.")
-        
     if st.button("🔄 Reconectar Ahora"):
         obtener_datos.clear()
         st.rerun()
@@ -345,23 +329,17 @@ except Exception as e:
 
 
 hoy_str_global = hora_actual_uy().split()[0]
-
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
 val_app_rows = []
-
 if len(val_app_data) > 0:
     primera_celda = str(val_app_data[0][0]).strip()
-    if primera_celda.startswith("202"): 
-        val_app_rows = val_app_data
-    else: 
-        val_app_rows = val_app_data[1:] if len(val_app_data) > 1 else []
+    if primera_celda.startswith("202"): val_app_rows = val_app_data
+    else: val_app_rows = val_app_data[1:] if len(val_app_data) > 1 else []
 
 val_combinadas = q_data_rows + val_app_rows
-
 val_hoy_global = [q for q in val_combinadas if len(q) >= 3 and str(q[0]).startswith(hoy_str_global)]
 
-if "cant_val_hoy" not in st.session_state:
-    st.session_state.cant_val_hoy = len(val_hoy_global)
+if "cant_val_hoy" not in st.session_state: st.session_state.cant_val_hoy = len(val_hoy_global)
 elif len(val_hoy_global) > st.session_state.cant_val_hoy:
     if st.session_state.rol == "Valet" or st.session_state.rol == "Admin":
         ultimo_local_notif = str(val_hoy_global[-1][5]).upper() if len(val_hoy_global[-1]) > 5 else "UN LOCAL"
@@ -371,7 +349,8 @@ elif len(val_hoy_global) > st.session_state.cant_val_hoy:
 datos_mensualistas_map = {}
 patentes_mensualistas = []
 try:
-    for m in mensualistas_data[1:]:
+    for idx_m, m in enumerate(mensualistas_data):
+        if idx_m == 0: continue
         if len(m) > 0 and str(m[0]).strip():
             pat_m = str(m[0]).strip().upper().replace("-", "").replace(" ", "")
             patentes_mensualistas.append(pat_m)
@@ -381,9 +360,14 @@ try:
             bene_m = str(m[4]).strip().upper() if len(m) > 4 else ""
             cupos_m = int(str(m[5]).strip()) if len(m) > 5 and str(m[5]).strip().isdigit() else 1
             comentario_m = str(m[6]).strip() if len(m) > 6 else ""
-            datos_mensualistas_map[pat_m] = {"nombre": nom_m, "estado": estado_m, "telefono": tel_m, "beneficio": bene_m, "cupos": cupos_m, "comentario": comentario_m}
-except Exception as e:
-    pass
+            acumulados_m = int(str(m[7]).strip()) if len(m) > 7 and str(m[7]).strip().isdigit() else 0
+            
+            datos_mensualistas_map[pat_m] = {
+                "nombre": nom_m, "estado": estado_m, "telefono": tel_m, 
+                "beneficio": bene_m, "cupos": cupos_m, "comentario": comentario_m,
+                "acumulados": acumulados_m, "fila_excel": idx_m + 1
+            }
+except Exception as e: pass
 
 emp = st.session_state.usuario
 es_admin = st.session_state.rol == "Admin"
@@ -394,21 +378,12 @@ if st.session_state.local_emp == emp and st.session_state.local_estado != "":
 
 st.markdown("### 📍 Menú Principal")
 opciones_menu = []
-
-if not es_admin and st.session_state.rol == "Valet":
-    opciones_menu.append("⏰ Personal")
-
+if not es_admin and st.session_state.rol == "Valet": opciones_menu.append("⏰ Personal")
 if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "Valet") or es_admin:
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🧽 Lavadero", "🍔 Extras", "📤 Salida", "✅ Validaciones"])
-
-if st.session_state.rol and st.session_state.rol.startswith("Local_"):
-    opciones_menu.append("✅ Validaciones")
-
-if es_admin:
-    opciones_menu.append("📈 Reportes")
-
-if st.session_state.rol:
-    opciones_menu.append("📖 Ayuda")
+if st.session_state.rol and st.session_state.rol.startswith("Local_"): opciones_menu.append("✅ Validaciones")
+if es_admin: opciones_menu.append("📈 Reportes")
+if st.session_state.rol: opciones_menu.append("📖 Ayuda")
 
 if not opciones_menu:
     st.error("⚠️ No tienes permisos activos o no has marcado tu Entrada. Ve al módulo Personal para habilitar el sistema.")
@@ -440,8 +415,7 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
                     gspread.Cell(row=idx, col=5, value=nuevo_stock)
                 ])
                 break
-    except Exception as e:
-        pass
+    except Exception as e: pass
 
 def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
     try:
@@ -460,8 +434,8 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                         gspread.Cell(row=idx, col=10, value=fecha_str),
                         gspread.Cell(row=idx, col=11, value=empleado)
                     ])
-    except Exception as e:
-        pass
+    except Exception as e: pass
+
 
 if menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
@@ -726,6 +700,7 @@ elif menu == "📥 Ingreso":
     excede_cupo_mensual = False
     lavados_usados = 0
     lavados_permitidos = 0
+    acumulados_disp = 0
     
     if pat_final:
         for rc in clientes[1:]:
@@ -744,6 +719,7 @@ elif menu == "📥 Ingreso":
             
             estado_visual = datos_m["estado"]
             cupos_cliente = datos_m["cupos"]
+            acumulados_disp = datos_m.get("acumulados", 0)
             autos_en_playa = 0
             
             for r_act in reg[1:]:
@@ -769,19 +745,26 @@ elif menu == "📥 Ingreso":
             bene = datos_m.get("beneficio", "")
             
             if "LAVADO" in bene:
-                if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lavados_permitidos = 2
-                else: lavados_permitidos = 1
+                lavados_permitidos = 1
+                for num_lav in range(10, 1, -1):
+                    if str(num_lav) in bene:
+                        lavados_permitidos = num_lav
+                        break
                 
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat_final:
-                        if "Lavado Beneficio Usado" in str(h[7]):
+                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                             lavados_usados += 1
                             
                 if not excede_cupo_mensual:
-                    if lavados_usados >= lavados_permitidos:
-                        st.warning(f"⚠️ **Atención Lavadero:** Este Mensualista ya usó sus {lavados_permitidos} lavado(s) de este mes. (Aplicar beneficio solo si tiene lavados acumulados de meses anteriores, sino cobrar).")
+                    texto_estado_lav = f"💦 **Beneficio Activo:** Cuenta con {lavados_permitidos} lavado(s) al mes. (Lleva usados: {lavados_usados})."
+                    if acumulados_disp > 0:
+                        texto_estado_lav += f" ⭐ **TIENE {acumulados_disp} LAVADO(S) ACUMULADO(S).**"
+                        
+                    if lavados_usados >= lavados_permitidos and acumulados_disp <= 0:
+                        st.warning(f"⚠️ **Atención Lavadero:** Este Mensualista ya usó sus {lavados_permitidos} lavado(s) de este mes y NO le quedan acumulados. (Cobrar el próximo).")
                     else:
-                        st.info(f"💦 **Beneficio Activo:** Cuenta con {lavados_permitidos} lavado(s) al mes. Lleva usados: **{lavados_usados}**.")
+                        st.info(texto_estado_lav)
 
     if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
         
@@ -1019,24 +1002,48 @@ elif menu == "📊 Activos":
                         st.warning("Seleccioná un auto y escribí la patente nueva.")
 
     with tab_historial_valet:
-        fecha_sel = st.date_input("📅 Elegir fecha de egresos:", datetime.utcnow() - timedelta(hours=3))
-        fecha_str = fecha_sel.strftime("%Y-%m-%d")
+        st.markdown("### ⏪ Revertir Salidas (Solo hoy)")
+        st.info("Si le diste salida a un vehículo por error, buscalo en esta lista y tocala para devolverlo a la playa.")
         
-        salidas_hoy = []
-        for h in historial_data[1:]:
-            if len(h) >= 7 and str(h[0]).startswith(fecha_str):
-                hora_salida = str(h[0]).split()[1][:5]
-                op = str(h[1])
-                pat = str(h[2]).upper()
-                tkt = str(h[3])
-                try: total_num = float(str(h[6]).replace(',', '.'))
-                except: total_num = 0
-                salidas_hoy.append({"Hora": hora_salida, "Patente": pat, "Ticket": tkt, "Cobro ($)": f"${total_num:,.0f}", "Valet": op})
+        salidas_revertir = []
+        for idx_h, h in enumerate(historial_data):
+            if idx_h == 0: continue
+            if len(h) >= 7 and str(h[0]).startswith(hoy_str_global):
+                tkt_rev = str(h[3]).replace("#", "").strip()
+                pat_rev = str(h[2]).upper()
+                hora_salida_rev = str(h[0]).split()[1][:5]
+                salidas_revertir.append((idx_h, tkt_rev, pat_rev, hora_salida_rev))
         
-        if salidas_hoy:
-            st.dataframe(pd.DataFrame(salidas_hoy).sort_values("Hora", ascending=False), use_container_width=True)
+        if salidas_revertir:
+            salidas_revertir = sorted(salidas_revertir, key=lambda x: x[3], reverse=True)
+            for idx_h, tkt_rev, pat_rev, hora_salida_rev in salidas_revertir:
+                col1, col2 = st.columns([3, 1])
+                col1.markdown(f"🚗 **{pat_rev}** | Tkt: #{tkt_rev} | Salida: {hora_salida_rev}")
+                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{idx_h}"):
+                    try:
+                        idx_reg_to_clear = None
+                        for idx_r, r_row in enumerate(reg):
+                            if str(r_row[0]).strip() == tkt_rev:
+                                idx_reg_to_clear = idx_r
+                                break
+                        if idx_reg_to_clear is not None:
+                            ws_reg = sh.worksheet("Registro")
+                            ws_reg.update_cells([
+                                gspread.Cell(row=idx_reg_to_clear + 1, col=4, value=""), 
+                                gspread.Cell(row=idx_reg_to_clear + 1, col=7, value=0),  
+                                gspread.Cell(row=idx_reg_to_clear + 1, col=9, value=0)   
+                            ])
+                        
+                        sh.worksheet("Historial_Tickets").delete_rows(idx_h + 1)
+                        
+                        st.toast(f"✅ Salida del ticket #{tkt_rev} anulada con éxito. El auto volvió a la playa.")
+                        obtener_datos.clear()
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al anular la salida: {e}")
         else:
-            st.info(f"No hay vehículos retirados en la fecha seleccionada ({fecha_str}).")
+            st.info("No hay salidas registradas hoy para anular.")
 
 elif menu == "🧽 Lavadero":
     c_head1, c_head2 = st.columns([3, 1])
@@ -1067,13 +1074,16 @@ elif menu == "🧽 Lavadero":
                     if pat in datos_mensualistas_map:
                         bene = datos_mensualistas_map[pat]["beneficio"].upper()
                         if "LAVADO" in bene:
-                            if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
-                            else: lav_perm = 1
+                            lav_perm = 1
+                            for num_lav in range(10, 1, -1):
+                                if str(num_lav) in bene:
+                                    lav_perm = num_lav
+                                    break
                             
                             lav_usados = 0
                             for h in historial_data[1:]:
                                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
-                                    if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                                         lav_usados += 1
                             
                             if lav_usados < lav_perm:
@@ -1204,20 +1214,24 @@ elif menu == "🧽 Lavadero":
     for pat, datos_m in datos_mensualistas_map.items():
         bene = str(datos_m["beneficio"]).upper()
         if "LAVADO" in bene:
-            if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
-            else: lav_perm = 1
+            lav_perm = 1
+            for num_lav in range(10, 1, -1):
+                if str(num_lav) in bene:
+                    lav_perm = num_lav
+                    break
             
             lav_usados = 0
             for h in historial_data[1:]:
                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                    if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                         lav_usados += 1
                         
             reporte_lavados_valet.append({
                 "Cliente": datos_m["nombre"],
                 "Patente": pat,
-                "Usados": f"{lav_usados} / {lav_perm}",
-                "Estado": "✅ Disponible" if lav_usados < lav_perm else "❌ Agotado"
+                "Usados (Mes)": f"{lav_usados} / {lav_perm}",
+                "Acumulados Extra": datos_m.get("acumulados", 0),
+                "Estado": "✅ Disponible" if lav_usados < lav_perm else ("⭐ Usa Acumulado" if datos_m.get("acumulados", 0) > 0 else "❌ Agotado")
             })
             
     if reporte_lavados_valet:
@@ -1665,6 +1679,8 @@ elif menu == "📤 Salida":
             estado_mensual_encontrado = ""
             lavados_usados = 0
             lavados_permitidos = 0
+            acumulados_disp = 0
+            fila_cliente_excel = 0
             
             if patente in datos_mensualistas_map:
                 datos_m = datos_mensualistas_map[patente]
@@ -1672,21 +1688,29 @@ elif menu == "📤 Salida":
                 if datos_m["telefono"]: cel_encontrado = datos_m["telefono"]
                 beneficio_encontrado = datos_m["beneficio"]
                 estado_mensual_encontrado = datos_m["estado"]
+                acumulados_disp = datos_m.get("acumulados", 0)
+                fila_cliente_excel = datos_m.get("fila_excel", 0)
                 
                 if "LAVADO" in beneficio_encontrado.upper():
-                    if "2 LAVADO" in beneficio_encontrado.upper() or ("2" in beneficio_encontrado and "LAVADO" in beneficio_encontrado.upper()): lavados_permitidos = 2
-                    else: lavados_permitidos = 1
+                    lavados_permitidos = 1
+                    for num_lav in range(10, 1, -1):
+                        if str(num_lav) in beneficio_encontrado.upper():
+                            lavados_permitidos = num_lav
+                            break
                     
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
-                            if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                                 lavados_usados += 1
                 
             cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
             obs_salida = st.text_input("Observaciones de Salida (Opcional):")
             
             if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
-                st.info(f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})")
+                texto_info_lav = f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})"
+                if acumulados_disp > 0:
+                    texto_info_lav += f" ⭐ **ACUMULADOS VIEJOS DISPONIBLES: {acumulados_disp}**"
+                st.info(texto_info_lav)
                 
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
@@ -1697,22 +1721,26 @@ elif menu == "📤 Salida":
             opciones_lavado_disponibles = ["Ninguno", "Lavado Exterior", "Lavado Completo", "Promo 2 Horas + Lavado", "Promo 4 Horas + Lavado", "Promo 8 Horas + Lavado"]
             
             if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
-                opciones_lavado_disponibles.insert(1, "Lavado Incluido (Plan Mensualista)")
+                opciones_lavado_disponibles.insert(1, "Lavado Incluido (Mes Actual)")
+                if acumulados_disp > 0:
+                    opciones_lavado_disponibles.insert(2, "Lavado Acumulado (Mes Anterior)")
                 
             opcion_por_defecto = 0
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                     if lavados_permitidos > lavados_usados:
                         opcion_por_defecto = 1 
+                    elif acumulados_disp > 0:
+                        opcion_por_defecto = 2
                     else:
-                        opcion_por_defecto = 3 
+                        opcion_por_defecto = 3 if acumulados_disp > 0 else 2 
                 else:
                     opcion_por_defecto = 2 
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
-            if lavado_opcion == "Lavado Incluido (Plan Mensualista)" and lavados_usados >= lavados_permitidos:
-                st.warning("⚠️ **Nota:** El sistema registra que ya gastó su cupo de este mes. Se está aplicando el lavado gratis asumiendo que tiene uno ACUMULADO de un mes anterior.")
+            if lavado_opcion == "Lavado Incluido (Mes Actual)" and lavados_usados >= lavados_permitidos:
+                st.error("⚠️ **CUIDADO:** El sistema detecta que este cliente YA GASTÓ su cupo de este mes. Si le das salida así, le vas a estar regalando un lavado extra. Si tiene uno acumulado, seleccioná 'Lavado Acumulado (Mes Anterior)'.")
             
             st.markdown("---")
             
@@ -1796,6 +1824,7 @@ elif menu == "📤 Salida":
                         info_desc = f"✅ Vehículo Mensualista ({nombre_cliente_encontrado}). Parking $0."
                         if monto_lavado > 0: info_desc += f" Se cobra extra: {lavado_opcion.split(' (')[0]}."
                         elif "Incluido" in lavado_opcion: info_desc += " Lavado descontado de su plan mensual."
+                        elif "Acumulado" in lavado_opcion: info_desc += " Lavado imputado a saldo a favor de mes anterior."
                         
                     elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag:
                         monto_estacionamiento = 0
@@ -1840,8 +1869,10 @@ elif menu == "📤 Salida":
                         if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
                         else: detalle_extras_txt += f" | 🧼 {nom_lavado}"
                         
-                        if lavado_opcion == "Lavado Incluido (Plan Mensualista)":
+                        if lavado_opcion == "Lavado Incluido (Mes Actual)":
                             obs_salida_final += " | Lavado Beneficio Usado"
+                        elif lavado_opcion == "Lavado Acumulado (Mes Anterior)":
+                            obs_salida_final += " | Lavado Acumulado Usado"
                         else:
                             obs_salida_final += f" | 🧼 {nom_lavado}"
                     elif pidio_lavado_flag:
@@ -1875,6 +1906,10 @@ Op: {emp}
                             gspread.Cell(row=idx_real, col=7, value=float(monto_estacionamiento)),
                             gspread.Cell(row=idx_real, col=9, value=float(total_a_pagar))
                         ])
+                        
+                        if lavado_opcion == "Lavado Acumulado (Mes Anterior)" and fila_cliente_excel > 0:
+                            nuevo_acumulado = max(0, acumulados_disp - 1)
+                            sh.worksheet("Base_Mensualistas").update_cell(fila_cliente_excel, 8, nuevo_acumulado)
                         
                         local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
                         
@@ -1938,7 +1973,7 @@ elif menu == "📈 Reportes":
             def calcular_monto_lavado(row):
                 obs_text = str(row['Obs']).upper() + " " + str(row.get('Servicio_Lavado', '')).upper()
                 parking = float(row['Parking'])
-                if "INCLUIDO" in obs_text or "BENEFICIO USADO" in obs_text: return 0
+                if "INCLUIDO" in obs_text or "BENEFICIO USADO" in obs_text or "ACUMULADO USADO" in obs_text: return 0
                 if "EXTERIOR" in obs_text: return min(parking, 350)
                 if "LAVADO" in obs_text or "🧼" in obs_text: return min(parking, 500)
                 return 0
@@ -1983,8 +2018,8 @@ elif menu == "📈 Reportes":
         df_ventas_kiosco = pd.DataFrame()
         st.error(f"Error cargando base de datos: {e}")
 
-    tab_fin, tab_lav, tab_kio, tab_evt, tab_aud = st.tabs([
-        "💰 Financiero", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría"
+    tab_fin, tab_lav, tab_kio, tab_evt, tab_aud, tab_cierre = st.tabs([
+        "💰 Financiero", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría", "🔄 Cierre de Mes"
     ])
 
     with tab_fin:
@@ -2104,25 +2139,28 @@ elif menu == "📈 Reportes":
         for pat, datos_m in datos_mensualistas_map.items():
             bene = str(datos_m["beneficio"]).upper()
             if "LAVADO" in bene:
-                if "2 LAVADO" in bene or ("2" in bene and "LAVADO" in bene): lav_perm = 2
-                else: lav_perm = 1
+                lav_perm = 1
+                for num_lav in range(10, 1, -1):
+                    if str(num_lav) in bene:
+                        lav_perm = num_lav
+                        break
                 
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                             lav_usados += 1
                             
                 reporte_lavados.append({
                     "Nombre": datos_m["nombre"],
                     "Patente": pat,
                     "Plan de Lavado": bene,
-                    "Límite Mensual": lav_perm,
-                    "Usados este mes": lav_usados,
-                    "Disponibles": max(0, lav_perm - lav_usados)
+                    "Usados (Mes)": f"{lav_usados} / {lav_perm}",
+                    "Acumulados Extra": datos_m.get("acumulados", 0),
+                    "Estado": "✅ Disponible" if lav_usados < lav_perm else ("⭐ Usa Acumulado" if datos_m.get("acumulados", 0) > 0 else "❌ Agotado")
                 })
         if reporte_lavados:
-            st.dataframe(pd.DataFrame(reporte_lavados).sort_values(by="Usados este mes", ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(reporte_lavados).sort_values(by="Usados (Mes)", ascending=False), use_container_width=True, hide_index=True)
         else:
             st.info("No hay mensualistas con beneficio de lavado.")
 
@@ -2299,6 +2337,49 @@ elif menu == "📈 Reportes":
             st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
             st.write("Patentes sin registrar:", ", ".join(set(fugas)))
         else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
+        
+    with tab_cierre:
+        st.markdown("### 🔄 Calculadora de Acumulados (Fin de mes)")
+        st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**. Así sabés exactamente qué número copiar en la Columna H del Excel.")
+        
+        hoy_cierre = datetime.utcnow() - timedelta(hours=3)
+        mes_ant_dt = (hoy_cierre.replace(day=1) - timedelta(days=1))
+        mes_ant_str = mes_ant_dt.strftime("%Y-%m")
+        st.info(f"📅 **Analizando mes:** {mes_ant_dt.strftime('%B %Y')}")
+        
+        if st.button("Calcular Lavados Sobrantes"):
+            sobrantes_list = []
+            for pat, datos_m in datos_mensualistas_map.items():
+                bene = str(datos_m["beneficio"]).upper()
+                if "LAVADO" in bene:
+                    lav_perm = 1
+                    for num_lav in range(10, 1, -1):
+                        if str(num_lav) in bene:
+                            lav_perm = num_lav
+                            break
+                    
+                    lav_usados_ant = 0
+                    for h in historial_data[1:]:
+                        if len(h) > 7 and str(h[0]).startswith(mes_ant_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                                lav_usados_ant += 1
+                                
+                    sobran = lav_perm - lav_usados_ant
+                    if sobran > 0:
+                        sobrantes_list.append({
+                            "Cliente": datos_m["nombre"],
+                            "Patente": pat,
+                            "Plan Base": lav_perm,
+                            "Usó en el mes": lav_usados_ant,
+                            "A poner en Columna H": sobran
+                        })
+            
+            if sobrantes_list:
+                df_sobrantes = pd.DataFrame(sobrantes_list).sort_values("A poner en Columna H", ascending=False)
+                st.dataframe(df_sobrantes, use_container_width=True, hide_index=True)
+                st.success("✨ ¡Listo! Solo tenés que copiar esos números de la última columna directo a la Columna H de tu Excel.")
+            else:
+                st.success("✅ Ningún cliente tuvo lavados sobrantes el mes pasado. No tenés que anotar nada extra.")
 
 elif menu == "📖 Ayuda":
     st.subheader("📖 Manual de Operaciones - FlowPark VIP")
