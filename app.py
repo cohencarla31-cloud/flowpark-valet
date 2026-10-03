@@ -298,6 +298,7 @@ def obtener_datos():
     eventos = data_dict.get("Eventos", [])
     historial = data_dict.get("Historial_Tickets", [])
     lista_inv = data_dict.get("Lista de invitados", data_dict.get("Lista_Invitados", []))
+    anulaciones = data_dict.get("Auditoria_Anulaciones", [])
     
     empleados = [r[0] for r in conf[1:] if len(r)>0 and r[0]]
     
@@ -309,11 +310,11 @@ def obtener_datos():
     
     extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
     
-    return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data
+    return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data, anulaciones
 
 try:
     resultado_datos = obtener_datos()
-    empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw, val_app_data = resultado_datos
+    empleados, tarifas, extras, reg, q_data, clientes, asistencia_data, mensualistas_data, stock_data, efectivo_data, auditoria_data, eventos_data, historial_data, lista_invitados_data, extras_raw, val_app_data, anulaciones_data = resultado_datos
 except Exception as e:
     error_detectado = str(e)
     st.markdown("### 📡 Enlace pausado por seguridad")
@@ -686,7 +687,7 @@ elif menu == "📥 Ingreso":
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
     sel_pat_cam = st.selectbox("📷 1. Seleccionar Patente (Cámara, Frecuentes y Mensualistas):", [""] + patentes_unificadas, key=f"cam_{k}")
-    pat_manual = st.text_input("✍️ 2. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
+    pat_manual = st.text_input("✍ 2. Escribir Manualmente (Auto Nuevo):", key=f"man_{k}")
     
     if pat_manual.strip(): pat_final = pat_manual.strip()
     elif sel_pat_cam: pat_final = sel_pat_cam
@@ -753,7 +754,7 @@ elif menu == "📥 Ingreso":
                 
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat_final:
-                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                             lavados_usados += 1
                             
                 if not excede_cupo_mensual:
@@ -827,6 +828,8 @@ elif menu == "📥 Ingreso":
         if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
             
         tkt_final = str(tkt).strip()
+        if tkt_final.isdigit():
+            tkt_final = str(int(tkt_final))
         
         if not tkt_final: 
             if evento_sel:
@@ -1011,21 +1014,31 @@ elif menu == "📊 Activos":
             if len(h) >= 7 and str(h[0]).startswith(hoy_str_global):
                 tkt_rev = str(h[3]).replace("#", "").strip()
                 pat_rev = str(h[2]).upper()
-                hora_salida_rev = str(h[0]).split()[1][:5]
-                salidas_revertir.append((idx_h, tkt_rev, pat_rev, hora_salida_rev))
+                hora_salida_completa = str(h[0]) 
+                hora_salida_rev = hora_salida_completa.split()[1][:5]
+                salidas_revertir.append((hora_salida_completa, tkt_rev, pat_rev, hora_salida_rev))
         
         if salidas_revertir:
-            salidas_revertir = sorted(salidas_revertir, key=lambda x: x[3], reverse=True)
-            for idx_h, tkt_rev, pat_rev, hora_salida_rev in salidas_revertir:
+            salidas_revertir = sorted(salidas_revertir, key=lambda x: x[0], reverse=True)
+            for hora_salida_completa, tkt_rev, pat_rev, hora_salida_rev in salidas_revertir:
                 col1, col2 = st.columns([3, 1])
                 col1.markdown(f"🚗 **{pat_rev}** | Tkt: #{tkt_rev} | Salida: {hora_salida_rev}")
-                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{idx_h}"):
+                
+                safe_key = hora_salida_completa.replace(" ", "_").replace(":", "_")
+                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{safe_key}"):
                     try:
                         idx_reg_to_clear = None
                         for idx_r, r_row in enumerate(reg):
-                            if str(r_row[0]).strip() == tkt_rev:
+                            if str(r_row[0]).strip() == tkt_rev and len(r_row) > 3 and str(r_row[3]) == hora_salida_completa:
                                 idx_reg_to_clear = idx_r
                                 break
+                                
+                        if idx_reg_to_clear is None:
+                            for idx_r, r_row in enumerate(reg):
+                                if str(r_row[0]).strip() == tkt_rev and str(r_row[1]).upper() == pat_rev:
+                                    idx_reg_to_clear = idx_r
+                                    break
+                                    
                         if idx_reg_to_clear is not None:
                             ws_reg = sh.worksheet("Registro")
                             ws_reg.update_cells([
@@ -1034,8 +1047,22 @@ elif menu == "📊 Activos":
                                 gspread.Cell(row=idx_reg_to_clear + 1, col=9, value=0)   
                             ])
                         
-                        sh.worksheet("Historial_Tickets").delete_rows(idx_h + 1)
-                        
+                        ws_hist = sh.worksheet("Historial_Tickets")
+                        hist_data_fresh = ws_hist.get_all_values()
+                        idx_to_delete = None
+                        for i, r_hist in enumerate(hist_data_fresh):
+                            if len(r_hist) > 3 and str(r_hist[0]) == hora_salida_completa and str(r_hist[3]).replace("#","").strip() == tkt_rev:
+                                idx_to_delete = i + 1
+                                break
+                                
+                        if idx_to_delete:
+                            ws_hist.delete_rows(idx_to_delete)
+                            try:
+                                ws_anul = sh.worksheet("Auditoria_Anulaciones")
+                                ws_anul.append_row([hora_actual_uy(), emp, tkt_rev, pat_rev, hora_salida_completa])
+                            except Exception as e:
+                                st.error("⚠️ Falta la pestaña 'Auditoria_Anulaciones' en tu Excel. Por favor, creala para guardar este registro.")
+                            
                         st.toast(f"✅ Salida del ticket #{tkt_rev} anulada con éxito. El auto volvió a la playa.")
                         obtener_datos.clear()
                         time.sleep(1.5)
@@ -1044,6 +1071,21 @@ elif menu == "📊 Activos":
                         st.error(f"Error al anular la salida: {e}")
         else:
             st.info("No hay salidas registradas hoy para anular.")
+            
+        st.markdown("---")
+        st.markdown("### 📋 Registro de Salidas Anuladas (Hoy)")
+        
+        anulaciones_hoy = []
+        if len(anulaciones_data) > 1:
+            for a in reversed(anulaciones_data[1:]):
+                if len(a) > 0 and str(a[0]).startswith(hoy_str_global):
+                    anulaciones_hoy.append(a)
+                    
+        if anulaciones_hoy:
+            df_anul = pd.DataFrame(anulaciones_hoy, columns=["Fecha Anulación", "Valet que anuló", "Ticket", "Patente", "Hora Salida Borrada"][:len(anulaciones_data[0])])
+            st.dataframe(df_anul, use_container_width=True, hide_index=True)
+        else:
+            st.info("Ningún valet anuló tickets en el día de hoy.")
 
 elif menu == "🧽 Lavadero":
     c_head1, c_head2 = st.columns([3, 1])
@@ -1083,7 +1125,7 @@ elif menu == "🧽 Lavadero":
                             lav_usados = 0
                             for h in historial_data[1:]:
                                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
-                                    if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                                         lav_usados += 1
                             
                             if lav_usados < lav_perm:
@@ -1223,12 +1265,13 @@ elif menu == "🧽 Lavadero":
             lav_usados = 0
             for h in historial_data[1:]:
                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                    if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                         lav_usados += 1
                         
             reporte_lavados_valet.append({
                 "Cliente": datos_m["nombre"],
                 "Patente": pat,
+                "Plan de Lavado": bene,
                 "Usados (Mes)": f"{lav_usados} / {lav_perm}",
                 "Acumulados Extra": datos_m.get("acumulados", 0),
                 "Estado": "✅ Disponible" if lav_usados < lav_perm else ("⭐ Usa Acumulado" if datos_m.get("acumulados", 0) > 0 else "❌ Agotado")
@@ -1317,7 +1360,7 @@ elif menu == "✅ Validaciones":
         opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
         
         if local_seleccionado == "Quinquela":
-            tab_q_normal, tab_q_100 = st.tabs(["⏱️ Cortesía 3 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
+            tab_q_normal, tab_q_100 = st.tabs(["⏱️️ Cortesía 3 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
             
             with tab_q_normal:
                 st.info("Esta opción bonifica las primeras 3 hs. El cliente abona la diferencia al retirar el vehículo.")
@@ -1607,6 +1650,7 @@ elif menu == "📤 Salida":
     
     else:
         mes_actual_str = hora_actual_uy()[:7]
+        hoy_str_salida = hora_actual_uy().split()[0]
         temp_activos = {}
         for r in reg[1:]:
             if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
@@ -1640,7 +1684,10 @@ elif menu == "📤 Salida":
             else:
                 tag = "[#]"
             
-            lista_salida_ordenada.append(f"{tag} Tkt: #{r[0]} - 🚗 Pat: {p_val}")
+            t_ing_val = str(r[2]).split()[0]
+            tag_fecha = f" ⚠️(Ingresó: {t_ing_val})" if t_ing_val != hoy_str_salida else ""
+            
+            lista_salida_ordenada.append(f"{tag} Tkt: #{r[0]} - 🚗 Pat: {p_val}{tag_fecha}")
         
         st.markdown("Elegir auto a retirar *(Podés hacer clic y escribir la patente o ticket para buscar más rápido)*:")
         sel = st.selectbox("Buscar por Patente o Ticket:", [""] + lista_salida_ordenada, label_visibility="collapsed")
@@ -1700,7 +1747,7 @@ elif menu == "📤 Salida":
                     
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
-                            if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                                 lavados_usados += 1
                 
             cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
@@ -1993,13 +2040,17 @@ elif menu == "📈 Reportes":
                 df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
                 df_ventas_kiosco = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
             
-            filtro = st.radio("Filtro de tiempo:", ["Todo el historial", "Últimos 7 días", "Hoy"], horizontal=True)
+            filtro_opcion = st.radio("Filtro de tiempo:", ["Hoy", "Últimos 7 días", "Elegir Fecha Específica", "Todo el historial"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
             
-            if filtro == "Hoy": 
+            if filtro_opcion == "Elegir Fecha Específica":
+                fecha_elegida = st.date_input("Seleccioná la fecha exacta a auditar:", hoy_dt.date())
+                df = df[df['Hora'].dt.date == fecha_elegida]
+                if not df_ventas_kiosco.empty: df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.date == fecha_elegida]
+            elif filtro_opcion == "Hoy": 
                 df = df[df['Hora'].dt.date == hoy_dt.date()]
                 if not df_ventas_kiosco.empty: df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.date == hoy_dt.date()]
-            elif filtro == "Últimos 7 días": 
+            elif filtro_opcion == "Últimos 7 días": 
                 df = df[df['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
                 if not df_ventas_kiosco.empty: df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
             
@@ -2148,7 +2199,7 @@ elif menu == "📈 Reportes":
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                        if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                             lav_usados += 1
                             
                 reporte_lavados.append({
@@ -2361,7 +2412,7 @@ elif menu == "📈 Reportes":
                     lav_usados_ant = 0
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_ant_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                            if "Lavado Beneficio Usado" in str(h[7]) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
                                 lav_usados_ant += 1
                                 
                     sobran = lav_perm - lav_usados_ant
@@ -2435,7 +2486,7 @@ elif menu == "📖 Ayuda":
     
     ---
     
-    ### ✏️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
+    ### ✏️️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
     Si escribiste mal una patente (ej: `ABC124` en vez de `ABC123`):
     1. Ir a la pestaña **📊 Activos**.
     2. Bajar hasta el panel **"✏️ Corregir Patente"**.
