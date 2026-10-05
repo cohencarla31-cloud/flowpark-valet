@@ -754,7 +754,7 @@ elif menu == "📥 Ingreso":
                 
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat_final:
-                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                        if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                             lavados_usados += 1
                             
                 if not excede_cupo_mensual:
@@ -1125,7 +1125,7 @@ elif menu == "🧽 Lavadero":
                             lav_usados = 0
                             for h in historial_data[1:]:
                                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == pat:
-                                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                                    if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                         lav_usados += 1
                             
                             if lav_usados < lav_perm:
@@ -1265,7 +1265,7 @@ elif menu == "🧽 Lavadero":
             lav_usados = 0
             for h in historial_data[1:]:
                 if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                    if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                    if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                         lav_usados += 1
                         
             reporte_lavados_valet.append({
@@ -1360,7 +1360,7 @@ elif menu == "✅ Validaciones":
         opciones_mozo = [f"#{r[0]} - Patente: {r[1].upper()}" for r in activos_disponibles]
         
         if local_seleccionado == "Quinquela":
-            tab_q_normal, tab_q_100 = st.tabs(["⏱️️ Cortesía 3 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
+            tab_q_normal, tab_q_100 = st.tabs(["⏱️ Cortesía 3 hs (Normal)", "💯 Cobertura 100% (Invitación Especial)"])
             
             with tab_q_normal:
                 st.info("Esta opción bonifica las primeras 3 hs. El cliente abona la diferencia al retirar el vehículo.")
@@ -1747,7 +1747,7 @@ elif menu == "📤 Salida":
                     
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
-                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                            if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                 lavados_usados += 1
                 
             cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
@@ -2199,7 +2199,7 @@ elif menu == "📈 Reportes":
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                        if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                        if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                             lav_usados += 1
                             
                 reporte_lavados.append({
@@ -2412,7 +2412,7 @@ elif menu == "📈 Reportes":
                     lav_usados_ant = 0
                     for h in historial_data[1:]:
                         if len(h) > 7 and str(h[0]).startswith(mes_ant_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
-                            if "Lavado Beneficio Usado" in str(h[7]) or "Lavado Incluido" in str(h.get(10, '')):
+                            if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                 lav_usados_ant += 1
                                 
                     sobran = lav_perm - lav_usados_ant
@@ -2486,7 +2486,7 @@ elif menu == "📖 Ayuda":
     
     ---
     
-    ### ✏️️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
+    ### ✏️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
     Si escribiste mal una patente (ej: `ABC124` en vez de `ABC123`):
     1. Ir a la pestaña **📊 Activos**.
     2. Bajar hasta el panel **"✏️ Corregir Patente"**.
