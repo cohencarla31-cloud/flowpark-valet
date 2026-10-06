@@ -407,13 +407,16 @@ def actualizar_stock_en_extras(producto_nombre, cantidad_vendida):
         rows = ws_ex.get_all_values()
         for idx, r in enumerate(rows[1:], start=2):
             if len(r) > 0 and str(r[0]).strip().lower() == str(producto_nombre).strip().lower():
-                vendidos_actuales = float(r[3]) if len(r)>3 and str(r[3]).strip() != "" else 0
+                vendidos_actuales = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
                 stock_inicial = float(r[2]) if len(r)>2 and str(r[2]).strip() != "" else 0
+                compras = float(r[3]) if len(r)>3 and str(r[3]).strip() != "" else 0
+                
                 nuevo_vendidos = vendidos_actuales + float(cantidad_vendida)
-                nuevo_stock = stock_inicial - nuevo_vendidos
+                nuevo_stock = stock_inicial + compras - nuevo_vendidos
+                
                 ws_ex.update_cells([
-                    gspread.Cell(row=idx, col=4, value=nuevo_vendidos),
-                    gspread.Cell(row=idx, col=5, value=nuevo_stock)
+                    gspread.Cell(row=idx, col=5, value=nuevo_vendidos),
+                    gspread.Cell(row=idx, col=6, value=nuevo_stock)
                 ])
                 break
     except Exception as e: pass
@@ -427,13 +430,13 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                 prod = str(r[0]).strip()
                 if prod in conteo_dict:
                     cant_fisica = int(conteo_dict[prod])
-                    stock_actual_calc = float(r[4]) if len(r)>4 and str(r[4]).strip() != "" else 0
+                    stock_actual_calc = float(r[5]) if len(r)>5 and str(r[5]).strip() != "" else 0
                     diferencia = cant_fisica - stock_actual_calc
                     ws_ex.update_cells([
-                        gspread.Cell(row=idx, col=7, value=cant_fisica),
-                        gspread.Cell(row=idx, col=8, value=diferencia),
-                        gspread.Cell(row=idx, col=10, value=fecha_str),
-                        gspread.Cell(row=idx, col=11, value=empleado)
+                        gspread.Cell(row=idx, col=8, value=cant_fisica),
+                        gspread.Cell(row=idx, col=9, value=diferencia),
+                        gspread.Cell(row=idx, col=11, value=fecha_str),
+                        gspread.Cell(row=idx, col=12, value=empleado)
                     ])
     except Exception as e: pass
 
@@ -1457,7 +1460,7 @@ elif menu == "✅ Validaciones":
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
                             etiqueta_autoriza = f"Autoriza: {mozo}"
-                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
+                            msg_aviso = urllib.parse.quote(f"⚠️️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
@@ -1543,6 +1546,16 @@ elif menu == "✅ Validaciones":
 elif menu == "🍔 Extras":
     st.subheader("Carga de Consumos y Extras")
     st.info("ℹ️ IMPORTANTE: Los Lavados se cobran directamente en la sección SALIDA para calcular mejor las promociones.")
+    
+    # --- NUEVO: DICCIONARIO DE STOCK REAL ---
+    extras_info = {}
+    for r in extras_raw[1:]:
+        if len(r) > 0 and str(r[0]).strip():
+            p_name = str(r[0]).strip()
+            precio_val = float(r[1]) if len(r) > 1 and str(r[1]).strip() else 0
+            stock_act_val = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0  # <--- WAS 4, NOW 5 (Col F)
+            extras_info[p_name] = {"precio": precio_val, "stock": stock_act_val}
+    
     temp_activos = {}
     for r in reg[1:]:
         if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
@@ -1565,39 +1578,65 @@ elif menu == "🍔 Extras":
     if st.button("Registrar Extra"):
         if not prod: st.warning("Seleccione un producto.")
         else:
-            fecha_act = hora_actual_uy()
-            try:
-                precio_unitario = float(extras.get(prod, 0))
-                total_dinero_extra = precio_unitario * cant
-                
-                if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
-                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA", precio_unitario, total_dinero_extra, fecha_act.split()[0]])
-                    actualizar_stock_en_extras(prod, cant)
-                    st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
-                    obtener_datos.clear()
-                else:
-                    tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
-                    patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
+            # --- NUEVO: BLOQUEO INTELIGENTE DE STOCK ---
+            stock_disponible = extras_info.get(prod, {}).get("stock", 0)
+            if "lavado" not in prod.lower() and cant > stock_disponible:
+                st.error(f"❌ ¡Operación bloqueada por falta de inventario! Solo quedan {int(stock_disponible)} unidades de '{prod}'.")
+            else:
+                fecha_act = hora_actual_uy()
+                try:
+                    precio_unitario = float(extras.get(prod, 0))
+                    total_dinero_extra = precio_unitario * cant
                     
-                    sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext, precio_unitario, total_dinero_extra, fecha_act.split()[0]])
-                    actualizar_stock_en_extras(prod, cant)
+                    if sel_auto == "🛒 VENTA DIRECTA (Sin Vehículo)":
+                        sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, "VENTA DIRECTA", precio_unitario, total_dinero_extra, fecha_act.split()[0]])
+                        actualizar_stock_en_extras(prod, cant)
+                        st.success(f"✅ Venta directa registrada: {cant}x {prod} por {emp}.")
+                        obtener_datos.clear()
+                    else:
+                        tkt = sel_auto.split(" - ")[0].replace("#", "").strip()
+                        patente_ext = sel_auto.split("Patente: ")[1].strip().upper()
+                        
+                        sh.worksheet("Control_Stock").append_row([fecha_act, prod, cant, emp, patente_ext, precio_unitario, total_dinero_extra, fecha_act.split()[0]])
+                        actualizar_stock_en_extras(prod, cant)
+                        
+                        for i, row in enumerate(reg, start=1):
+                            if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
+                                texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
+                                nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
+                                dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
+                                
+                                ws_reg = sh.worksheet("Registro")
+                                ws_reg.update_cells([
+                                    gspread.Cell(row=i, col=6, value=nuevo_texto),
+                                    gspread.Cell(row=i, col=8, value=dinero_actual + total_dinero_extra)
+                                ])
+                                break
+                        st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
+                        obtener_datos.clear()
+                except Exception as e:
+                    st.error("Hubo un error cargando el extra. Intente nuevamente.")
                     
-                    for i, row in enumerate(reg, start=1):
-                        if str(row[0]).strip() == tkt and (not row[3] or str(row[3]).lower() == "nan"):
-                            texto_actual = str(row[5]) if len(row)>5 and row[5] else ""
-                            nuevo_texto = f"{texto_actual} | {cant}x {prod}".strip(" |")
-                            dinero_actual = float(row[7]) if len(row)>7 and row[7] else 0
-                            
-                            ws_reg = sh.worksheet("Registro")
-                            ws_reg.update_cells([
-                                gspread.Cell(row=i, col=6, value=nuevo_texto),
-                                gspread.Cell(row=i, col=8, value=dinero_actual + total_dinero_extra)
-                            ])
-                            break
-                    st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
+    # --- NUEVO: MÓDULO DE GASTOS ---
+    st.markdown("---")
+    st.markdown("### 💸 Retiros y Gastos de Caja")
+    with st.expander("Registrar un pago a proveedor o retiro de dinero"):
+        motivo_gasto = st.text_input("Motivo del gasto (Ej: Pago Coca-Cola Factura B 4883190):")
+        monto_gasto = st.number_input("Monto retirado de la caja ($):", min_value=0, step=50)
+        
+        if st.button("Registrar Gasto de Caja"):
+            if motivo_gasto and monto_gasto > 0:
+                try:
+                    fecha_act = hora_actual_uy()
+                    sh.worksheet("Efectivo_Caja").append_row([fecha_act, emp, "Gasto", float(monto_gasto), motivo_gasto])
+                    st.success(f"✅ Gasto de ${monto_gasto:,.0f} registrado correctamente. Se reflejará en la auditoría final.")
                     obtener_datos.clear()
-            except Exception as e:
-                st.error("Hubo un error cargando el extra. Intente nuevamente.")
+                    time.sleep(1.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al registrar el gasto: {e}")
+            else:
+                st.warning("Completá el motivo y asegurate de poner un monto mayor a cero.")
 
 elif menu == "📤 Salida":
     c_head1, c_head2 = st.columns([3, 1])
@@ -1934,7 +1973,7 @@ elif menu == "📤 Salida":
 🚗 Vehículo: {patente} | Tkt: #{tkt}
 🕒 Ingreso: {h_ingreso}
 🕒 Salida:  {h_salida}
-⏱️ Estadía total: {mins//60}h {mins%60}m
+⏱️️ Estadía total: {mins//60}h {mins%60}m
 ---------------------------------
 📋 DETALLE:
 {detalle_extras_txt}
@@ -2235,11 +2274,12 @@ elif menu == "📈 Reportes":
                     
                     try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
                     except: precio = 0
-                    try: vendidos = float(r[3]) if len(r) > 3 and str(r[3]).strip() else 0
+                    # --- LECTURA NUEVAS COLUMNAS KIOSCO ---
+                    try: vendidos = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
                     except: vendidos = 0
-                    try: stock_act = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
+                    try: stock_act = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0
                     except: stock_act = 0
-                    try: stock_min = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 5
+                    try: stock_min = float(r[6]) if len(r) > 6 and str(r[6]).strip() else 5
                     except: stock_min = 5
                     
                     estado = "🟢 OK"
@@ -2337,7 +2377,14 @@ elif menu == "📈 Reportes":
             if len(datos_ef) > 1:
                 df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
                 df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
-                st.dataframe(df_ef.tail(10), use_container_width=True, hide_index=True)
+                
+                # --- NUEVO: DESTACAR LOS GASTOS EN LA AUDITORÍA ---
+                df_gastos_aud = df_ef[df_ef['Tipo'] == "Gasto"]
+                if not df_gastos_aud.empty:
+                    total_g = df_gastos_aud['Monto'].sum()
+                    st.warning(f"💸 **Total de Gastos/Retiros del turno:** ${total_g:,.0f}")
+                
+                st.dataframe(df_ef.tail(15), use_container_width=True, hide_index=True)
                 
                 if len(df_ef) >= 2:
                     salidas = df_ef[df_ef['Tipo'] == "Salida"]
