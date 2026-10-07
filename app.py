@@ -1216,7 +1216,7 @@ elif menu == "🧽 Lavadero":
                 t_add = auto_manual.split(" - Tkt: #")[1].strip()
                 try:
                     for idx, row in enumerate(reg):
-                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
                             nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
                             sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
                             st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
@@ -1460,7 +1460,7 @@ elif menu == "✅ Validaciones":
                             st.success(f"✅ Se aplicó la validación de {local_seleccionado} al vehículo {pat_val}.")
                             
                             etiqueta_autoriza = f"Autoriza: {mozo}"
-                            msg_aviso = urllib.parse.quote(f"⚠️️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
+                            msg_aviso = urllib.parse.quote(f"⚠️ *NUEVA VALIDACIÓN*\n🚗 Vehículo: {pat_val} (Tkt #{tkt_val})\n🏪 Local: {local_seleccionado}\n👤 {etiqueta_autoriza}")
                             st.markdown("### 📲 Avisar a los Valets por WhatsApp:")
                             st.markdown(f"[➡️ Mandar a Varios Contactos a la vez (Elegir en lista)]({f'https://api.whatsapp.com/send?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
@@ -1973,7 +1973,7 @@ elif menu == "📤 Salida":
 🚗 Vehículo: {patente} | Tkt: #{tkt}
 🕒 Ingreso: {h_ingreso}
 🕒 Salida:  {h_salida}
-⏱️️ Estadía total: {mins//60}h {mins%60}m
+⏱️ Estadía total: {mins//60}h {mins%60}m
 ---------------------------------
 📋 DETALLE:
 {detalle_extras_txt}
@@ -2274,7 +2274,6 @@ elif menu == "📈 Reportes":
                     
                     try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
                     except: precio = 0
-                    # --- LECTURA NUEVAS COLUMNAS KIOSCO ---
                     try: vendidos = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
                     except: vendidos = 0
                     try: stock_act = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0
