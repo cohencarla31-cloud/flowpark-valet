@@ -1830,15 +1830,24 @@ elif menu == "📤 Salida":
             
             st.markdown("---")
             
-            precio_bqb_sem = tarifas.get("Promo Buquebus Semana", {}).get(tipo_vehi, 2750)
+            # --- NUEVO: OPCIÓN BUQUEBUS 1 SEMANA + SUMADOR DE DÍAS EXTRA ---
+            precio_bqb_sem = tarifas.get("Promo Buquebus Semana (L-V)", {}).get(tipo_vehi, 2750)
             precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
+            precio_bqb_1_sem = tarifas.get("Promo Buquebus 1 Semana", {}).get(tipo_vehi, 4500)
             
             opciones_promo_estadia = [
                 "⏱️ Automático (Calculado por Tiempo)", 
-                f"🚢 Promo Buquebus 4 Días (Semana) - ${precio_bqb_sem}", 
-                f"🚢 Promo Buquebus 4 Días (Fin de Semana) - ${precio_bqb_finde}"
+                f"🚢 Promo Buquebus Semana (L-V) - ${precio_bqb_sem}", 
+                f"🚢 Promo Buquebus 4 Días (Fin de Semana) - ${precio_bqb_finde}",
+                f"🚢 Promo Buquebus 1 Semana - ${precio_bqb_1_sem}"
             ]
             promo_estadia_sel = st.selectbox("🏷️ Aplicar Tarifa Especial (Reemplaza al reloj):", opciones_promo_estadia)
+            
+            dias_extra = 0
+            tarifa_dia_completo = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
+            
+            if "Promo Buquebus" in promo_estadia_sel:
+                dias_extra = st.number_input(f"➕ Días extra a sumar al paquete (Tarifa de {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0, step=1)
             
             if st.button("Calcular y Generar Salida"):
                 ws_registro = sh.worksheet("Registro")
@@ -1857,8 +1866,12 @@ elif menu == "📤 Salida":
                     local_val = obtener_validacion_local(patente, tkt, h_ingreso, val_combinadas)
                     
                     tarifa_override = 0
-                    if "Semana" in promo_estadia_sel: tarifa_override = precio_bqb_sem
-                    elif "Fin de Semana" in promo_estadia_sel: tarifa_override = precio_bqb_finde
+                    if "Semana (L-V)" in promo_estadia_sel: 
+                        tarifa_override = precio_bqb_sem + (dias_extra * tarifa_dia_completo)
+                    elif "Fin de Semana" in promo_estadia_sel: 
+                        tarifa_override = precio_bqb_finde + (dias_extra * tarifa_dia_completo)
+                    elif "1 Semana" in promo_estadia_sel: 
+                        tarifa_override = precio_bqb_1_sem + (dias_extra * tarifa_dia_completo)
                     
                     es_evento = "Evento:" in estado_txt
                     nombre_evento_salida = ""
@@ -1931,7 +1944,11 @@ elif menu == "📤 Salida":
                             info_desc = f"Incluye cortesía de 3 hs por {local_val}."
                         else: 
                             if tarifa_override > 0:
-                                info_desc = f"🚢 Promo Especial aplicada: {promo_estadia_sel.split(' -')[0]}."
+                                promo_nombre_base = promo_estadia_sel.split(' -')[0]
+                                if dias_extra > 0:
+                                    info_desc = f"{promo_nombre_base} + {dias_extra} Día(s) extra."
+                                else:
+                                    info_desc = f"🚢 Promo Especial aplicada: {promo_nombre_base}."
                                 if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                             else:
                                 if excede_cupo_flag:
