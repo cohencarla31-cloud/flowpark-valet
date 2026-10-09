@@ -1830,24 +1830,15 @@ elif menu == "📤 Salida":
             
             st.markdown("---")
             
-            # --- NUEVO: OPCIÓN BUQUEBUS 1 SEMANA + SUMADOR DE DÍAS EXTRA ---
-            precio_bqb_sem = tarifas.get("Promo Buquebus Semana (L-V)", {}).get(tipo_vehi, 2750)
+            precio_bqb_sem = tarifas.get("Promo Buquebus Semana", {}).get(tipo_vehi, 2750)
             precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
-            precio_bqb_1_sem = tarifas.get("Promo Buquebus 1 Semana", {}).get(tipo_vehi, 4800)
             
             opciones_promo_estadia = [
                 "⏱️ Automático (Calculado por Tiempo)", 
-                f"🚢 Promo Buquebus Semana (L-V) - ${precio_bqb_sem}", 
-                f"🚢 Promo Buquebus Finde - ${precio_bqb_finde}",
-                f"🚢 Promo Buquebus 1 Semana - ${precio_bqb_1_sem}"
+                f"🚢 Promo Buquebus 4 Días (Semana) - ${precio_bqb_sem}", 
+                f"🚢 Promo Buquebus 4 Días (Fin de Semana) - ${precio_bqb_finde}"
             ]
             promo_estadia_sel = st.selectbox("🏷️ Aplicar Tarifa Especial (Reemplaza al reloj):", opciones_promo_estadia)
-            
-            dias_extra = 0
-            tarifa_dia_completo = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
-            
-            if "Promo Buquebus" in promo_estadia_sel:
-                dias_extra = st.number_input(f"➕ Días extra a sumar al paquete (Tarifa de {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0, step=1)
             
             if st.button("Calcular y Generar Salida"):
                 ws_registro = sh.worksheet("Registro")
@@ -1866,12 +1857,8 @@ elif menu == "📤 Salida":
                     local_val = obtener_validacion_local(patente, tkt, h_ingreso, val_combinadas)
                     
                     tarifa_override = 0
-                    if "Semana (L-V)" in promo_estadia_sel: 
-                        tarifa_override = precio_bqb_sem + (dias_extra * tarifa_dia_completo)
-                    elif "Finde" in promo_estadia_sel: 
-                        tarifa_override = precio_bqb_finde + (dias_extra * tarifa_dia_completo)
-                    elif "1 Semana" in promo_estadia_sel: 
-                        tarifa_override = precio_bqb_1_sem + (dias_extra * tarifa_dia_completo)
+                    if "Semana" in promo_estadia_sel: tarifa_override = precio_bqb_sem
+                    elif "Fin de Semana" in promo_estadia_sel: tarifa_override = precio_bqb_finde
                     
                     es_evento = "Evento:" in estado_txt
                     nombre_evento_salida = ""
@@ -1944,11 +1931,7 @@ elif menu == "📤 Salida":
                             info_desc = f"Incluye cortesía de 3 hs por {local_val}."
                         else: 
                             if tarifa_override > 0:
-                                promo_nombre_base = promo_estadia_sel.split(' -')[0]
-                                if dias_extra > 0:
-                                    info_desc = f"{promo_nombre_base} + {dias_extra} Día(s) extra."
-                                else:
-                                    info_desc = f"🚢 Promo Especial aplicada: {promo_nombre_base}."
+                                info_desc = f"🚢 Promo Especial aplicada: {promo_estadia_sel.split(' -')[0]}."
                                 if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                             else:
                                 if excede_cupo_flag:
@@ -2168,7 +2151,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -2359,7 +2342,7 @@ elif menu == "📈 Reportes":
                     })
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
@@ -2413,7 +2396,7 @@ elif menu == "📈 Reportes":
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
@@ -2590,3 +2573,4 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
+
