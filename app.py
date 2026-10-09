@@ -1849,7 +1849,7 @@ elif menu == "📤 Salida":
             
             if "Promo Buquebus" in promo_estadia_sel:
                 st.info("💡 **Añadir días excedentes:** Si el cliente se pasó del paquete que eligió, podés sumar los días extra acá abajo.")
-                dias_extra = st.number_input(f"➕ Días extra a sumar al paquete (Tarifa de {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0, step=1)
+                dias_extra = st.number_input(f"➕ Días extra a sumar al paquete (Tarifa de {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0.0, step=0.5)
             
             if st.button("Calcular y Generar Salida"):
                 ws_registro = sh.worksheet("Registro")
