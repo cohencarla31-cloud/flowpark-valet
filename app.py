@@ -952,7 +952,20 @@ elif menu == "📊 Activos":
                     tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
                     
                     activos_lista.append(r)
-                    st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
+                    
+                    # --- NUEVA ALERTA DE 24HS EN PLAYA ---
+                    try:
+                        ing_dt = pd.to_datetime(h_ing)
+                        ahora_dt = pd.to_datetime(hora_actual_uy())
+                        horas_pasadas = (ahora_dt - ing_dt).total_seconds() / 3600
+                    except:
+                        horas_pasadas = 0
+                        
+                    if horas_pasadas >= 24:
+                        tag_24h = f" | 🚨 **¡LLEVA {int(horas_pasadas)} HS!**"
+                        st.warning(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}{tag_24h}")
+                    else:
+                        st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
 
         if activos_lista:
             st.markdown("### 📋 Resumen de Autos en Playa por Fecha")
@@ -1023,12 +1036,13 @@ elif menu == "📊 Activos":
         
         if salidas_revertir:
             salidas_revertir = sorted(salidas_revertir, key=lambda x: x[0], reverse=True)
-            for hora_salida_completa, tkt_rev, pat_rev, hora_salida_rev in salidas_revertir:
+            for idx_btn, (hora_salida_completa, tkt_rev, pat_rev, hora_salida_rev) in enumerate(salidas_revertir):
                 col1, col2 = st.columns([3, 1])
                 col1.markdown(f"🚗 **{pat_rev}** | Tkt: #{tkt_rev} | Salida: {hora_salida_rev}")
                 
                 safe_key = hora_salida_completa.replace(" ", "_").replace(":", "_")
-                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{safe_key}"):
+                # --- ARREGLO DEL ERROR STREAMLIT DUPLICATE KEY ---
+                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{safe_key}_{idx_btn}"):
                     try:
                         idx_reg_to_clear = None
                         for idx_r, r_row in enumerate(reg):
@@ -1986,6 +2000,13 @@ elif menu == "📤 Salida":
                         
                     total_a_pagar = monto_estacionamiento + total_extras
                     
+                    # --- NUEVO: ALERTA DE COBRO INUSUAL ---
+                    if total_a_pagar > 2000 and "Buquebus" not in promo_estadia_sel and mins < 1440:
+                        if obs_salida_final == "-":
+                            obs_salida_final = "🚨 ALERTA >$2000"
+                        else:
+                            obs_salida_final = "🚨 ALERTA >$2000 | " + obs_salida_final
+                    
                     texto_ticket = f"""*PARKING EL GLOBO - TICKET DE EGRESO*
 ---------------------------------
 👤 Cliente: {nombre_cliente_encontrado}
@@ -2416,6 +2437,19 @@ elif menu == "📈 Reportes":
                 st.info("No se utilizaron validaciones normales en este período.")
             
     with tab_aud:
+        # --- NUEVO PANEL DE ALERTAS ---
+        st.markdown("### 🚨 Alertas de Cobros Inusuales (>$2000 sin promo)")
+        if not df.empty:
+            df_alertas = df[df['Obs'].str.contains("🚨 ALERTA >\$2000", case=False, na=False)]
+            if not df_alertas.empty:
+                st.error(f"⚠️ Se detectaron {len(df_alertas)} cobros por encima de lo normal en este período. Revisá si corresponde o si hubo un error del valet.")
+                st.dataframe(df_alertas[['Hora', 'Op', 'Patente', 'Ticket', 'Total', 'Obs']].sort_values(by='Hora', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ Todo en orden. No hay cobros injustificados mayores a $2000 en el período seleccionado.")
+        else:
+            st.info("No hay datos suficientes para analizar.")
+            
+        st.markdown("---")
         st.markdown("### 💵 Auditoría de Caja y Efectivo")
         try:
             ws_ef = sh.worksheet("Efectivo_Caja")
@@ -2602,8 +2636,9 @@ elif menu == "📖 Ayuda":
       │                                                 │
       ├─ Escribe Patente                                ├─ Revisa autos pendientes
       ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Revisa Mensualistas estacionados
-      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Lava el auto
-      ├─ ¿Pide Lavado?    ──► Tilda la casilla          ├─ Toca "Marcar Terminado"
+      ├─ Lava el auto
+      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
+      ├─ ¿Pide Lavado?    ──► Tilda la casilla          │
       ▼                                                 │
     [ Envía Ticket WP ]                                 │
       │                                                 │
