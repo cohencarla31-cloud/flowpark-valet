@@ -6,6 +6,18 @@ import urllib.parse
 import time
 import math
 
+# ==========================================
+# CONFIGURACIÓN DE HORARIOS NORMALES (En Horas Decimales)
+# Lunes=0, Martes=1, Miércoles=2, Jueves=3, Viernes=4, Sábado=5, Domingo=6
+# ==========================================
+HORARIOS_ESPERADOS = {
+    "John":    {0: 8.5, 1: 8.5, 2: 8.5, 3: 8.5, 4: 8.5, 5: 0.0, 6: 0.0},
+    "Rodrigo": {0: 8.5, 1: 8.5, 2: 8.5, 3: 8.5, 4: 8.5, 5: 0.0, 6: 0.0},
+    "Andres":  {0: 5.0, 1: 4.0, 2: 9.0, 3: 4.0, 4: 5.0, 5: 8.0, 6: 0.0},
+    "Lucas":   {0: 4.0, 1: 5.0, 2: 0.0, 3: 5.0, 4: 4.0, 5: 5.0, 6: 5.0}
+}
+# ==========================================
+
 st.set_page_config(page_title="Flow Park - Operativa VIP", layout="centered", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -1230,7 +1242,7 @@ elif menu == "🧽 Lavadero":
                 t_add = auto_manual.split(" - Tkt: #")[1].strip()
                 try:
                     for idx, row in enumerate(reg):
-                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
                             nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
                             sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
                             st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
@@ -2458,7 +2470,6 @@ elif menu == "📈 Reportes":
                 df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
                 df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
                 
-                # --- NUEVO: DESTACAR LOS GASTOS EN LA AUDITORÍA ---
                 df_gastos_aud = df_ef[df_ef['Tipo'] == "Gasto"]
                 if not df_gastos_aud.empty:
                     total_g = df_gastos_aud['Monto'].sum()
@@ -2484,15 +2495,65 @@ elif menu == "📈 Reportes":
         except Exception as e: st.info("Error cargando Efectivo_Caja.")
 
         st.markdown("---")
-        st.markdown("### 🕒 Control de Asistencia y Horarios")
+        # --- NUEVO MÓDULO DE CONTROL DE HORAS EXTRAS Y DÍAS LIBRES ---
+        st.markdown("### 🕒 Control de Asistencia y Horas Extras")
         try:
             ws_asis = sh.worksheet("Asistencia")
             datos_asis = ws_asis.get_all_values()
             if len(datos_asis) > 1:
                 df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
-                df_asis['Hora'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
-                st.dataframe(df_asis.sort_values(by='Hora', ascending=False).head(15), use_container_width=True, hide_index=True)
-        except: st.error("Error cargando asistencia.")
+                df_asis['Hora_dt'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+                df_valid = df_asis.dropna(subset=['Hora_dt'])
+                
+                resultados_hs = []
+                df_es = df_valid[df_valid['Acción'].isin(['Entrada', 'Salida'])].sort_values(['Empleado', 'Hora_dt'])
+                
+                for emp_nombre, group in df_es.groupby('Empleado'):
+                    entrada_tmp = None
+                    hs_por_dia = {}
+                    for _, row in group.iterrows():
+                        if row['Acción'] == 'Entrada':
+                            entrada_tmp = row['Hora_dt']
+                        elif row['Acción'] == 'Salida' and entrada_tmp is not None:
+                            hs_trabajadas = (row['Hora_dt'] - entrada_tmp).total_seconds() / 3600.0
+                            fecha_str = entrada_tmp.strftime("%Y-%m-%d")
+                            
+                            if fecha_str not in hs_por_dia:
+                                hs_por_dia[fecha_str] = {"fecha_dt": entrada_tmp, "total_hs": 0.0}
+                            hs_por_dia[fecha_str]["total_hs"] += hs_trabajadas
+                            
+                            entrada_tmp = None
+                    
+                    emp_key = next((k for k in HORARIOS_ESPERADOS.keys() if k.lower() in emp_nombre.lower()), None)
+                    if emp_key:
+                        for f_str, data_dia in hs_por_dia.items():
+                            dia_semana = data_dia["fecha_dt"].weekday()
+                            hs_hechas = data_dia["total_hs"]
+                            hs_esperadas = HORARIOS_ESPERADOS[emp_key].get(dia_semana, 0.0)
+                            
+                            diff = hs_hechas - hs_esperadas
+                            if diff > 0.5: 
+                                if hs_esperadas == 0:
+                                    alerta = f"🚨 DÍA LIBRE TRABAJADO: Hizo {hs_hechas:.1f} hs."
+                                else:
+                                    alerta = f"🔥 HORAS EXTRAS: Hizo {hs_hechas:.1f} hs (Normal: {hs_esperadas} hs | Extra: {diff:.1f} hs)"
+                                
+                                resultados_hs.append({
+                                    "Fecha": f_str,
+                                    "Empleado": emp_nombre,
+                                    "Alerta": alerta
+                                })
+                
+                if resultados_hs:
+                    st.error("⚠️ Se detectaron horas extras o trabajo en días libres:")
+                    df_alertas_hs = pd.DataFrame(resultados_hs).drop_duplicates()
+                    st.dataframe(df_alertas_hs.sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ No se detectaron horas extras inusuales en este período.")
+
+                st.markdown("**Registro Completo de Fichajes:**")
+                st.dataframe(df_asis[['Hora', 'Empleado', 'Acción', 'Detalle']].sort_values(by='Hora', ascending=False).head(15), use_container_width=True, hide_index=True)
+        except Exception as e: st.error(f"Error cargando asistencia: {e}")
         
         st.markdown("---")
         st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
