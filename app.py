@@ -952,7 +952,20 @@ elif menu == "📊 Activos":
                     tag_lavado = " | 🧽 **LAVADO PENDIENTE**" if "LAVADO PENDIENTE" in str(r[4]) else (" | ✨ **LAVADO TERMINADO**" if "LAVADO TERMINADO" in str(r[4]) else "")
                     
                     activos_lista.append(r)
-                    st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
+                    
+                    # --- NUEVA ALERTA DE 24HS EN PLAYA ---
+                    try:
+                        ing_dt = pd.to_datetime(h_ing)
+                        ahora_dt = pd.to_datetime(hora_actual_uy())
+                        horas_pasadas = (ahora_dt - ing_dt).total_seconds() / 3600
+                    except:
+                        horas_pasadas = 0
+                        
+                    if horas_pasadas >= 24:
+                        tag_24h = f" | 🚨 **¡LLEVA {int(horas_pasadas)} HS!**"
+                        st.warning(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}{tag_24h}")
+                    else:
+                        st.info(f"🎫 Tarjeta #{tkt} | 🚗 {pat} | 🕒 Ingreso: {h_ing}{tag_q}{tag_lavado}")
 
         if activos_lista:
             st.markdown("### 📋 Resumen de Autos en Playa por Fecha")
@@ -1023,12 +1036,13 @@ elif menu == "📊 Activos":
         
         if salidas_revertir:
             salidas_revertir = sorted(salidas_revertir, key=lambda x: x[0], reverse=True)
-            for hora_salida_completa, tkt_rev, pat_rev, hora_salida_rev in salidas_revertir:
+            for idx_btn, (hora_salida_completa, tkt_rev, pat_rev, hora_salida_rev) in enumerate(salidas_revertir):
                 col1, col2 = st.columns([3, 1])
                 col1.markdown(f"🚗 **{pat_rev}** | Tkt: #{tkt_rev} | Salida: {hora_salida_rev}")
                 
                 safe_key = hora_salida_completa.replace(" ", "_").replace(":", "_")
-                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{safe_key}"):
+                # --- ARREGLO DEL ERROR STREAMLIT DUPLICATE KEY ---
+                if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{safe_key}_{idx_btn}"):
                     try:
                         idx_reg_to_clear = None
                         for idx_r, r_row in enumerate(reg):
