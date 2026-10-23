@@ -528,7 +528,7 @@ if menu == "⏰ Personal":
                     st.warning("📝 **Apertura de Turno**\nSos el primero del turno. Es obligatorio realizar el arqueo de caja y stock.")
                     with st.form("form_inventario_entrada"):
                         st.markdown("### 📝 Arqueo de Entrada")
-                        efectivo_caja = st.number_input("💵 Efectivo inicial en gaveta:", min_value=0, value=0, step=50)
+                        efectivo_caja = st.text_input("💵 Efectivo inicial en gaveta ($):", placeholder="Ej: 14500")
                         
                         st.markdown("📝 **Inventario inicial de productos:**")
                         conteo_stock = {}
@@ -540,12 +540,15 @@ if menu == "⏰ Personal":
                         submit_entrada = st.form_submit_button("✅ Confirmar Inventario de Turno")
                         
                         if submit_entrada:
-                            if st.session_state.local_estado == "Entrada":
+                            if not str(efectivo_caja).strip().isdigit():
+                                st.error("🚨 OBLIGATORIO: Debe escribir con números cuánto efectivo hay en la caja antes de confirmar.")
+                            elif st.session_state.local_estado == "Entrada":
                                 st.warning("⚠️ Su entrada ya fue procesada.")
                             else:
                                 try:
+                                    efectivo_caja_val = int(str(efectivo_caja).strip())
                                     hora_fichada_final = st.session_state.hora_fichaje_temporal if st.session_state.hora_fichaje_temporal else hora_actual_uy()
-                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", int(efectivo_caja), f"Obs: {nota_stock}"])
+                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada_final, str(emp), "Entrada", efectivo_caja_val, f"Obs: {nota_stock}"])
                                     
                                     filas_stock = []
                                     for prod, cant in conteo_stock.items():
@@ -554,7 +557,7 @@ if menu == "⏰ Personal":
                                     
                                     actualizar_arqueo_en_extras(conteo_stock, str(emp), hora_fichada_final.split()[0])
                                         
-                                    sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja}"])
+                                    sh.worksheet("Asistencia").append_row([hora_fichada_final, str(emp), "Entrada", f"Caja Inicial: ${efectivo_caja_val}"])
                                     
                                     st.session_state.local_emp = emp
                                     st.session_state.local_estado = "Entrada"
@@ -614,7 +617,7 @@ if menu == "⏰ Personal":
                     st.warning("📝 **Cierre de Turno**\nSos el encargado de realizar el recuento de caja y stock para cerrar este turno.")
                     with st.form("form_inventario_salida"):
                         st.markdown("### 📤 Arqueo Final")
-                        efectivo_caja_salida = st.number_input("💵 Efectivo final en gaveta:", min_value=0, value=0, step=50)
+                        efectivo_caja_salida = st.text_input("💵 Efectivo final en gaveta ($):", placeholder="Ej: 14500")
                         
                         st.markdown("📝 **Inventario final de productos:**")
                         conteo_stock_salida = {}
@@ -626,12 +629,15 @@ if menu == "⏰ Personal":
                         submit_salida = st.form_submit_button("🚪 Registrar Cierre Oficial")
                         
                         if submit_salida:
-                            if st.session_state.local_estado == "Salida":
+                            if not str(efectivo_caja_salida).strip().isdigit():
+                                st.error("🚨 OBLIGATORIO: Debe escribir con números cuánto efectivo deja en la caja antes de cerrar.")
+                            elif st.session_state.local_estado == "Salida":
                                 st.warning("⚠️ Su salida ya fue procesada.")
                             else:
                                 try:
+                                    efectivo_caja_salida_val = int(str(efectivo_caja_salida).strip())
                                     hora_fichada = hora_actual_uy()
-                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", int(efectivo_caja_salida), f"Obs: {nota_salida}"])
+                                    sh.worksheet("Efectivo_Caja").append_row([hora_fichada, str(emp), "Salida", efectivo_caja_salida_val, f"Obs: {nota_salida}"])
                                     
                                     filas_stock = []
                                     for prod, cant in conteo_stock_salida.items():
@@ -640,11 +646,11 @@ if menu == "⏰ Personal":
                                     
                                     actualizar_arqueo_en_extras(conteo_stock_salida, str(emp), hora_fichada.split()[0])
                                     
-                                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida}"])
+                                    sh.worksheet("Asistencia").append_row([hora_fichada, str(emp), "Salida", f"Caja Cierre: ${efectivo_caja_salida_val}"])
                                     
                                     st.session_state.local_emp = emp
                                     st.session_state.local_estado = "Salida"
-                                    st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida}"
+                                    st.session_state.cartel_salida_msg = f"🚪 SU SALIDA FUE REGISTRADA CORRECTAMENTE A LA HORA: {hora_fichada.split()[1]} Y FECHA: {hora_fichada.split()[0]}.\n👤 Empleado: {emp}\n💵 Efectivo Declarado en Gaveta: ${efectivo_caja_salida_val}"
                                     obtener_datos.clear() 
                                     st.rerun()
                                 except Exception as e: st.error(f"Error al registrar salida: {e}")
