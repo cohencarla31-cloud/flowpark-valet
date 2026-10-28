@@ -2722,4 +2722,3 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
-
