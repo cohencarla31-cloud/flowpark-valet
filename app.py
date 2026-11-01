@@ -2441,8 +2441,7 @@ elif menu == "📈 Reportes":
                 monto_txt = f"${monto_adeudado:,.0f}"
                 cant_txt = len(df_quinquela_100)
                 st.warning(f"Quinquela debe abonar {monto_txt} por {cant_txt} validaciones.")
-        
-df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
+        df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
                 st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
             else:
                 st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
@@ -2496,7 +2495,7 @@ df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].re
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia:${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
@@ -2563,4 +2562,241 @@ df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].re
                         
                     df_oca_diario = pd.DataFrame(columns=['Fecha', 'Cobrado_OCA'])
                     
-                    if isinstance(data_cupones, list) and len(
+                    if isinstance(data_cupones, list) and len(data_cupones) > 0:
+                        df_oca = pd.DataFrame(data_cupones)
+                        col_monto = next((c for c in df_oca.columns if c.lower() in ["monto", "importe", "amount", "total", "neto"]), None)
+                        col_fecha_oca = next((c for c in df_oca.columns if c.lower() in ["fecha", "date", "fechaoperacion", "fechacupon"]), None)
+                        
+                        if col_monto and col_fecha_oca:
+                            df_oca[col_monto] = pd.to_numeric(df_oca[col_monto], errors='coerce').fillna(0)
+                            df_oca['Fecha'] = df_oca[col_fecha_oca].astype(str).str[:10]
+                            df_oca_diario = df_oca.groupby('Fecha')[col_monto].sum().reset_index()
+                            df_oca_diario.columns = ['Fecha', 'Cobrado_OCA']
+                        else:
+                            st.warning("La API de OCA devolvió datos, pero no encontramos la columna de fecha o monto.")
+                    else:
+                        st.warning("La lista 'items' vino vacía o no se pudo leer.")
+
+                    # PROCESAMIENTO APP
+                    df_facturacion_app = pd.DataFrame()
+                    if len(historial_data) > 1:
+                        headers_h = historial_data[0]
+                        max_cols_h = max(len(r) for r in historial_data)
+                        padded_h = [r + [""] * (max_cols_h - len(r)) for r in historial_data[1:]]
+                        df_h_puro = pd.DataFrame(padded_h, columns=[f"Col_{i}" if i >= len(headers_h) else headers_h[i] for i in range(max_cols_h)])
+                        if 'Total' in df_h_puro.columns and 'Hora' in df_h_puro.columns:
+                            df_h_puro['Total'] = pd.to_numeric(df_h_puro['Total'], errors='coerce').fillna(0)
+                            df_h_puro['Hora_dt'] = pd.to_datetime(df_h_puro['Hora'], errors='coerce')
+                            df_h_puro = df_h_puro.dropna(subset=['Hora_dt'])
+                            df_h_puro['Fecha'] = df_h_puro['Hora_dt'].dt.strftime('%Y-%m-%d')
+                            df_facturacion_app = df_h_puro.groupby('Fecha')['Total'].sum().reset_index()
+                            df_facturacion_app.columns = ['Fecha', 'Facturado_App']
+                    
+                    if len(stock_data) > 1:
+                        padded_stk = [r + [""] * (8 - len(r)) for r in stock_data[1:]]
+                        df_s_puro = pd.DataFrame(padded_stk, columns=["Fecha", "Producto", "Cantidad", "Empleado", "Patente", "Precio_U", "Total", "Fecha_Corta"])
+                        df_s_puro = df_s_puro[~df_s_puro['Producto'].str.startswith('Inv_')]
+                        if not df_s_puro.empty:
+                            df_s_puro['Total'] = pd.to_numeric(df_s_puro['Total'], errors='coerce').fillna(0)
+                            df_s_puro['Fecha_dt'] = pd.to_datetime(df_s_puro['Fecha'], errors='coerce')
+                            df_s_puro = df_s_puro.dropna(subset=['Fecha_dt'])
+                            df_s_puro['Fecha'] = df_s_puro['Fecha_dt'].dt.strftime('%Y-%m-%d')
+                            df_kiosco_diario = df_s_puro.groupby('Fecha')['Total'].sum().reset_index()
+                            df_kiosco_diario.columns = ['Fecha', 'Ventas_Kiosco']
+                            if not df_facturacion_app.empty:
+                                df_facturacion_app = pd.merge(df_facturacion_app, df_kiosco_diario, on='Fecha', how='outer').fillna(0)
+                                df_facturacion_app['Facturado_App'] = df_facturacion_app['Facturado_App'] + df_facturacion_app['Ventas_Kiosco']
+                            else:
+                                df_facturacion_app = df_kiosco_diario.rename(columns={'Ventas_Kiosco': 'Facturado_App'})
+
+                    df_efectivo_diario = pd.DataFrame()
+                    if len(efectivo_data) > 1:
+                        df_ef_puro = pd.DataFrame(efectivo_data[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"][:len(efectivo_data[0])])
+                        if 'Monto' in df_ef_puro.columns:
+                            df_ef_puro['Monto'] = pd.to_numeric(df_ef_puro['Monto'], errors='coerce').fillna(0)
+                            df_ef_puro['Fecha_dt'] = pd.to_datetime(df_ef_puro['Fecha'], errors='coerce')
+                            df_ef_puro = df_ef_puro.dropna(subset=['Fecha_dt'])
+                            df_ef_puro['Fecha_Corta'] = df_ef_puro['Fecha_dt'].dt.strftime('%Y-%m-%d')
+                            resultados_caja = []
+                            for fecha_d, grupo in df_ef_puro.groupby('Fecha_Corta'):
+                                caja_apertura = float(grupo[grupo['Tipo'] == "Entrada"].iloc[0]['Monto']) if not grupo[grupo['Tipo'] == "Entrada"].empty else 0
+                                caja_cierre = float(grupo[grupo['Tipo'] == "Salida"].iloc[-1]['Monto']) if not grupo[grupo['Tipo'] == "Salida"].empty else 0
+                                total_gastos = grupo[grupo['Tipo'] == "Gasto"]['Monto'].sum()
+                                efectivo_neto = (caja_cierre - caja_apertura) + total_gastos if caja_cierre > 0 else 0
+                                resultados_caja.append({'Fecha': fecha_d, 'Efectivo_Gaveta': efectivo_neto})
+                            df_efectivo_diario = pd.DataFrame(resultados_caja)
+
+                    if not df_facturacion_app.empty:
+                        df_maestro = df_facturacion_app.copy()
+                        if not df_efectivo_diario.empty:
+                            df_maestro = pd.merge(df_maestro, df_efectivo_diario, on='Fecha', how='outer').fillna(0)
+                        else:
+                            df_maestro['Efectivo_Gaveta'] = 0
+                        if not df_oca_diario.empty:
+                            df_maestro = pd.merge(df_maestro, df_oca_diario, on='Fecha', how='outer').fillna(0)
+                        else:
+                            df_maestro['Cobrado_OCA'] = 0
+                            
+                        df_maestro['Facturado_App'] = df_maestro['Facturado_App'].fillna(0)
+                        df_maestro['Esperado_en_POS'] = df_maestro['Facturado_App'] - df_maestro['Efectivo_Gaveta']
+                        df_maestro['Esperado_en_POS'] = df_maestro['Esperado_en_POS'].apply(lambda x: max(0, x))
+                        df_maestro['Diferencia_Final'] = df_maestro['Cobrado_OCA'] - df_maestro['Esperado_en_POS']
+                        
+                        def estado_auditoria(dif):
+                            if dif == 0: return "✅ Cuadra Perfecto"
+                            elif dif > 0: return f"🔵 Posnet Sobra (+${dif:,.0f})"
+                            else: return f"🔴 Posnet Faltan (${dif:,.0f})"
+                            
+                        df_maestro['Estado'] = df_maestro['Diferencia_Final'].apply(estado_auditoria)
+                        df_mostrar = df_maestro[['Fecha', 'Facturado_App', 'Efectivo_Gaveta', 'Esperado_en_POS', 'Cobrado_OCA', 'Estado']].copy()
+                        df_mostrar.columns = ['Día', 'Facturado App', 'Efectivo Caja Neto', 'Debería estar en POS', 'Real Cobrado OCA', 'Estado de Auditoría']
+                        for col in ['Facturado App', 'Efectivo Caja Neto', 'Debería estar en POS', 'Real Cobrado OCA']:
+                            df_mostrar[col] = df_mostrar[col].apply(lambda x: f"${x:,.0f}")
+                        df_mostrar = df_mostrar.sort_values('Día', ascending=False)
+                        st.markdown("#### 📅 Auditoría de Cierre X/Z (Día a Día)")
+                        st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("No hay facturación registrada en la App para auditar todavía.")
+                except Exception as e:
+                    st.error(f"Error interno procesando la auditoría: {e}")
+
+    with tab_cierre:
+        st.markdown("### 🔄 Calculadora de Acumulados (Fin de mes)")
+        st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**. Así sabés exactamente qué número copiar en la Columna H del Excel.")
+        
+        hoy_cierre = datetime.utcnow() - timedelta(hours=3)
+        mes_ant_dt = (hoy_cierre.replace(day=1) - timedelta(days=1))
+        mes_ant_str = mes_ant_dt.strftime("%Y-%m")
+        st.info(f"📅 **Analizando mes:** {mes_ant_dt.strftime('%B %Y')}")
+        
+        if st.button("Calcular Lavados Sobrantes"):
+            sobrantes_list = []
+            for pat, datos_m in datos_mensualistas_map.items():
+                bene = str(datos_m["beneficio"]).upper()
+                if "LAVADO" in bene:
+                    lav_perm = 1
+                    for num_lav in range(10, 1, -1):
+                        if str(num_lav) in bene:
+                            lav_perm = num_lav
+                            break
+                    
+                    lav_usados_ant = 0
+                    for h in historial_data[1:]:
+                        if len(h) > 7 and str(h[0]).startswith(mes_ant_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                            if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                                lav_usados_ant += 1
+                                
+                    sobran = lav_perm - lav_usados_ant
+                    if sobran > 0:
+                        sobrantes_list.append({
+                            "Cliente": datos_m["nombre"],
+                            "Patente": pat,
+                            "Plan Base": lav_perm,
+                            "Usó en el mes": lav_usados_ant,
+                            "A poner en Columna H": sobran
+                        })
+            
+            if sobrantes_list:
+                df_sobrantes = pd.DataFrame(sobrantes_list).sort_values("A poner en Columna H", ascending=False)
+                st.dataframe(df_sobrantes, use_container_width=True, hide_index=True)
+                st.success("✨ ¡Listo! Solo tenés que copiar esos números de la última columna directo a la Columna H de tu Excel.")
+            else:
+                st.success("✅ Ningún cliente tuvo lavados sobrantes el mes pasado. No tenés que anotar nada extra.")
+
+elif menu == "📖 Ayuda":
+    st.subheader("📖 Manual de Operaciones - FlowPark VIP")
+    
+    st.markdown("""
+    Este manual explica el funcionamiento del estacionamiento, los roles de cada integrante y los procedimientos obligatorios.
+    
+    ---
+    
+    ### 👥 1. PERFILES DE USUARIO
+    El sistema detecta automáticamente tu rol según el PIN de 4 dígitos:
+    *   **🛡️ Administrador (Admin):** Tiene acceso total. Puede ver la pestaña **📈 Reportes** (Recaudación, cobros a locales, auditoría de cámaras y deudas).
+    *   **🚗 Valet:** Perfil operativo. Tiene acceso a Personal, Ingreso, Activos, Lavadero, Extras, Validaciones y Salida.
+    *   **🏪 Local (Quinquela / N18):** Solo ven la pantalla de **✅ Validaciones** para aplicar descuentos.
+    
+    ---
+    
+    ### ⏰ 2. MÓDULO PERSONAL: FICHAJE INTELIGENTE
+    **Todo Valet TIENE LA OBLIGACIÓN de utilizar este módulo al llegar y al irse.** El sistema es 100% inteligente y sabe qué botón mostrarte según tu horario:
+    *   **📝 Aperturas y Cambios de Turno:** Si sos el primero en llegar a la mañana o a la tarde, el sistema te obliga a realizar el arqueo de caja y stock inicial para abrir tu turno. A la salida (16:00 o 00:00), el sistema te obliga a cerrarlo.
+    *   **⚡ Entradas y Salidas de Refuerzo:** Si sos valet de apoyo y entrás en un horario intermedio (Ej: 09:00, 14:30), el sistema detecta que el turno ya fue abierto por otro compañero y te da un botón verde para fichar rápido sin contar la plata.
+    
+    ---
+    
+    ### 🎫 3. IDENTIFICACIÓN VISUAL (TICKETS Y PATENTES)
+    El sistema asigna letras al número de ticket (tarjeta) para reconocer clientes rápidamente:
+    *   **`MEN-`** Mensualistas y Autorizados (Ej: *MEN-1051*).
+    *   **`EV[Nombre]`** Invitados a un Evento VIP (Ej: *EVSEDAL1*).
+    *   **Solo Números:** Cliente Estándar (Ej: *1052*).
+    
+    ---
+    
+    ### 🏢 4. CLIENTES MENSUALIZADOS Y AUTORIZADOS
+    Al tipear la patente, la app muestra un aviso de color:
+    *   **🟢 Al Día / Autorizado:** El auto pasa directo. Cobro en la salida: $0.
+    *   **🔴 Cliente Deudor:** Alerta roja en pantalla. Al salir se le cobra $0 en caja, pero el sistema le enviará por WhatsApp un **Aviso de Deuda**.
+    *   **🚨 Control de Cupos (Límite de autos):** Si una persona paga 1 cochera pero registró 2 patentes. El primer auto pasa gratis. Si llega el segundo auto, el sistema alerta: *"Ya hay 1 auto adentro. Este vehículo DEBE ABONAR ESTADÍA"*.
+    
+    ---
+    
+    ### 🧽 5. MÓDULO DE LAVADERO INTEGRADO
+    *   **El Ingreso:** El Valet debe preguntar si desea lavado y marcar la casilla `🧽 Solicita Lavado`.
+    *   **Control Inteligente de Mensualistas:** Si el mensualista tiene "1 Lavado" incluido por mes y ya lo gastó, la app avisa: *"Ya gastó su cupo del mes"*. Podés usar uno acumulado si tiene, o cobrarlo.
+    *   **Panel de Lavadero:** En la pestaña **🧽 Lavadero**, los chicos ven qué autos lavar. También les avisa si hay un Mensualista con lavados gratis en la playa para que vayan a ofrecerle. Cuando terminan, tocan "Marcar Terminado".
+    *   **Salida (Cobro):** El Valet selecciona qué lavado le hizo. La app decide si lo descuenta del plan mensual o si se lo cobra aplicando promos.
+    
+    ---
+    
+    ### 🎉 6. EVENTOS VIP Y LISTA DE INVITADOS
+    *   **Auto-Completado:** Escribí la patente. Si está en la lista de hoy, el sistema llena el nombre y selecciona el evento solo.
+    *   **Control de Cupo:** Si el evento contrató 20 lugares y llega el 21, la app avisa el exceso de cupo.
+    *   **El Reloj Invisible:** A los invitados VIP **nunca se les cobra dinero** ($0). Pero si el evento terminaba a las 03:00 AM y retiran el auto a las 10:00 AM, el sistema factura esas horas extras al Organizador del evento internamente.
+    
+    ---
+    
+    ### ✏️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
+    Si escribiste mal una patente (ej: `ABC124` en vez de `ABC123`):
+    1. Ir a la pestaña **📊 Activos**.
+    2. Bajar hasta el panel **"✏️ Corregir Patente"**.
+    3. Seleccionar el auto mal cargado y escribir la patente correcta.
+    
+    ---
+    
+    ### 🗺️ 8. DIAGRAMA OPERATIVO DEL VALET
+    """)
+    
+    st.code("""
+    [ 🔐 Ingresa PIN de 4 Dígitos ]
+      │
+      ▼
+    [ ⏰ Pestaña 'Personal' ] ──► Toca Iniciar. El sistema decide solo si pide arqueo o ingreso rápido.
+      │
+      ├─────────────────────────────────────────────────┐
+      │                                                 │
+    [ 📥 INGRESO ]                                      [ 🧽 LAVADERO ] 
+      │                                                 │
+      ├─ Escribe Patente                                ├─ Revisa autos pendientes
+      ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Revisa Mensualistas estacionados
+      ├─ Lava el auto
+      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
+      ├─ ¿Pide Lavado?    ──► Tilda la casilla          │
+      ▼                                                 │
+    [ Envía Ticket WP ]                                 │
+      │                                                 │
+      ├─────────────────────────────────────────────────┘
+      │
+    [ 📤 SALIDA Y COBRO ]
+      │
+      ├─ Escribe la Patente para buscar fácil
+      ├─ Agrega Extras (kiosco) o tipo de Lavado
+      ├─ Cobra (O pasa gratis si es VIP/Mensualista)
+      ▼
+    [ Envía Comprobante de Pago WP y toca TERMINAR ]
+      │
+      ▼
+    [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
+    """, language="text")
+        
