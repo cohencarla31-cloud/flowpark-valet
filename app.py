@@ -2528,9 +2528,22 @@ elif menu == "📈 Reportes":
                 
                 deberia_haber_en_pos = total_app_esperado - efectivo_declarado
                 
-                # --- CONEXIÓN API OCA EN 2 PASOS (CON MODO DEBUG Y PROTECCIÓN DE TEXTOS) ---
-                monto_real_oca = 0.0
+                # --- NUEVO: MÓDULO DE CONCILIACIÓN POS (OCA) Y AUDITORÍA DIARIA ---
+        st.markdown("---")
+        st.markdown("### 💳 Conciliación Bancaria y POS (OCA)")
+        st.info("💡 **Auditoría Definitiva:** Cruza toda la facturación histórica de la App contra todos los cupones reales de OCA, día por día, para asegurar que la caja y el posnet cuadren perfecto siempre.")
+        
+        if st.button("🔄 Ejecutar Auditoría Completa (App vs OCA)"):
+            oca_client_id = st.secrets.get("oca_client_id", "")
+            oca_secret = st.secrets.get("oca_secret_key", "")
+            
+            if not oca_client_id or not oca_secret:
+                st.warning("🔑 **Falta la Key de OCA:** Asegurate de haber guardado oca_client_id y oca_secret_key en los Secrets de Streamlit.")
+            else:
+                st.toast("Descargando historial de OCA...", icon="📡")
+                
                 try:
+                    # 1. CONEXIÓN A OCA
                     url_base = "https://api.ocacomercios.oca.com.uy"
                     url_signin = f"{url_base}/api/signin"
                     url_cupones = f"{url_base}/api/v3/companies/218844290012/transactions"
@@ -2543,85 +2556,144 @@ elif menu == "📈 Reportes":
                     
                     payload = {"id_key": oca_client_id, "secret_key": oca_secret}
                     
-                    # PASO 1: Pedimos el token
                     res_token = requests.post(url_signin, json=payload, headers=headers_base)
+                    json_token = res_token.json()
                     
-                    try:
-                        json_token = res_token.json()
-                        # Si OCA nos devuelve un texto simple en lugar de un diccionario, lo atrapamos:
-                        if isinstance(json_token, str):
-                            st.error(f"🛑 PASO 1 FALLÓ: OCA devolvió un texto de error: {json_token}")
-                            st.stop()
-                    except Exception:
-                        st.error(f"🛑 PASO 1 FALLÓ (Signin): Código: {res_token.status_code}. Respuesta cruda: {res_token.text[:500]}")
+                    if isinstance(json_token, str):
+                        st.error(f"🛑 Error Signin: {json_token}")
                         st.stop()
                         
                     token = json_token.get("data", {}).get("id_token", "")
-                    
                     if not token:
-                        st.error(f"🛑 PASO 1 FALLÓ: OCA respondió bien, pero no mandó el Token. Respuesta: {json_token}")
+                        st.error("🛑 OCA no mandó el Token.")
                         st.stop()
                     
-                    # PASO 2: Buscamos la plata
                     headers_auth = headers_base.copy()
                     headers_auth["Authorization"] = f"Bearer {token}"
                     params = {"fechaDesde": "2026-10-01", "fechaHasta": hoy_dt.strftime("%Y-%m-%d")} 
                     
                     res_datos = requests.get(url_cupones, headers=headers_auth, params=params)
+                    res_json = res_datos.json()
                     
-                    try:
-                        res_json = res_datos.json()
-                        # Si OCA nos devuelve un texto simple acá, también lo atrapamos:
-                        if isinstance(res_json, str):
-                            st.error(f"🛑 PASO 2 FALLÓ: OCA devolvió un mensaje de texto: {res_json}")
-                            st.stop()
-                    except Exception:
-                        st.error(f"🛑 PASO 2 FALLÓ (Transacciones): Código: {res_datos.status_code}. Respuesta cruda: {res_datos.text[:500]}")
+                    if isinstance(res_json, str):
+                        st.error(f"🛑 Error Transacciones: {res_json}")
                         st.stop()
                         
-                    # Sumatoria de la plata (Nos aseguramos de que sea una lista antes de sumar)
                     data_cupones = res_json.get("data", [])
-                    if isinstance(data_cupones, list):
-                        monto_real_oca = sum(float(item.get("monto", 0)) if isinstance(item, dict) else 0 for item in data_cupones)
+                    df_oca = pd.DataFrame()
+                    
+                    if isinstance(data_cupones, list) and len(data_cupones) > 0:
+                        df_oca = pd.DataFrame(data_cupones)
+                        # Buscar columna de plata dinámicamente
+                        col_monto = next((c for c in df_oca.columns if c.lower() in ["monto", "importe", "amount", "total", "neto"]), None)
+                        col_fecha_oca = next((c for c in df_oca.columns if c.lower() in ["fecha", "date", "fechaoperacion", "fechacupon"]), None)
+                        
+                        if col_monto and col_fecha_oca:
+                            df_oca[col_monto] = pd.to_numeric(df_oca[col_monto], errors='coerce').fillna(0)
+                            df_oca['Fecha'] = df_oca[col_fecha_oca].astype(str).str[:10]
+                            df_oca_diario = df_oca.groupby('Fecha')[col_monto].sum().reset_index()
+                            df_oca_diario.columns = ['Fecha', 'Cobrado_OCA']
+                        else:
+                            st.error("La API de OCA respondió, pero no encontramos las columnas de fecha o monto.")
+                            st.stop()
                     else:
-                        st.warning(f"La API no devolvió una lista de cupones como esperábamos. Devolvió esto: {data_cupones}")
-                        monto_real_oca = 0.0
+                        df_oca_diario = pd.DataFrame(columns=['Fecha', 'Cobrado_OCA'])
+
+                    # 2. PROCESAMIENTO DE LA APP (Día a Día)
+                    # Historial de Tickets (Facturación Total)
+                    df_facturacion_app = pd.DataFrame()
+                    if 'df' in locals() and not df.empty:
+                        df_app = df.copy()
+                        df_app['Fecha'] = df_app['Hora'].dt.strftime('%Y-%m-%d')
+                        df_facturacion_app = df_app.groupby('Fecha')['Total'].sum().reset_index()
+                        df_facturacion_app.columns = ['Fecha', 'Facturado_App']
                     
-                    diferencia = monto_real_oca - deberia_haber_en_pos
-                    estado = "🟢 OK" if diferencia == 0 else "🚨 DESCUADRE"
-                    
-                    co1, co2, co3 = st.columns(3)
-                    co1.metric("Facturado en App", f"${total_app_esperado:,.0f}")
-                    co2.metric("- Efectivo Declarado", f"${efectivo_declarado:,.0f}")
-                    co3.metric("= Esperado en Posnet", f"${deberia_haber_en_pos:,.0f}")
-                    
-                    st.markdown("#### 🏦 Resultado de la API de OCA")
-                    c_oca1, c_oca2 = st.columns(2)
-                    c_oca1.metric("Monto Real en OCA (Cupones)", f"${monto_real_oca:,.0f}")
-                    if diferencia == 0:
-                        c_oca2.success(f"✅ ¡Conciliación perfecta! Diferencia: $0")
+                    # Ventas de Kiosco Directas
+                    if 'df_ventas_kiosco' in locals() and not df_ventas_kiosco.empty:
+                        df_k = df_ventas_kiosco.copy()
+                        df_k['Fecha'] = df_k['Fecha_dt'].dt.strftime('%Y-%m-%d')
+                        df_kiosco_diario = df_k.groupby('Fecha')['Total'].sum().reset_index()
+                        df_kiosco_diario.columns = ['Fecha', 'Ventas_Kiosco']
+                        if not df_facturacion_app.empty:
+                            df_facturacion_app = pd.merge(df_facturacion_app, df_kiosco_diario, on='Fecha', how='outer').fillna(0)
+                            df_facturacion_app['Facturado_App'] = df_facturacion_app['Facturado_App'] + df_facturacion_app['Ventas_Kiosco']
+                        else:
+                            df_facturacion_app = df_kiosco_diario.rename(columns={'Ventas_Kiosco': 'Facturado_App'})
+
+                    # Efectivo de Caja (Restar Aperturas a Cierres por día)
+                    df_efectivo_diario = pd.DataFrame()
+                    if 'df_ef' in locals() and not df_ef.empty:
+                        df_caja = df_ef.copy()
+                        df_caja['Fecha_Corta'] = pd.to_datetime(df_caja['Fecha']).dt.strftime('%Y-%m-%d')
+                        
+                        resultados_caja = []
+                        for fecha_d, grupo in df_caja.groupby('Fecha_Corta'):
+                            caja_apertura = 0
+                            caja_cierre = 0
+                            
+                            entradas = grupo[grupo['Tipo'] == "Entrada"]
+                            if not entradas.empty: caja_apertura = float(entradas.iloc[0]['Monto'])
+                                
+                            salidas = grupo[grupo['Tipo'] == "Salida"]
+                            if not salidas.empty: caja_cierre = float(salidas.iloc[-1]['Monto'])
+                                
+                            gastos = grupo[grupo['Tipo'] == "Gasto"]
+                            total_gastos = gastos['Monto'].sum() if not gastos.empty else 0
+                            
+                            efectivo_neto = 0
+                            if caja_cierre > 0: efectivo_neto = (caja_cierre - caja_apertura) + total_gastos
+                            
+                            resultados_caja.append({'Fecha': fecha_d, 'Efectivo_Gaveta': efectivo_neto})
+                            
+                        df_efectivo_diario = pd.DataFrame(resultados_caja)
+
+                    # 3. EL CRUCE MAESTRO (MERGE DE TODO)
+                    if not df_facturacion_app.empty:
+                        df_maestro = df_facturacion_app.copy()
+                        
+                        if not df_efectivo_diario.empty:
+                            df_maestro = pd.merge(df_maestro, df_efectivo_diario, on='Fecha', how='outer').fillna(0)
+                        else:
+                            df_maestro['Efectivo_Gaveta'] = 0
+                            
+                        if not df_oca_diario.empty:
+                            df_maestro = pd.merge(df_maestro, df_oca_diario, on='Fecha', how='outer').fillna(0)
+                        else:
+                            df_maestro['Cobrado_OCA'] = 0
+                            
+                        # Calcular el cuadre
+                        df_maestro['Esperado_en_POS'] = df_maestro['Facturado_App'] - df_maestro['Efectivo_Gaveta']
+                        # Evitar esperados negativos (pasa si declaran más caja de la que facturaron)
+                        df_maestro['Esperado_en_POS'] = df_maestro['Esperado_en_POS'].apply(lambda x: max(0, x))
+                        
+                        df_maestro['Diferencia_Final'] = df_maestro['Cobrado_OCA'] - df_maestro['Esperado_en_POS']
+                        
+                        def estado_auditoria(dif):
+                            if dif == 0: return "✅ Cuadra Perfecto"
+                            elif dif > 0: return f"🔵 Posnet Sobra (+${dif:,.0f})"
+                            else: return f"🔴 Posnet Faltan (${dif:,.0f})"
+                            
+                        df_maestro['Estado'] = df_maestro['Diferencia_Final'].apply(estado_auditoria)
+                        
+                        # Formatear la tabla para que quede linda en pantalla
+                        df_mostrar = df_maestro[['Fecha', 'Facturado_App', 'Efectivo_Gaveta', 'Esperado_en_POS', 'Cobrado_OCA', 'Estado']].copy()
+                        df_mostrar.columns = ['Día', 'Facturado App', 'Efectivo Caja Neto', 'Debería estar en POS', 'Real Cobrado OCA', 'Estado de Auditoría']
+                        
+                        # Aplicar formato de moneda
+                        for col in ['Facturado App', 'Efectivo Caja Neto', 'Debería estar en POS', 'Real Cobrado OCA']:
+                            df_mostrar[col] = df_mostrar[col].apply(lambda x: f"${x:,.0f}")
+                            
+                        df_mostrar = df_mostrar.sort_values('Día', ascending=False)
+                        
+                        st.markdown("#### 📅 Auditoría de Cierre X/Z (Día a Día)")
+                        st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+                        
+                        st.info("💡 **Cómo leer esta tabla:** El sistema agarra todo lo que se cobró en la App ese día, le resta la plata en efectivo neta (cierres menos aperturas más gastos), y el número que sobra DEBE SER exactamente igual a lo que pasaron los valets por el posnet de OCA.")
                     else:
-                        c_oca2.error(f"⚠️ Atención: Diferencia de ${diferencia:,.0f}")
-                    
-                    # Guardar en el Excel
-                    fecha_auditoria = hora_actual_uy()
-                    sh.worksheet("Auditoria_OCA").append_row([
-                        fecha_auditoria,
-                        emp,
-                        float(total_app_esperado),
-                        float(efectivo_declarado),
-                        float(deberia_haber_en_pos),
-                        float(monto_real_oca),
-                        float(diferencia),
-                        estado
-                    ])
-                    st.toast("✅ Auditoría guardada en el Excel.")
+                        st.warning("No hay facturación registrada en la App para auditar todavía.")
                     
                 except Exception as e:
-                    st.error(f"Error interno procesando la conexión. Detalle: {e}")
-                    
-                except Exception as e:
-                    st.error(f"Error interno procesando la conexión. Detalle: {e}")
+                    st.error(f"Error interno procesando la auditoría: {e}")
                     
         # --- FIN NUEVO MÓDULO ---
 
