@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import urllib.parse
 import time
 import math
+import requests  
 
 # ==========================================
 # CONFIGURACIÓN DE HORARIOS NORMALES (En Horas Decimales)
@@ -2237,7 +2238,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -2320,7 +2321,7 @@ elif menu == "📈 Reportes":
                     if str(num_lav) in bene:
                         lav_perm = num_lav
                         break
-                
+            
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
@@ -2428,7 +2429,7 @@ elif menu == "📈 Reportes":
                     })
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
@@ -2494,14 +2495,98 @@ elif menu == "📈 Reportes":
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
         except Exception as e: st.info("Error cargando Efectivo_Caja.")
 
+        # --- NUEVO: MÓDULO DE CONCILIACIÓN POS (OCA) ---
         st.markdown("---")
-        # --- NUEVO MÓDULO DE CONTROL DE HORAS EXTRAS Y DÍAS LIBRES ---
+        st.markdown("### 💳 Conciliación Bancaria y POS (OCA)")
+        st.info("💡 **Auditoría Definitiva:** Compara la facturación de la App del día seleccionado, le resta el efectivo de la gaveta, y consulta a la API de OCA los cupones desde el 1 de Octubre para hacer el cruce perfecto.")
+        
+        if st.button("🔄 Consultar Facturación en OCA"):
+            oca_client_id = st.secrets.get("oca_client_id", "")
+            oca_secret = st.secrets.get("oca_secret_key", "")
+            
+            if not oca_client_id or not oca_secret:
+                st.warning("🔑 **Falta la Key de OCA:** Asegurate de haber guardado oca_client_id y oca_secret_key en los Secrets de Streamlit.")
+            else:
+                st.toast("Conectando con servidores de OCA...", icon="📡")
+                
+                total_app_esperado = total_recaudacion 
+                efectivo_declarado = 0
+                try:
+                    if 'df_ef' in locals() and not df_ef.empty:
+                        fecha_filtro_str = fecha_elegida.strftime("%Y-%m-%d") if filtro_opcion == "Elegir Fecha Específica" else hoy_dt.strftime("%Y-%m-%d")
+                        salidas_hoy = df_ef[(df_ef['Tipo'] == "Salida") & (df_ef['Fecha'].astype(str).str.startswith(fecha_filtro_str))]
+                        if not salidas_hoy.empty:
+                            efectivo_declarado = float(salidas_hoy.iloc[-1]['Monto'])
+                except:
+                    pass
+                
+                deberia_haber_en_pos = total_app_esperado - efectivo_declarado
+                
+                # --- CONEXIÓN API OCA EN 2 PASOS ---
+                monto_real_oca = 0.0
+                try:
+                    # PASO 1: OBTENER EL TOKEN (SIGNIN)
+                    url_signin = "https://ocacomercios.oca.com.uy/api/signin" 
+                    
+                    # PASO 2: CONSULTAR CUPONES DE V3
+                    url_cupones = "https://ocacomercios.oca.com.uy/api/v3/companies/218844290012/transactions"
+                    
+                    # LÓGICA DE CONEXIÓN ENCENDIDA:
+                    payload = {"id_key": oca_client_id, "secret_key": oca_secret}
+                    res_token = requests.post(url_signin, json=payload).json()
+                    token = res_token.get("data", {}).get("id_token", "")
+                    
+                    headers = {"Authorization": f"Bearer {token}"}
+                    
+                    # Le pedimos desde el 1 de octubre hasta hoy:
+                    params = {"fechaDesde": "2026-10-01", "fechaHasta": hoy_dt.strftime("%Y-%m-%d")} 
+                    res_datos = requests.get(url_cupones, headers=headers, params=params).json()
+                    
+                    # Sumatoria de la plata que traiga OCA (asumiendo formato estándar "monto"):
+                    monto_real_oca = sum(float(item.get("monto", 0)) for item in res_datos.get("data", []))
+                    
+                    diferencia = monto_real_oca - deberia_haber_en_pos
+                    estado = "🟢 OK" if diferencia == 0 else "🚨 DESCUADRE"
+                    
+                    co1, co2, co3 = st.columns(3)
+                    co1.metric("Facturado en App", f"${total_app_esperado:,.0f}")
+                    co2.metric("- Efectivo Declarado", f"${efectivo_declarado:,.0f}")
+                    co3.metric("= Esperado en Posnet", f"${deberia_haber_en_pos:,.0f}")
+                    
+                    st.markdown("#### 🏦 Resultado de la API de OCA")
+                    c_oca1, c_oca2 = st.columns(2)
+                    c_oca1.metric("Monto Real en OCA (Cupones)", f"${monto_real_oca:,.0f}")
+                    if diferencia == 0:
+                        c_oca2.success(f"✅ ¡Conciliación perfecta! Diferencia: $0")
+                    else:
+                        c_oca2.error(f"⚠️ Atención: Diferencia de ${diferencia:,.0f}")
+                    
+                    # Guardar en el Excel
+                    fecha_auditoria = hora_actual_uy()
+                    sh.worksheet("Auditoria_OCA").append_row([
+                        fecha_auditoria,
+                        emp,
+                        float(total_app_esperado),
+                        float(efectivo_declarado),
+                        float(deberia_haber_en_pos),
+                        float(monto_real_oca),
+                        float(diferencia),
+                        estado
+                    ])
+                    st.toast("✅ Auditoría guardada en el Excel.")
+                    
+                except Exception as e:
+                    st.error(f"Error procesando la conexión con OCA: Revise si las credenciales son válidas o si la API de OCA está disponible. Detalle técnico: {e}")
+                    
+        # --- FIN NUEVO MÓDULO ---
+
+        st.markdown("---")
         st.markdown("### 🕒 Control de Asistencia y Horas Extras")
         try:
             ws_asis = sh.worksheet("Asistencia")
@@ -2722,4 +2807,3 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
-
