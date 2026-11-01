@@ -2438,4 +2438,6 @@ elif menu == "📈 Reportes":
             df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
             if not df_quinquela_100.empty:
                 monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
-                st.warning(f"**Quinquela** debe abonar **${monto_adeudado:,.0f}**
+                monto_txt = f"${monto_adeudado:,.0f}"
+                cant_txt = len(df_quinquela_100)
+                st.warning(f"Quinquela debe abonar {monto_txt} por {cant_txt} validaciones.")
