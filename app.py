@@ -2528,10 +2528,9 @@ elif menu == "📈 Reportes":
                 
                 deberia_haber_en_pos = total_app_esperado - efectivo_declarado
                 
-                # --- CONEXIÓN API OCA EN 2 PASOS (CON MODO DEBUG Y URL CORRECTA) ---
+                # --- CONEXIÓN API OCA EN 2 PASOS (CON MODO DEBUG Y PROTECCIÓN DE TEXTOS) ---
                 monto_real_oca = 0.0
                 try:
-                    # Las URL correctas apuntando al servidor de API de OCA Comercios
                     url_base = "https://api.ocacomercios.oca.com.uy"
                     url_signin = f"{url_base}/api/signin"
                     url_cupones = f"{url_base}/api/v3/companies/218844290012/transactions"
@@ -2549,8 +2548,12 @@ elif menu == "📈 Reportes":
                     
                     try:
                         json_token = res_token.json()
+                        # Si OCA nos devuelve un texto simple en lugar de un diccionario, lo atrapamos:
+                        if isinstance(json_token, str):
+                            st.error(f"🛑 PASO 1 FALLÓ: OCA devolvió un texto de error: {json_token}")
+                            st.stop()
                     except Exception:
-                        st.error(f"🛑 PASO 1 FALLÓ (Signin): OCA no devolvió JSON válido. Código: {res_token.status_code}. Respuesta cruda: {res_token.text[:500]}")
+                        st.error(f"🛑 PASO 1 FALLÓ (Signin): Código: {res_token.status_code}. Respuesta cruda: {res_token.text[:500]}")
                         st.stop()
                         
                     token = json_token.get("data", {}).get("id_token", "")
@@ -2568,12 +2571,21 @@ elif menu == "📈 Reportes":
                     
                     try:
                         res_json = res_datos.json()
+                        # Si OCA nos devuelve un texto simple acá, también lo atrapamos:
+                        if isinstance(res_json, str):
+                            st.error(f"🛑 PASO 2 FALLÓ: OCA devolvió un mensaje de texto: {res_json}")
+                            st.stop()
                     except Exception:
                         st.error(f"🛑 PASO 2 FALLÓ (Transacciones): Código: {res_datos.status_code}. Respuesta cruda: {res_datos.text[:500]}")
                         st.stop()
                         
-                    # Sumatoria de la plata
-                    monto_real_oca = sum(float(item.get("monto", 0)) for item in res_json.get("data", []))
+                    # Sumatoria de la plata (Nos aseguramos de que sea una lista antes de sumar)
+                    data_cupones = res_json.get("data", [])
+                    if isinstance(data_cupones, list):
+                        monto_real_oca = sum(float(item.get("monto", 0)) if isinstance(item, dict) else 0 for item in data_cupones)
+                    else:
+                        st.warning(f"La API no devolvió una lista de cupones como esperábamos. Devolvió esto: {data_cupones}")
+                        monto_real_oca = 0.0
                     
                     diferencia = monto_real_oca - deberia_haber_en_pos
                     estado = "🟢 OK" if diferencia == 0 else "🚨 DESCUADRE"
@@ -2604,6 +2616,9 @@ elif menu == "📈 Reportes":
                         estado
                     ])
                     st.toast("✅ Auditoría guardada en el Excel.")
+                    
+                except Exception as e:
+                    st.error(f"Error interno procesando la conexión. Detalle: {e}")
                     
                 except Exception as e:
                     st.error(f"Error interno procesando la conexión. Detalle: {e}")
