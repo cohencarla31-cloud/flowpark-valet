@@ -2531,13 +2531,15 @@ elif menu == "📈 Reportes":
                 # --- CONEXIÓN API OCA EN 2 PASOS (CON MODO DEBUG Y URL CORRECTA) ---
                 monto_real_oca = 0.0
                 try:
-                    # Las URL correctas apuntando al servidor de comercios de OCA
-                    url_signin = "https://comercios.oca.com.uy/api/signin"
-                    url_cupones = "https://comercios.oca.com.uy/api/v3/companies/218844290012/transactions"
+                    # Las URL correctas apuntando al servidor de API de OCA Comercios
+                    url_base = "https://api.ocacomercios.oca.com.uy"
+                    url_signin = f"{url_base}/api/signin"
+                    url_cupones = f"{url_base}/api/v3/companies/218844290012/transactions"
                     
                     headers_base = {
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        "Accept": "application/json"
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
                     }
                     
                     payload = {"id_key": oca_client_id, "secret_key": oca_secret}
