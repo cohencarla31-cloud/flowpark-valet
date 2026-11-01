@@ -2528,16 +2528,15 @@ elif menu == "📈 Reportes":
                 
                 deberia_haber_en_pos = total_app_esperado - efectivo_declarado
                 
-                # --- CONEXIÓN API OCA EN 2 PASOS (CON MODO DEBUG Y DISFRAZ) ---
+                # --- CONEXIÓN API OCA EN 2 PASOS (CON MODO DEBUG Y URL CORRECTA) ---
                 monto_real_oca = 0.0
                 try:
-                    # Si este link falla, luego probaremos agregándole /v1/ (ej: api/v1/signin)
-                    url_signin = "https://ocacomercios.oca.com.uy/api/signin" 
-                    url_cupones = "https://ocacomercios.oca.com.uy/api/v3/companies/218844290012/transactions"
+                    # Las URL correctas apuntando al servidor de comercios de OCA
+                    url_signin = "https://comercios.oca.com.uy/api/signin"
+                    url_cupones = "https://comercios.oca.com.uy/api/v3/companies/218844290012/transactions"
                     
-                    # 1. Disfrazamos la petición para saltar el Firewall del banco
                     headers_base = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                         "Accept": "application/json"
                     }
                     
@@ -2549,13 +2548,13 @@ elif menu == "📈 Reportes":
                     try:
                         json_token = res_token.json()
                     except Exception:
-                        st.error(f"🛑 PASO 1 FALLÓ (Signin): OCA no devolvió el pase VIP. Código: {res_token.status_code}. Respuesta cruda: {res_token.text}")
+                        st.error(f"🛑 PASO 1 FALLÓ (Signin): OCA no devolvió JSON válido. Código: {res_token.status_code}. Respuesta cruda: {res_token.text[:500]}")
                         st.stop()
                         
                     token = json_token.get("data", {}).get("id_token", "")
                     
                     if not token:
-                        st.error("🛑 PASO 1 FALLÓ: OCA respondió bien, pero no mandó el Token. Revisá si las claves están correctas.")
+                        st.error(f"🛑 PASO 1 FALLÓ: OCA respondió bien, pero no mandó el Token. Respuesta: {json_token}")
                         st.stop()
                     
                     # PASO 2: Buscamos la plata
@@ -2568,7 +2567,7 @@ elif menu == "📈 Reportes":
                     try:
                         res_json = res_datos.json()
                     except Exception:
-                        st.error(f"🛑 PASO 2 FALLÓ (Transacciones): Código: {res_datos.status_code}. Respuesta cruda: {res_datos.text}")
+                        st.error(f"🛑 PASO 2 FALLÓ (Transacciones): Código: {res_datos.status_code}. Respuesta cruda: {res_datos.text[:500]}")
                         st.stop()
                         
                     # Sumatoria de la plata
