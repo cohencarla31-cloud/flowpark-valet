@@ -2537,19 +2537,28 @@ elif menu == "📈 Reportes":
                     # PASO 2: CONSULTAR CUPONES DE V3
                     url_cupones = "https://ocacomercios.oca.com.uy/api/v3/companies/218844290012/transactions"
                     
-                    # LÓGICA DE CONEXIÓN ENCENDIDA:
                     payload = {"id_key": oca_client_id, "secret_key": oca_secret}
-                    res_token = requests.post(url_signin, json=payload).json()
-                    token = res_token.get("data", {}).get("id_token", "")
+                    
+                    # Pedimos el pase VIP y activamos escudo de errores
+                    res_token = requests.post(url_signin, json=payload)
+                    if res_token.status_code != 200:
+                        st.error(f"🛑 Error de OCA en Inicio de Sesión (Código {res_token.status_code}): {res_token.text}")
+                        st.stop()
+                        
+                    token = res_token.json().get("data", {}).get("id_token", "")
                     
                     headers = {"Authorization": f"Bearer {token}"}
-                    
-                    # Le pedimos desde el 1 de octubre hasta hoy:
                     params = {"fechaDesde": "2026-10-01", "fechaHasta": hoy_dt.strftime("%Y-%m-%d")} 
-                    res_datos = requests.get(url_cupones, headers=headers, params=params).json()
                     
-                    # Sumatoria de la plata que traiga OCA (asumiendo formato estándar "monto"):
-                    monto_real_oca = sum(float(item.get("monto", 0)) for item in res_datos.get("data", []))
+                    # Pedimos la plata y activamos escudo de errores
+                    res_datos = requests.get(url_cupones, headers=headers, params=params)
+                    if res_datos.status_code != 200:
+                        st.error(f"🛑 Error de OCA buscando Transacciones (Código {res_datos.status_code}): {res_datos.text}")
+                        st.stop()
+                    
+                    # Sumatoria (Ajustar 'monto' según cómo devuelva OCA los datos exactamente)
+                    res_json = res_datos.json()
+                    monto_real_oca = sum(float(item.get("monto", 0)) for item in res_json.get("data", []))
                     
                     diferencia = monto_real_oca - deberia_haber_en_pos
                     estado = "🟢 OK" if diferencia == 0 else "🚨 DESCUADRE"
@@ -2582,7 +2591,7 @@ elif menu == "📈 Reportes":
                     st.toast("✅ Auditoría guardada en el Excel.")
                     
                 except Exception as e:
-                    st.error(f"Error procesando la conexión con OCA: Revise si las credenciales son válidas o si la API de OCA está disponible. Detalle técnico: {e}")
+                    st.error(f"Error interno procesando la conexión con OCA. Detalle técnico: {e}")
                     
         # --- FIN NUEVO MÓDULO ---
 
