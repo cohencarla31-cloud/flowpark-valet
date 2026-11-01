@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import urllib.parse
 import time
 import math
-import requests  
 
 # ==========================================
 # CONFIGURACIÓN DE HORARIOS NORMALES (En Horas Decimales)
@@ -2238,7 +2237,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -2321,7 +2320,7 @@ elif menu == "📈 Reportes":
                     if str(num_lav) in bene:
                         lav_perm = num_lav
                         break
-            
+                
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
@@ -2345,4 +2344,382 @@ elif menu == "📈 Reportes":
         st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
         if not df_ventas_kiosco.empty:
             st.dataframe(df_ventas_kiosco[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
-            st.success(f"**Total recaudado por Kiosco en
+            st.success(f"**Total recaudado por Kiosco en el período:** ${total_kiosco:,.0f}")
+        else:
+            st.info("No hay ventas de Kiosco registradas en este período.")
+
+        st.markdown("---")
+        st.markdown("### 📦 Control de Stock y Alertas")
+        if len(extras_raw) > 1:
+            stock_list = []
+            alertas_stock = []
+            for r in extras_raw[1:]:
+                if len(r) > 0 and str(r[0]).strip():
+                    prod = str(r[0]).strip()
+                    if "lavado" in prod.lower(): continue 
+                    
+                    try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
+                    except: precio = 0
+                    try: vendidos = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
+                    except: vendidos = 0
+                    try: stock_act = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0
+                    except: stock_act = 0
+                    try: stock_min = float(r[6]) if len(r) > 6 and str(r[6]).strip() else 5
+                    except: stock_min = 5
+                    
+                    estado = "🟢 OK"
+                    if stock_act <= stock_min:
+                        estado = "🔴 RE-STOCK"
+                        alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
+                    elif stock_act <= stock_min + 5:
+                        estado = "🟡 ATENCIÓN"
+                        
+                    stock_list.append({
+                        "Producto": prod,
+                        "Precio": f"${precio:,.0f}",
+                        "Vendidos": int(vendidos),
+                        "Stock Actual": int(stock_act),
+                        "Stock Mínimo": int(stock_min),
+                        "Estado": estado
+                    })
+            if alertas_stock:
+                st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
+            else:
+                st.success("✅ Todos los productos cuentan con stock suficiente.")
+                
+            if stock_list:
+                st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
+
+    with tab_evt:
+        st.markdown("### 🎟️ Reporte General de Eventos")
+        eventos_stats = {}
+        for ev in eventos_data[1:]:
+            if len(ev) > 1 and str(ev[1]).strip():
+                ev_name = str(ev[1]).strip()
+                if ev_name not in eventos_stats:
+                    eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                    
+        for r_ev in reg[1:]:
+            if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
+                ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
+                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                eventos_stats[ev_name]['Ingresados'] += 1
+
+        if not df.empty:
+            df_evts = df[df['Validación'].str.startswith('Evento:', na=False)]
+            for _, row_ev in df_evts.iterrows():
+                ev_name = str(row_ev['Validación']).replace("Evento: ", "").strip()
+                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
+                eventos_stats[ev_name]['Ingresados'] += 1
+                exc_monto = float(row_ev['Excedente_Local']) if pd.notnull(row_ev['Excedente_Local']) else 0
+                if exc_monto > 0:
+                    eventos_stats[ev_name]['Autos_Excedidos'] += 1
+                    eventos_stats[ev_name]['Monto_Excedido'] += exc_monto
+                    
+        if eventos_stats:
+            res_list = []
+            for ev, stats in eventos_stats.items():
+                if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0: 
+                    res_list.append({
+                        "Evento": ev, 
+                        "Total Autos Ingresados": stats['Ingresados'], 
+                        "Cant. Autos Excedidos (Hora)": stats['Autos_Excedidos'], 
+                        "A Facturar por Excedente ($)": stats['Monto_Excedido']
+                    })
+            if res_list:
+                df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
+            else:
+                st.info("No hubo ingresos registrados por eventos.")
+                
+        st.markdown("---")
+        st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
+        if not df.empty:
+            df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
+            if not df_quinquela_100.empty:
+                monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
+                st.warning(f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%.")
+                df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
+                st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
+        
+        st.markdown("---")
+        st.markdown("### 🏪 Uso de Validaciones Normales")
+        if not df.empty:
+            df_validaciones = df[(~df['Validación'].str.startswith('Evento:', na=False)) & (df['Validación'] != 'Ninguna') & (df['Validación'] != 'Quinquela 100%')]
+            if not df_validaciones.empty:
+                df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No se utilizaron validaciones normales en este período.")
+            
+    with tab_aud:
+        # --- NUEVO PANEL DE ALERTAS ---
+        st.markdown("### 🚨 Alertas de Cobros Inusuales (>$2000 sin promo)")
+        if not df.empty:
+            df_alertas = df[df['Obs'].str.contains("🚨 ALERTA >\$2000", case=False, na=False)]
+            if not df_alertas.empty:
+                st.error(f"⚠️ Se detectaron {len(df_alertas)} cobros por encima de lo normal en este período. Revisá si corresponde o si hubo un error del valet.")
+                st.dataframe(df_alertas[['Hora', 'Op', 'Patente', 'Ticket', 'Total', 'Obs']].sort_values(by='Hora', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ Todo en orden. No hay cobros injustificados mayores a $2000 en el período seleccionado.")
+        else:
+            st.info("No hay datos suficientes para analizar.")
+            
+        st.markdown("---")
+        st.markdown("### 💵 Auditoría de Caja y Efectivo")
+        try:
+            ws_ef = sh.worksheet("Efectivo_Caja")
+            datos_ef = ws_ef.get_all_values()
+            if len(datos_ef) > 1:
+                df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
+                df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
+                
+                df_gastos_aud = df_ef[df_ef['Tipo'] == "Gasto"]
+                if not df_gastos_aud.empty:
+                    total_g = df_gastos_aud['Monto'].sum()
+                    st.warning(f"💸 **Total de Gastos/Retiros del turno:** ${total_g:,.0f}")
+                
+                st.dataframe(df_ef.tail(15), use_container_width=True, hide_index=True)
+                
+                if len(df_ef) >= 2:
+                    salidas = df_ef[df_ef['Tipo'] == "Salida"]
+                    entradas = df_ef[df_ef['Tipo'] == "Entrada"]
+                    if not salidas.empty and not entradas.empty:
+                        ult_salida = salidas.iloc[-1]
+                        ult_entrada = entradas.iloc[-1]
+                        if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
+                            monto_cierre = float(ult_salida['Monto'])
+                            monto_apertura = float(ult_entrada['Monto'])
+                            dif = monto_apertura - monto_cierre
+                            if dif != 0:
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                            else:
+                                st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+            else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
+        except Exception as e: st.info("Error cargando Efectivo_Caja.")
+
+        st.markdown("---")
+        # --- NUEVO MÓDULO DE CONTROL DE HORAS EXTRAS Y DÍAS LIBRES ---
+        st.markdown("### 🕒 Control de Asistencia y Horas Extras")
+        try:
+            ws_asis = sh.worksheet("Asistencia")
+            datos_asis = ws_asis.get_all_values()
+            if len(datos_asis) > 1:
+                df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
+                df_asis['Hora_dt'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+                df_valid = df_asis.dropna(subset=['Hora_dt'])
+                
+                resultados_hs = []
+                df_es = df_valid[df_valid['Acción'].isin(['Entrada', 'Salida'])].sort_values(['Empleado', 'Hora_dt'])
+                
+                for emp_nombre, group in df_es.groupby('Empleado'):
+                    entrada_tmp = None
+                    hs_por_dia = {}
+                    for _, row in group.iterrows():
+                        if row['Acción'] == 'Entrada':
+                            entrada_tmp = row['Hora_dt']
+                        elif row['Acción'] == 'Salida' and entrada_tmp is not None:
+                            hs_trabajadas = (row['Hora_dt'] - entrada_tmp).total_seconds() / 3600.0
+                            fecha_str = entrada_tmp.strftime("%Y-%m-%d")
+                            
+                            if fecha_str not in hs_por_dia:
+                                hs_por_dia[fecha_str] = {"fecha_dt": entrada_tmp, "total_hs": 0.0}
+                            hs_por_dia[fecha_str]["total_hs"] += hs_trabajadas
+                            
+                            entrada_tmp = None
+                    
+                    emp_key = next((k for k in HORARIOS_ESPERADOS.keys() if k.lower() in emp_nombre.lower()), None)
+                    if emp_key:
+                        for f_str, data_dia in hs_por_dia.items():
+                            dia_semana = data_dia["fecha_dt"].weekday()
+                            hs_hechas = data_dia["total_hs"]
+                            hs_esperadas = HORARIOS_ESPERADOS[emp_key].get(dia_semana, 0.0)
+                            
+                            diff = hs_hechas - hs_esperadas
+                            if diff > 0.5: 
+                                if hs_esperadas == 0:
+                                    alerta = f"🚨 DÍA LIBRE TRABAJADO: Hizo {hs_hechas:.1f} hs."
+                                else:
+                                    alerta = f"🔥 HORAS EXTRAS: Hizo {hs_hechas:.1f} hs (Normal: {hs_esperadas} hs | Extra: {diff:.1f} hs)"
+                                
+                                resultados_hs.append({
+                                    "Fecha": f_str,
+                                    "Empleado": emp_nombre,
+                                    "Alerta": alerta
+                                })
+                
+                if resultados_hs:
+                    st.error("⚠️ Se detectaron horas extras o trabajo en días libres:")
+                    df_alertas_hs = pd.DataFrame(resultados_hs).drop_duplicates()
+                    st.dataframe(df_alertas_hs.sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ No se detectaron horas extras inusuales en este período.")
+
+                st.markdown("**Registro Completo de Fichajes:**")
+                st.dataframe(df_asis[['Hora', 'Empleado', 'Acción', 'Detalle']].sort_values(by='Hora', ascending=False).head(15), use_container_width=True, hide_index=True)
+        except Exception as e: st.error(f"Error cargando asistencia: {e}")
+        
+        st.markdown("---")
+        st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
+        hoy_str_cam = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
+        autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str_cam in r[1]]
+        autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
+        
+        patentes_activas_playa = []
+        for r in reg[1:]:
+            if len(r) > 3:
+                tkt_val = str(r[0]).strip()
+                h_sal = str(r[3]).strip()
+                if tkt_val.upper() != "EXTRA" and not tkt_val.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                    patentes_activas_playa.append(str(r[1]).strip().upper())
+
+        fugas = [p for p in autos_camara if p not in patentes_activas_playa]
+                
+        if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
+        elif fugas:
+            st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
+            st.write("Patentes sin registrar:", ", ".join(set(fugas)))
+        else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
+        
+    with tab_cierre:
+        st.markdown("### 🔄 Calculadora de Acumulados (Fin de mes)")
+        st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**. Así sabés exactamente qué número copiar en la Columna H del Excel.")
+        
+        hoy_cierre = datetime.utcnow() - timedelta(hours=3)
+        mes_ant_dt = (hoy_cierre.replace(day=1) - timedelta(days=1))
+        mes_ant_str = mes_ant_dt.strftime("%Y-%m")
+        st.info(f"📅 **Analizando mes:** {mes_ant_dt.strftime('%B %Y')}")
+        
+        if st.button("Calcular Lavados Sobrantes"):
+            sobrantes_list = []
+            for pat, datos_m in datos_mensualistas_map.items():
+                bene = str(datos_m["beneficio"]).upper()
+                if "LAVADO" in bene:
+                    lav_perm = 1
+                    for num_lav in range(10, 1, -1):
+                        if str(num_lav) in bene:
+                            lav_perm = num_lav
+                            break
+                    
+                    lav_usados_ant = 0
+                    for h in historial_data[1:]:
+                        if len(h) > 7 and str(h[0]).startswith(mes_ant_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                            if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                                lav_usados_ant += 1
+                                
+                    sobran = lav_perm - lav_usados_ant
+                    if sobran > 0:
+                        sobrantes_list.append({
+                            "Cliente": datos_m["nombre"],
+                            "Patente": pat,
+                            "Plan Base": lav_perm,
+                            "Usó en el mes": lav_usados_ant,
+                            "A poner en Columna H": sobran
+                        })
+            
+            if sobrantes_list:
+                df_sobrantes = pd.DataFrame(sobrantes_list).sort_values("A poner en Columna H", ascending=False)
+                st.dataframe(df_sobrantes, use_container_width=True, hide_index=True)
+                st.success("✨ ¡Listo! Solo tenés que copiar esos números de la última columna directo a la Columna H de tu Excel.")
+            else:
+                st.success("✅ Ningún cliente tuvo lavados sobrantes el mes pasado. No tenés que anotar nada extra.")
+
+elif menu == "📖 Ayuda":
+    st.subheader("📖 Manual de Operaciones - FlowPark VIP")
+    
+    st.markdown("""
+    Este manual explica el funcionamiento del estacionamiento, los roles de cada integrante y los procedimientos obligatorios.
+    
+    ---
+    
+    ### 👥 1. PERFILES DE USUARIO
+    El sistema detecta automáticamente tu rol según el PIN de 4 dígitos:
+    *   **🛡️ Administrador (Admin):** Tiene acceso total. Puede ver la pestaña **📈 Reportes** (Recaudación, cobros a locales, auditoría de cámaras y deudas).
+    *   **🚗 Valet:** Perfil operativo. Tiene acceso a Personal, Ingreso, Activos, Lavadero, Extras, Validaciones y Salida.
+    *   **🏪 Local (Quinquela / N18):** Solo ven la pantalla de **✅ Validaciones** para aplicar descuentos.
+    
+    ---
+    
+    ### ⏰ 2. MÓDULO PERSONAL: FICHAJE INTELIGENTE
+    **Todo Valet TIENE LA OBLIGACIÓN de utilizar este módulo al llegar y al irse.** El sistema es 100% inteligente y sabe qué botón mostrarte según tu horario:
+    *   **📝 Aperturas y Cambios de Turno:** Si sos el primero en llegar a la mañana o a la tarde, el sistema te obliga a realizar el arqueo de caja y stock inicial para abrir tu turno. A la salida (16:00 o 00:00), el sistema te obliga a cerrarlo.
+    *   **⚡ Entradas y Salidas de Refuerzo:** Si sos valet de apoyo y entrás en un horario intermedio (Ej: 09:00, 14:30), el sistema detecta que el turno ya fue abierto por otro compañero y te da un botón verde para fichar rápido sin contar la plata.
+    
+    ---
+    
+    ### 🎫 3. IDENTIFICACIÓN VISUAL (TICKETS Y PATENTES)
+    El sistema asigna letras al número de ticket (tarjeta) para reconocer clientes rápidamente:
+    *   **`MEN-`** Mensualistas y Autorizados (Ej: *MEN-1051*).
+    *   **`EV[Nombre]`** Invitados a un Evento VIP (Ej: *EVSEDAL1*).
+    *   **Solo Números:** Cliente Estándar (Ej: *1052*).
+    
+    ---
+    
+    ### 🏢 4. CLIENTES MENSUALIZADOS Y AUTORIZADOS
+    Al tipear la patente, la app muestra un aviso de color:
+    *   **🟢 Al Día / Autorizado:** El auto pasa directo. Cobro en la salida: $0.
+    *   **🔴 Cliente Deudor:** Alerta roja en pantalla. Al salir se le cobra $0 en caja, pero el sistema le enviará por WhatsApp un **Aviso de Deuda**.
+    *   **🚨 Control de Cupos (Límite de autos):** Si una persona paga 1 cochera pero registró 2 patentes. El primer auto pasa gratis. Si llega el segundo auto, el sistema alerta: *"Ya hay 1 auto adentro. Este vehículo DEBE ABONAR ESTADÍA"*.
+    
+    ---
+    
+    ### 🧽 5. MÓDULO DE LAVADERO INTEGRADO
+    *   **El Ingreso:** El Valet debe preguntar si desea lavado y marcar la casilla `🧽 Solicita Lavado`.
+    *   **Control Inteligente de Mensualistas:** Si el mensualista tiene "1 Lavado" incluido por mes y ya lo gastó, la app avisa: *"Ya gastó su cupo del mes"*. Podés usar uno acumulado si tiene, o cobrarlo.
+    *   **Panel de Lavadero:** En la pestaña **🧽 Lavadero**, los chicos ven qué autos lavar. También les avisa si hay un Mensualista con lavados gratis en la playa para que vayan a ofrecerle. Cuando terminan, tocan "Marcar Terminado".
+    *   **Salida (Cobro):** El Valet selecciona qué lavado le hizo. La app decide si lo descuenta del plan mensual o si se lo cobra aplicando promos.
+    
+    ---
+    
+    ### 🎉 6. EVENTOS VIP Y LISTA DE INVITADOS
+    *   **Auto-Completado:** Escribí la patente. Si está en la lista de hoy, el sistema llena el nombre y selecciona el evento solo.
+    *   **Control de Cupo:** Si el evento contrató 20 lugares y llega el 21, la app avisa el exceso de cupo.
+    *   **El Reloj Invisible:** A los invitados VIP **nunca se les cobra dinero** ($0). Pero si el evento terminaba a las 03:00 AM y retiran el auto a las 10:00 AM, el sistema factura esas horas extras al Organizador del evento internamente.
+    
+    ---
+    
+    ### ✏️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
+    Si escribiste mal una patente (ej: `ABC124` en vez de `ABC123`):
+    1. Ir a la pestaña **📊 Activos**.
+    2. Bajar hasta el panel **"✏️ Corregir Patente"**.
+    3. Seleccionar el auto mal cargado y escribir la patente correcta.
+    
+    ---
+    
+    ### 🗺️ 8. DIAGRAMA OPERATIVO DEL VALET
+    """)
+    
+    st.code("""
+    [ 🔐 Ingresa PIN de 4 Dígitos ]
+      │
+      ▼
+    [ ⏰ Pestaña 'Personal' ] ──► Toca Iniciar. El sistema decide solo si pide arqueo o ingreso rápido.
+      │
+      ├─────────────────────────────────────────────────┐
+      │                                                 │
+    [ 📥 INGRESO ]                                      [ 🧽 LAVADERO ] 
+      │                                                 │
+      ├─ Escribe Patente                                ├─ Revisa autos pendientes
+      ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Revisa Mensualistas estacionados
+      ├─ Lava el auto
+      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
+      ├─ ¿Pide Lavado?    ──► Tilda la casilla          │
+      ▼                                                 │
+    [ Envía Ticket WP ]                                 │
+      │                                                 │
+      ├─────────────────────────────────────────────────┘
+      │
+    [ 📤 SALIDA Y COBRO ]
+      │
+      ├─ Escribe la Patente para buscar fácil
+      ├─ Agrega Extras (kiosco) o tipo de Lavado
+      ├─ Cobra (O pasa gratis si es VIP/Mensualista)
+      ▼
+    [ Envía Comprobante de Pago WP y toca TERMINAR ]
+      │
+      ▼
+    [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
+    """, language="text")
+
