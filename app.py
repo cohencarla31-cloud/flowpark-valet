@@ -2441,3 +2441,126 @@ elif menu == "📈 Reportes":
                 monto_txt = f"${monto_adeudado:,.0f}"
                 cant_txt = len(df_quinquela_100)
                 st.warning(f"Quinquela debe abonar {monto_txt} por {cant_txt} validaciones.")
+        
+df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
+                st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
+        
+        st.markdown("---")
+        st.markdown("### 🏪 Uso de Validaciones Normales")
+        if not df.empty:
+            df_validaciones = df[(~df['Validación'].str.startswith('Evento:', na=False)) & (df['Validación'] != 'Ninguna') & (df['Validación'] != 'Quinquela 100%')]
+            if not df_validaciones.empty:
+                df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
+                st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No se utilizaron validaciones normales en este período.")
+            
+    with tab_aud:
+        st.markdown("### 🚨 Alertas de Cobros Inusuales (>$2000 sin promo)")
+        if not df.empty:
+            df_alertas = df[df['Obs'].str.contains("🚨 ALERTA >\$2000", case=False, na=False)]
+            if not df_alertas.empty:
+                st.error(f"⚠️ Se detectaron {len(df_alertas)} cobros por encima de lo normal en este período. Revisá si corresponde o si hubo un error del valet.")
+                st.dataframe(df_alertas[['Hora', 'Op', 'Patente', 'Ticket', 'Total', 'Obs']].sort_values(by='Hora', ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ Todo en orden. No hay cobros injustificados mayores a $2000 en el período seleccionado.")
+        else:
+            st.info("No hay datos suficientes para analizar.")
+            
+        st.markdown("---")
+        st.markdown("### 💵 Auditoría de Caja y Efectivo")
+        try:
+            ws_ef = sh.worksheet("Efectivo_Caja")
+            datos_ef = ws_ef.get_all_values()
+            if len(datos_ef) > 1:
+                df_ef = pd.DataFrame(datos_ef[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"])
+                df_ef['Monto'] = pd.to_numeric(df_ef['Monto'], errors='coerce').fillna(0)
+                
+                df_gastos_aud = df_ef[df_ef['Tipo'] == "Gasto"]
+                if not df_gastos_aud.empty:
+                    total_g = df_gastos_aud['Monto'].sum()
+                    st.warning(f"💸 **Total de Gastos/Retiros del turno:** ${total_g:,.0f}")
+                
+                st.dataframe(df_ef.tail(15), use_container_width=True, hide_index=True)
+                
+                if len(df_ef) >= 2:
+                    salidas = df_ef[df_ef['Tipo'] == "Salida"]
+                    entradas = df_ef[df_ef['Tipo'] == "Entrada"]
+                    if not salidas.empty and not entradas.empty:
+                        ult_salida = salidas.iloc[-1]
+                        ult_entrada = entradas.iloc[-1]
+                        if pd.to_datetime(ult_entrada['Fecha']) > pd.to_datetime(ult_salida['Fecha']):
+                            monto_cierre = float(ult_salida['Monto'])
+                            monto_apertura = float(ult_entrada['Monto'])
+                            dif = monto_apertura - monto_cierre
+                            if dif != 0:
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia:${dif:+,.0f}).")
+                            else:
+                                st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+            else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
+        except Exception as e: st.info("Error cargando Efectivo_Caja.")
+
+        # --- MÓDULO ÚNICO DE CONCILIACIÓN POS (OCA) Y AUDITORÍA DIARIA ---
+        st.markdown("---")
+        st.markdown("### 💳 Conciliación Bancaria y POS (OCA)")
+        st.info("💡 **Auditoría Definitiva:** Cruza toda la facturación histórica de la App contra todos los cupones reales de OCA, día por día.")
+        
+        if st.button("🔄 Ejecutar Auditoría Completa (App vs OCA)"):
+            oca_client_id = st.secrets.get("oca_client_id", "")
+            oca_secret = st.secrets.get("oca_secret_key", "")
+            
+            if not oca_client_id or not oca_secret:
+                st.warning("🔑 **Falta la Key de OCA:** Asegurate de haber guardado oca_client_id y oca_secret_key en los Secrets de Streamlit.")
+            else:
+                st.toast("Descargando historial de OCA...", icon="📡")
+                
+                try:
+                    url_base = "https://api.ocacomercios.oca.com.uy"
+                    url_signin = f"{url_base}/api/signin"
+                    url_cupones = f"{url_base}/api/v3/companies/218844290012/transactions"
+                    
+                    headers_base = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json"
+                    }
+                    
+                    payload = {"id_key": oca_client_id, "secret_key": oca_secret}
+                    res_token = requests.post(url_signin, json=payload, headers=headers_base)
+                    json_token = res_token.json()
+                    
+                    if isinstance(json_token, str):
+                        st.error(f"🛑 Error Signin: {json_token}")
+                        st.stop()
+                        
+                    token = json_token.get("data", {}).get("id_token", "")
+                    if not token:
+                        st.error("🛑 OCA no mandó el Token.")
+                        st.stop()
+                    
+                    headers_auth = headers_base.copy()
+                    headers_auth["Authorization"] = f"Bearer {token}"
+                    params = {"fechaDesde": "2026-10-01", "fechaHasta": hoy_dt.strftime("%Y-%m-%d")} 
+                    
+                    res_datos = requests.get(url_cupones, headers=headers_auth, params=params)
+                    res_json = res_datos.json()
+                    
+                    with st.expander("🛠️ RAYOS X: Ver qué datos exactos está mandando OCA"):
+                        st.json(res_json)
+                    
+                    if isinstance(res_json, str):
+                        st.error(f"🛑 Error Transacciones: {res_json}")
+                        st.stop()
+                        
+                    # ARREGLO CLAVE: Entrar a la lista "items"
+                    datos_crudos = res_json.get("data", {})
+                    if isinstance(datos_crudos, dict):
+                        data_cupones = datos_crudos.get("items", [])
+                    else:
+                        data_cupones = datos_crudos if isinstance(datos_crudos, list) else []
+                        
+                    df_oca_diario = pd.DataFrame(columns=['Fecha', 'Cobrado_OCA'])
+                    
+                    if isinstance(data_cupones, list) and len(
