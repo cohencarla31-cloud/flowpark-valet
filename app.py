@@ -2432,16 +2432,14 @@ elif menu == "📈 Reportes":
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
-        st.markdown("---")
-        st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
+       st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
         if not df.empty:
             df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
             if not df_quinquela_100.empty:
                 monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
-                monto_txt = f"${monto_adeudado:,.0f}"
-                cant_txt = len(df_quinquela_100)
-                st.warning(f"Quinquela debe abonar {monto_txt} por {cant_txt} validaciones.")
-            df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
+                texto_alerta_q = f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%."
+                st.warning(texto_alerta_q)
+                df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
                 st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
             else:
                 st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
