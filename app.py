@@ -2552,7 +2552,7 @@ elif menu == "📈 Reportes":
                         st.error(f"🛑 Error Transacciones: {res_json}")
                         st.stop()
                         
-                    # ARREGLO CLAVE: Entrar a la lista "items"
+                    # ARREGLO CLAVE: Entrar a "items" y usar los nombres reales de OCA
                     datos_crudos = res_json.get("data", {})
                     if isinstance(datos_crudos, dict):
                         data_cupones = datos_crudos.get("items", [])
@@ -2563,8 +2563,10 @@ elif menu == "📈 Reportes":
                     
                     if isinstance(data_cupones, list) and len(data_cupones) > 0:
                         df_oca = pd.DataFrame(data_cupones)
-                        col_monto = next((c for c in df_oca.columns if c.lower() in ["monto", "importe", "amount", "total", "neto"]), None)
-                        col_fecha_oca = next((c for c in df_oca.columns if c.lower() in ["fecha", "date", "fechaoperacion", "fechacupon"]), None)
+                        
+                        # Nombres exactos detectados por Rayos X
+                        col_monto = "importe_cupon" if "importe_cupon" in df_oca.columns else next((c for c in df_oca.columns if c.lower() in ["monto", "importe", "amount", "neto"]), None)
+                        col_fecha_oca = "fecha_transaccion" if "fecha_transaccion" in df_oca.columns else next((c for c in df_oca.columns if c.lower() in ["fecha", "date", "fechacupon"]), None)
                         
                         if col_monto and col_fecha_oca:
                             df_oca[col_monto] = pd.to_numeric(df_oca[col_monto], errors='coerce').fillna(0)
@@ -2572,9 +2574,9 @@ elif menu == "📈 Reportes":
                             df_oca_diario = df_oca.groupby('Fecha')[col_monto].sum().reset_index()
                             df_oca_diario.columns = ['Fecha', 'Cobrado_OCA']
                         else:
-                            st.warning("La API de OCA devolvió datos, pero no encontramos la columna de fecha o monto.")
+                            st.warning("No se encontró la columna de monto o fecha en OCA.")
                     else:
-                        st.warning("La lista 'items' vino vacía o no se pudo leer.")
+                        st.warning("La lista de cupones de OCA vino vacía.")
 
                     # PROCESAMIENTO APP
                     df_facturacion_app = pd.DataFrame()
