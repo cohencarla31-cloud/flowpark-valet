@@ -2432,7 +2432,8 @@ elif menu == "📈 Reportes":
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
-       st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
+        st.markdown("---")
+        st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
         if not df.empty:
             df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
             if not df_quinquela_100.empty:
@@ -2797,4 +2798,3 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
-        
