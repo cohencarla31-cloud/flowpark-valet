@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import urllib.parse
 import time
 import math
-import requests  
 
 # ==========================================
 # CONFIGURACIÓN DE HORARIOS NORMALES (En Horas Decimales)
@@ -340,6 +339,7 @@ except Exception as e:
         obtener_datos.clear()
         st.rerun()
     st.stop()
+
 
 hoy_str_global = hora_actual_uy().split()[0]
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
@@ -1862,7 +1862,7 @@ elif menu == "📤 Salida":
             
             st.markdown("---")
             
-            # --- OPCIÓN BUQUEBUS CON RADIO BUTTONS ---
+            # --- NUEVO: OPCIÓN BUQUEBUS CON RADIO BUTTONS ---
             precio_bqb_sem = tarifas.get("Promo Buquebus Semana (L-V)", {}).get(tipo_vehi, 2750)
             precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
             precio_bqb_1_sem = tarifas.get("Promo Buquebus 1 Semana", {}).get(tipo_vehi, 4800)
@@ -1881,7 +1881,7 @@ elif menu == "📤 Salida":
             
             if "Promo Buquebus" in promo_estadia_sel:
                 st.info("💡 **Añadir días excedentes:** Si el cliente se pasó del paquete que eligió, podés sumar los días extra acá abajo.")
-                dias_extra = st.number_input(f"➕ Días extra al paquete (Tarifa {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0.0, step=0.5)
+                dias_extra = st.number_input(f"➕ Días extra a sumar al paquete (Tarifa de {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0.0, step=0.5)
             
             if st.button("Calcular y Generar Salida"):
                 ws_registro = sh.worksheet("Registro")
@@ -2237,7 +2237,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -2320,7 +2320,7 @@ elif menu == "📈 Reportes":
                     if str(num_lav) in bene:
                         lav_perm = num_lav
                         break
-            
+                
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
@@ -2428,7 +2428,7 @@ elif menu == "📈 Reportes":
                     })
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
@@ -2438,8 +2438,7 @@ elif menu == "📈 Reportes":
             df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
             if not df_quinquela_100.empty:
                 monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
-                texto_alerta_q = f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%."
-                st.warning(texto_alerta_q)
+                st.warning(f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%.")
                 df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
                 st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
             else:
@@ -2456,6 +2455,7 @@ elif menu == "📈 Reportes":
                 st.info("No se utilizaron validaciones normales en este período.")
             
     with tab_aud:
+        # --- NUEVO PANEL DE ALERTAS ---
         st.markdown("### 🚨 Alertas de Cobros Inusuales (>$2000 sin promo)")
         if not df.empty:
             df_alertas = df[df['Obs'].str.contains("🚨 ALERTA >\$2000", case=False, na=False)]
@@ -2494,173 +2494,95 @@ elif menu == "📈 Reportes":
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
         except Exception as e: st.info("Error cargando Efectivo_Caja.")
 
-        # --- MÓDULO ÚNICO DE CONCILIACIÓN POS (OCA) Y AUDITORÍA DIARIA ---
         st.markdown("---")
-        st.markdown("### 💳 Conciliación Bancaria y POS (OCA)")
-        st.info("💡 **Auditoría Definitiva:** Cruza toda la facturación histórica de la App contra todos los cupones reales de OCA, día por día.")
-        
-        if st.button("🔄 Ejecutar Auditoría Completa (App vs OCA)"):
-            oca_client_id = st.secrets.get("oca_client_id", "")
-            oca_secret = st.secrets.get("oca_secret_key", "")
-            
-            if not oca_client_id or not oca_secret:
-                st.warning("🔑 **Falta la Key de OCA:** Asegurate de haber guardado oca_client_id y oca_secret_key en los Secrets de Streamlit.")
-            else:
-                st.toast("Descargando historial de OCA...", icon="📡")
+        # --- NUEVO MÓDULO DE CONTROL DE HORAS EXTRAS Y DÍAS LIBRES ---
+        st.markdown("### 🕒 Control de Asistencia y Horas Extras")
+        try:
+            ws_asis = sh.worksheet("Asistencia")
+            datos_asis = ws_asis.get_all_values()
+            if len(datos_asis) > 1:
+                df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
+                df_asis['Hora_dt'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+                df_valid = df_asis.dropna(subset=['Hora_dt'])
                 
-                try:
-                    url_base = "https://api.ocacomercios.oca.com.uy"
-                    url_signin = f"{url_base}/api/signin"
-                    url_cupones = f"{url_base}/api/v3/companies/218844290012/transactions"
-                    
-                    headers_base = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                        "Accept": "application/json",
-                        "Content-Type": "application/json"
-                    }
-                    
-                    payload = {"id_key": oca_client_id, "secret_key": oca_secret}
-                    res_token = requests.post(url_signin, json=payload, headers=headers_base)
-                    json_token = res_token.json()
-                    
-                    if isinstance(json_token, str):
-                        st.error(f"🛑 Error Signin: {json_token}")
-                        st.stop()
-                        
-                    token = json_token.get("data", {}).get("id_token", "")
-                    if not token:
-                        st.error("🛑 OCA no mandó el Token.")
-                        st.stop()
-                    
-                    headers_auth = headers_base.copy()
-                    headers_auth["Authorization"] = f"Bearer {token}"
-                    params = {"fechaDesde": "2026-10-01", "fechaHasta": hoy_dt.strftime("%Y-%m-%d")} 
-                    
-                    res_datos = requests.get(url_cupones, headers=headers_auth, params=params)
-                    res_json = res_datos.json()
-                    
-                    with st.expander("🛠️ RAYOS X: Ver qué datos exactos está mandando OCA"):
-                        st.json(res_json)
-                    
-                    if isinstance(res_json, str):
-                        st.error(f"🛑 Error Transacciones: {res_json}")
-                        st.stop()
-                        
-                   # ARREGLO CLAVE: Entrar a "items" y usar los nombres reales de OCA
-                    datos_crudos = res_json.get("data", {})
-                    if isinstance(datos_crudos, dict):
-                        data_cupones = datos_crudos.get("items", [])
-                    else:
-                        data_cupones = datos_crudos if isinstance(datos_crudos, list) else []
-                        
-                    df_oca_diario = pd.DataFrame(columns=['Fecha', 'Cobrado_OCA'])
-                    
-                    if isinstance(data_cupones, list) and len(data_cupones) > 0:
-                        df_oca = pd.DataFrame(data_cupones)
-                        
-                        # Nombres exactos detectados por Rayos X
-                        col_monto = "importe_cupon" if "importe_cupon" in df_oca.columns else next((c for c in df_oca.columns if c.lower() in ["monto", "importe", "amount", "neto"]), None)
-                        col_fecha_oca = "fecha_transaccion" if "fecha_transaccion" in df_oca.columns else next((c for c in df_oca.columns if c.lower() in ["fecha", "date", "fechacupon"]), None)
-                        
-                        if col_monto and col_fecha_oca:
-                            df_oca[col_monto] = pd.to_numeric(df_oca[col_monto], errors='coerce').fillna(0)
-                            df_oca['Fecha'] = df_oca[col_fecha_oca].astype(str).str[:10]
-                            df_oca_diario = df_oca.groupby('Fecha')[col_monto].sum().reset_index()
-                            df_oca_diario.columns = ['Fecha', 'Cobrado_OCA']
-                        else:
-                            st.warning("No se encontró la columna de monto o fecha en OCA.")
-                    else:
-                        st.warning("La lista de cupones de OCA vino vacía.")
-
-                    # PROCESAMIENTO APP
-                    df_facturacion_app = pd.DataFrame()
-                    if len(historial_data) > 1:
-                        headers_h = historial_data[0]
-                        max_cols_h = max(len(r) for r in historial_data)
-                        padded_h = [r + [""] * (max_cols_h - len(r)) for r in historial_data[1:]]
-                        df_h_puro = pd.DataFrame(padded_h, columns=[f"Col_{i}" if i >= len(headers_h) else headers_h[i] for i in range(max_cols_h)])
-                        if 'Total' in df_h_puro.columns and 'Hora' in df_h_puro.columns:
-                            df_h_puro['Total'] = pd.to_numeric(df_h_puro['Total'], errors='coerce').fillna(0)
-                            df_h_puro['Hora_dt'] = pd.to_datetime(df_h_puro['Hora'], errors='coerce')
-                            df_h_puro = df_h_puro.dropna(subset=['Hora_dt'])
-                            df_h_puro['Fecha'] = df_h_puro['Hora_dt'].dt.strftime('%Y-%m-%d')
-                            df_facturacion_app = df_h_puro.groupby('Fecha')['Total'].sum().reset_index()
-                            df_facturacion_app.columns = ['Fecha', 'Facturado_App']
-                    
-                    if len(stock_data) > 1:
-                        padded_stk = [r + [""] * (8 - len(r)) for r in stock_data[1:]]
-                        df_s_puro = pd.DataFrame(padded_stk, columns=["Fecha", "Producto", "Cantidad", "Empleado", "Patente", "Precio_U", "Total", "Fecha_Corta"])
-                        df_s_puro = df_s_puro[~df_s_puro['Producto'].str.startswith('Inv_')]
-                        if not df_s_puro.empty:
-                            df_s_puro['Total'] = pd.to_numeric(df_s_puro['Total'], errors='coerce').fillna(0)
-                            df_s_puro['Fecha_dt'] = pd.to_datetime(df_s_puro['Fecha'], errors='coerce')
-                            df_s_puro = df_s_puro.dropna(subset=['Fecha_dt'])
-                            df_s_puro['Fecha'] = df_s_puro['Fecha_dt'].dt.strftime('%Y-%m-%d')
-                            df_kiosco_diario = df_s_puro.groupby('Fecha')['Total'].sum().reset_index()
-                            df_kiosco_diario.columns = ['Fecha', 'Ventas_Kiosco']
-                            if not df_facturacion_app.empty:
-                                df_facturacion_app = pd.merge(df_facturacion_app, df_kiosco_diario, on='Fecha', how='outer').fillna(0)
-                                df_facturacion_app['Facturado_App'] = df_facturacion_app['Facturado_App'] + df_facturacion_app['Ventas_Kiosco']
-                            else:
-                                df_facturacion_app = df_kiosco_diario.rename(columns={'Ventas_Kiosco': 'Facturado_App'})
-
-                    df_efectivo_diario = pd.DataFrame()
-                    if len(efectivo_data) > 1:
-                        df_ef_puro = pd.DataFrame(efectivo_data[1:], columns=["Fecha", "Empleado", "Tipo", "Monto", "Observaciones"][:len(efectivo_data[0])])
-                        if 'Monto' in df_ef_puro.columns:
-                            df_ef_puro['Monto'] = pd.to_numeric(df_ef_puro['Monto'], errors='coerce').fillna(0)
-                            df_ef_puro['Fecha_dt'] = pd.to_datetime(df_ef_puro['Fecha'], errors='coerce')
-                            df_ef_puro = df_ef_puro.dropna(subset=['Fecha_dt'])
-                            df_ef_puro['Fecha_Corta'] = df_ef_puro['Fecha_dt'].dt.strftime('%Y-%m-%d')
-                            resultados_caja = []
-                            for fecha_d, grupo in df_ef_puro.groupby('Fecha_Corta'):
-                                caja_apertura = float(grupo[grupo['Tipo'] == "Entrada"].iloc[0]['Monto']) if not grupo[grupo['Tipo'] == "Entrada"].empty else 0
-                                caja_cierre = float(grupo[grupo['Tipo'] == "Salida"].iloc[-1]['Monto']) if not grupo[grupo['Tipo'] == "Salida"].empty else 0
-                                total_gastos = grupo[grupo['Tipo'] == "Gasto"]['Monto'].sum()
-                                efectivo_neto = (caja_cierre - caja_apertura) + total_gastos if caja_cierre > 0 else 0
-                                resultados_caja.append({'Fecha': fecha_d, 'Efectivo_Gaveta': efectivo_neto})
-                            df_efectivo_diario = pd.DataFrame(resultados_caja)
-
-                    if not df_facturacion_app.empty:
-                        df_maestro = df_facturacion_app.copy()
-                        if not df_efectivo_diario.empty:
-                            df_maestro = pd.merge(df_maestro, df_efectivo_diario, on='Fecha', how='outer').fillna(0)
-                        else:
-                            df_maestro['Efectivo_Gaveta'] = 0
-                        if not df_oca_diario.empty:
-                            df_maestro = pd.merge(df_maestro, df_oca_diario, on='Fecha', how='outer').fillna(0)
-                        else:
-                            df_maestro['Cobrado_OCA'] = 0
+                resultados_hs = []
+                df_es = df_valid[df_valid['Acción'].isin(['Entrada', 'Salida'])].sort_values(['Empleado', 'Hora_dt'])
+                
+                for emp_nombre, group in df_es.groupby('Empleado'):
+                    entrada_tmp = None
+                    hs_por_dia = {}
+                    for _, row in group.iterrows():
+                        if row['Acción'] == 'Entrada':
+                            entrada_tmp = row['Hora_dt']
+                        elif row['Acción'] == 'Salida' and entrada_tmp is not None:
+                            hs_trabajadas = (row['Hora_dt'] - entrada_tmp).total_seconds() / 3600.0
+                            fecha_str = entrada_tmp.strftime("%Y-%m-%d")
                             
-                        df_maestro['Facturado_App'] = df_maestro['Facturado_App'].fillna(0)
-                        df_maestro['Esperado_en_POS'] = df_maestro['Facturado_App'] - df_maestro['Efectivo_Gaveta']
-                        df_maestro['Esperado_en_POS'] = df_maestro['Esperado_en_POS'].apply(lambda x: max(0, x))
-                        df_maestro['Diferencia_Final'] = df_maestro['Cobrado_OCA'] - df_maestro['Esperado_en_POS']
-                        
-                        def estado_auditoria(dif):
-                            if dif == 0: return "✅ Cuadra Perfecto"
-                            elif dif > 0: return f"🔵 Posnet Sobra (+${dif:,.0f})"
-                            else: return f"🔴 Posnet Faltan (${dif:,.0f})"
+                            if fecha_str not in hs_por_dia:
+                                hs_por_dia[fecha_str] = {"fecha_dt": entrada_tmp, "total_hs": 0.0}
+                            hs_por_dia[fecha_str]["total_hs"] += hs_trabajadas
                             
-                        df_maestro['Estado'] = df_maestro['Diferencia_Final'].apply(estado_auditoria)
-                        df_mostrar = df_maestro[['Fecha', 'Facturado_App', 'Efectivo_Gaveta', 'Esperado_en_POS', 'Cobrado_OCA', 'Estado']].copy()
-                        df_mostrar.columns = ['Día', 'Facturado App', 'Efectivo Caja Neto', 'Debería estar en POS', 'Real Cobrado OCA', 'Estado de Auditoría']
-                        for col in ['Facturado App', 'Efectivo Caja Neto', 'Debería estar en POS', 'Real Cobrado OCA']:
-                            df_mostrar[col] = df_mostrar[col].apply(lambda x: f"${x:,.0f}")
-                        df_mostrar = df_mostrar.sort_values('Día', ascending=False)
-                        st.markdown("#### 📅 Auditoría de Cierre X/Z (Día a Día)")
-                        st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
-                    else:
-                        st.warning("No hay facturación registrada en la App para auditar todavía.")
-                except Exception as e:
-                    st.error(f"Error interno procesando la auditoría: {e}")
+                            entrada_tmp = None
+                    
+                    emp_key = next((k for k in HORARIOS_ESPERADOS.keys() if k.lower() in emp_nombre.lower()), None)
+                    if emp_key:
+                        for f_str, data_dia in hs_por_dia.items():
+                            dia_semana = data_dia["fecha_dt"].weekday()
+                            hs_hechas = data_dia["total_hs"]
+                            hs_esperadas = HORARIOS_ESPERADOS[emp_key].get(dia_semana, 0.0)
+                            
+                            diff = hs_hechas - hs_esperadas
+                            if diff > 0.5: 
+                                if hs_esperadas == 0:
+                                    alerta = f"🚨 DÍA LIBRE TRABAJADO: Hizo {hs_hechas:.1f} hs."
+                                else:
+                                    alerta = f"🔥 HORAS EXTRAS: Hizo {hs_hechas:.1f} hs (Normal: {hs_esperadas} hs | Extra: {diff:.1f} hs)"
+                                
+                                resultados_hs.append({
+                                    "Fecha": f_str,
+                                    "Empleado": emp_nombre,
+                                    "Alerta": alerta
+                                })
+                
+                if resultados_hs:
+                    st.error("⚠️ Se detectaron horas extras o trabajo en días libres:")
+                    df_alertas_hs = pd.DataFrame(resultados_hs).drop_duplicates()
+                    st.dataframe(df_alertas_hs.sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ No se detectaron horas extras inusuales en este período.")
 
+                st.markdown("**Registro Completo de Fichajes:**")
+                st.dataframe(df_asis[['Hora', 'Empleado', 'Acción', 'Detalle']].sort_values(by='Hora', ascending=False).head(15), use_container_width=True, hide_index=True)
+        except Exception as e: st.error(f"Error cargando asistencia: {e}")
+        
+        st.markdown("---")
+        st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
+        hoy_str_cam = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
+        autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str_cam in r[1]]
+        autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
+        
+        patentes_activas_playa = []
+        for r in reg[1:]:
+            if len(r) > 3:
+                tkt_val = str(r[0]).strip()
+                h_sal = str(r[3]).strip()
+                if tkt_val.upper() != "EXTRA" and not tkt_val.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                    patentes_activas_playa.append(str(r[1]).strip().upper())
+
+        fugas = [p for p in autos_camara if p not in patentes_activas_playa]
+                
+        if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
+        elif fugas:
+            st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
+            st.write("Patentes sin registrar:", ", ".join(set(fugas)))
+        else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
+        
     with tab_cierre:
         st.markdown("### 🔄 Calculadora de Acumulados (Fin de mes)")
         st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**. Así sabés exactamente qué número copiar en la Columna H del Excel.")
@@ -2800,3 +2722,4 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
+
