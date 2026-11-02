@@ -2552,7 +2552,7 @@ elif menu == "📈 Reportes":
                         st.error(f"🛑 Error Transacciones: {res_json}")
                         st.stop()
                         
-                    # ARREGLO CLAVE: Entrar a "items" y usar los nombres reales de OCA
+                   # ARREGLO CLAVE: Entrar a "items" y usar los nombres reales de OCA
                     datos_crudos = res_json.get("data", {})
                     if isinstance(datos_crudos, dict):
                         data_cupones = datos_crudos.get("items", [])
