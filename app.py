@@ -451,7 +451,6 @@ def actualizar_arqueo_en_extras(conteo_dict, empleado, fecha_str):
                     ])
     except Exception as e: pass
 
-
 if menu == "⏰ Personal":
     st.subheader("Control de Horarios y Caja")
     
@@ -672,6 +671,7 @@ if menu == "⏰ Personal":
         if st.button("🔄 Aceptar y Finalizar"):
             st.session_state.cartel_salida_msg = ""
             st.rerun()
+
 elif menu == "📥 Ingreso":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Registro de Ingreso")
@@ -1057,7 +1057,6 @@ elif menu == "📊 Activos":
                 col1.markdown(f"🚗 **{pat_rev}** | Tkt: #{tkt_rev} | Salida: {hora_salida_rev}")
                 
                 safe_key = hora_salida_completa.replace(" ", "_").replace(":", "_")
-                # --- ARREGLO DEL ERROR STREAMLIT DUPLICATE KEY ---
                 if col2.button("⏪ Anular", key=f"undo_{tkt_rev}_{safe_key}_{idx_btn}"):
                     try:
                         idx_reg_to_clear = None
@@ -1377,7 +1376,6 @@ elif menu == "✅ Validaciones":
             if len(r)>3:
                 tkt = str(r[0]).strip()
                 h_sal = str(r[3]).strip()
-                # Ocultamos de los locales los tickets MEN- y EV
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and not tkt.upper().startswith("MEN-") and not tkt.upper().startswith("EV") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
@@ -1583,7 +1581,7 @@ elif menu == "🍔 Extras":
         if len(r) > 0 and str(r[0]).strip():
             p_name = str(r[0]).strip()
             precio_val = float(r[1]) if len(r) > 1 and str(r[1]).strip() else 0
-            stock_act_val = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0  # <--- WAS 4, NOW 5 (Col F)
+            stock_act_val = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0  
             extras_info[p_name] = {"precio": precio_val, "stock": stock_act_val}
     
     temp_activos = {}
@@ -2285,6 +2283,225 @@ elif menu == "📈 Reportes":
             df_op.columns = ['Valet', 'Recaudación ($)']
             st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True, hide_index=True)
 
+    with tab_pers:
+        st.markdown("### 🕒 Control de Asistencia y Horas Extras")
+        if len(asistencia_data) > 1:
+            df_asist = pd.DataFrame(asistencia_data[1:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(asistencia_data[0])])
+            df_asist['Hora'] = pd.to_datetime(df_asist['Hora'], errors='coerce')
+            df_asist = df_asist.dropna(subset=['Hora']).sort_values('Hora')
+            
+            if filtro_opcion == "Elegir Fecha Específica":
+                df_asist = df_asist[df_asist['Hora'].dt.date == fecha_elegida]
+            elif filtro_opcion == "Por Mes":
+                df_asist = df_asist[df_asist['Hora'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
+            elif filtro_opcion == "Hoy":
+                df_asist = df_asist[df_asist['Hora'].dt.date == hoy_dt.date()]
+            elif filtro_opcion == "Últimos 7 días":
+                df_asist = df_asist[df_asist['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+                
+            registros_trabajo = []
+            estado_emp = {}
+            
+            for idx, row in df_asist.iterrows():
+                e = str(row['Empleado']).strip()
+                acc = str(row['Acción']).strip()
+                dt = row['Hora']
+                
+                if acc == "Entrada":
+                    estado_emp[e] = dt
+                elif acc == "Salida" and e in estado_emp:
+                    entrada_dt = estado_emp[e]
+                    horas_trabajadas = (dt - entrada_dt).total_seconds() / 3600.0
+                    
+                    registros_trabajo.append({
+                        'Fecha': entrada_dt.strftime('%Y-%m-%d'),
+                        'Empleado': e,
+                        'Día_Semana': entrada_dt.weekday(),
+                        'Horas_Reales': horas_trabajadas,
+                        'Hora_Ingreso': entrada_dt.hour,
+                        'Entrada_str': entrada_dt.strftime('%H:%M'),
+                        'Salida_str': dt.strftime('%H:%M')
+                    })
+                    del estado_emp[e]
+            
+            if registros_trabajo:
+                df_trab = pd.DataFrame(registros_trabajo)
+                
+                df_agrupado = df_trab.groupby(['Fecha', 'Empleado', 'Día_Semana']).agg({
+                    'Horas_Reales': 'sum', 
+                    'Hora_Ingreso': 'min',
+                    'Entrada_str': lambda x: ' | '.join(x),
+                    'Salida_str': lambda x: ' | '.join(x)
+                }).reset_index()
+                
+                def get_expected(e_name, w_day):
+                    for k, v in HORARIOS_ESPERADOS.items():
+                        if k.lower() in e_name.lower(): return v.get(w_day, 0.0)
+                    return 0.0
+                
+                def get_quien_debia_estar(w_day, turno_ingreso):
+                    esperados = []
+                    for k, v in HORARIOS_ESPERADOS.items():
+                        if v.get(w_day, 0.0) > 0:
+                            if k == "John" and turno_ingreso < 13: continue
+                            if k == "Rodrigo" and turno_ingreso >= 13: continue
+                            esperados.append(k)
+                    return ", ".join(esperados) if esperados else "Nadie"
+                    
+                df_agrupado['Horas_Esperadas'] = df_agrupado.apply(lambda x: get_expected(x['Empleado'], x['Día_Semana']), axis=1)
+                
+                st.markdown("#### 📅 Registro Detallado de Turnos (Día a Día)")
+                df_vista = df_agrupado[['Fecha', 'Empleado', 'Entrada_str', 'Salida_str', 'Horas_Reales', 'Horas_Esperadas']].copy()
+                df_vista.rename(columns={'Entrada_str': 'Hora Entrada', 'Salida_str': 'Hora Salida'}, inplace=True)
+                df_vista['Horas_Reales'] = df_vista['Horas_Reales'].apply(lambda x: f"{x:.1f} hs")
+                df_vista['Horas_Esperadas'] = df_vista['Horas_Esperadas'].apply(lambda x: f"{x:.1f} hs")
+                st.dataframe(df_vista.sort_values(by=['Fecha', 'Hora Entrada'], ascending=[False, False]), use_container_width=True, hide_index=True)
+                
+                st.markdown("#### 🚨 Alertas de Desvíos y Coberturas")
+                alertas_list = []
+                for _, row in df_agrupado.iterrows():
+                    emp_name = row['Empleado']
+                    h_real = row['Horas_Reales']
+                    h_esp = row['Horas_Esperadas']
+                    h_ingreso = row['Hora_Ingreso']
+                    fecha_str = row['Fecha']
+                    d_sem = row['Día_Semana']
+                    
+                    alerta_txt = ""
+                    
+                    if "John" in emp_name and h_ingreso < 13:
+                        alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Mañana (Debe ir a la Tarde). "
+                    elif "Rodrigo" in emp_name and h_ingreso >= 13:
+                        alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Tarde (Debe ir a la Mañana). "
+                        
+                    if h_esp == 0 and h_real > 0.5:
+                        debia = get_quien_debia_estar(d_sem, h_ingreso)
+                        alerta_txt += f"🎉 DÍA LIBRE TRABAJADO: Hizo {h_real:.1f} hs (Debería haber estado: {debia})."
+                    elif h_real > (h_esp + 0.5):
+                        extra = h_real - h_esp
+                        alerta_txt += f"🔥 HORAS EXTRAS: Hizo {h_real:.1f} hs (Normal: {h_esp:.1f} hs | Extra: {extra:.1f} hs)."
+                    elif h_real < (h_esp - 0.5):
+                        falta = h_esp - h_real
+                        alerta_txt += f"⚠️ TURNO INCOMPLETO: Faltaron {falta:.1f} hs."
+                        
+                    if alerta_txt:
+                        alertas_list.append({
+                            'Fecha': fecha_str,
+                            'Empleado': emp_name,
+                            'Alerta': alerta_txt.strip()
+                        })
+                
+                if alertas_list:
+                    st.dataframe(pd.DataFrame(alertas_list).sort_values(by=['Fecha', 'Empleado'], ascending=[False, True]), use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ Todos los turnos coinciden perfectamente con los horarios y días esperados.")
+            else:
+                st.info("No hay suficientes pares de Entrada/Salida para calcular las horas en este período.")
+        else:
+            st.info("Aún no hay registros en la tabla de Asistencia.")
+
+    with tab_lav:
+        st.markdown("### 🧽 Reporte General de Lavados Realizados")
+        if not df.empty:
+            df_lavados_nuevos = df[~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN'])].copy()
+            df_lavados_viejos = df[(df['Obs'].str.contains('Lavado|🧼', case=False, na=False)) & (df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))].copy()
+            
+            if not df_lavados_viejos.empty:
+                df_lavados_viejos['Servicio_Lavado'] = df_lavados_viejos['Obs'].apply(lambda x: [part.strip(' |-') for part in str(x).split('|') if 'Lavado' in part or '🧼' in part][0] if '|' in str(x) or 'Lavado' in str(x) else "Lavado")
+            
+            df_res_final = pd.concat([df_lavados_nuevos, df_lavados_viejos])
+            
+            if not df_res_final.empty:
+                df_res_lav = df_res_final[['Hora', 'Patente', 'Servicio_Lavado', 'Op']].sort_values(by='Hora', ascending=False)
+                st.dataframe(df_res_lav, use_container_width=True, hide_index=True)
+                st.success(f"**Total de lavados realizados en el período:** {len(df_res_final)}")
+            else:
+                st.info("No se registraron lavados en el período seleccionado.")
+        else:
+            st.info("No hay tickets procesados en este período.")
+
+        st.markdown("---")
+        st.markdown("### 💦 Control de Lavados (Mensualistas)")
+        mes_actual_str = hora_actual_uy()[:7]
+        reporte_lavados = []
+        for pat, datos_m in datos_mensualistas_map.items():
+            bene = str(datos_m["beneficio"]).upper()
+            if "LAVADO" in bene:
+                lav_perm = 1
+                for num_lav in range(10, 1, -1):
+                    if str(num_lav) in bene:
+                        lav_perm = num_lav
+                        break
+            
+                lav_usados = 0
+                for h in historial_data[1:]:
+                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                        if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
+                            lav_usados += 1
+                            
+                reporte_lavados.append({
+                    "Nombre": datos_m["nombre"],
+                    "Patente": pat,
+                    "Plan de Lavado": bene,
+                    "Usados (Mes)": f"{lav_usados} / {lav_perm}",
+                    "Acumulados Extra": datos_m.get("acumulados", 0),
+                    "Estado": "✅ Disponible" if lav_usados < lav_perm else ("⭐ Usa Acumulado" if datos_m.get("acumulados", 0) > 0 else "❌ Agotado")
+                })
+        if reporte_lavados:
+            st.dataframe(pd.DataFrame(reporte_lavados).sort_values(by="Usados (Mes)", ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay mensualistas con beneficio de lavado.")
+
+    with tab_kio:
+        st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
+        if not df_ventas_kiosco.empty:
+            st.dataframe(df_ventas_kiosco[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+            st.success(f"**Total recaudado por Kiosco en el período:** ${total_kiosco:,.0f}")
+        else:
+            st.info("No hay ventas de Kiosco registradas en este período.")
+
+        st.markdown("---")
+        st.markdown("### 📦 Control de Stock y Alertas")
+        if len(extras_raw) > 1:
+            stock_list = []
+            alertas_stock = []
+            for r in extras_raw[1:]:
+                if len(r) > 0 and str(r[0]).strip():
+                    prod = str(r[0]).strip()
+                    if "lavado" in prod.lower(): continue 
+                    
+                    try: precio = float(str(r[1]).replace(',','.')) if len(r) > 1 and str(r[1]).strip() else 0
+                    except: precio = 0
+                    try: vendidos = float(r[4]) if len(r) > 4 and str(r[4]).strip() else 0
+                    except: vendidos = 0
+                    try: stock_act = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0
+                    except: stock_act = 0
+                    try: stock_min = float(r[6]) if len(r) > 6 and str(r[6]).strip() else 5
+                    except: stock_min = 5
+                    
+                    estado = "🟢 OK"
+                    if stock_act <= stock_min:
+                        estado = "🔴 RE-STOCK"
+                        alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
+                    elif stock_act <= stock_min + 5:
+                        estado = "🟡 ATENCIÓN"
+                        
+                    stock_list.append({
+                        "Producto": prod,
+                        "Precio": f"${precio:,.0f}",
+                        "Vendidos": int(vendidos),
+                        "Stock Actual": int(stock_act),
+                        "Stock Mínimo": int(stock_min),
+                        "Estado": estado
+                    })
+            if alertas_stock:
+                st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
+            else:
+                st.success("✅ Todos los productos cuentan con stock suficiente.")
+                
+            if stock_list:
+                st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
+
     with tab_evt:
         st.markdown("### 🎟️ Reporte General de Eventos")
         eventos_stats = {}
@@ -2396,6 +2613,42 @@ elif menu == "📈 Reportes":
         else:
             st.info("No hay datos suficientes para analizar.")
             
+        st.markdown("---")
+        st.markdown("### 🌙 Auditoría de Cierres de Turno (> 00:00)")
+        st.info("Control de valets que finalizaron su turno en la madrugada y qué autos despacharon en ese horario.")
+        cierres_tardios = []
+        if len(asistencia_data) > 1:
+            for a in asistencia_data[1:]:
+                if len(a) > 2 and str(a[2]).strip() == "Salida":
+                    hora_str = str(a[0]).strip()
+                    emp_salida = str(a[1]).strip()
+                    try:
+                        dt_salida = pd.to_datetime(hora_str)
+                        if 0 <= dt_salida.hour < 6: # Si salió entre las 00:00 y las 06:00 AM
+                            fecha_madrugada = dt_salida.date()
+                            autos_tarde = []
+                            if not df.empty:
+                                # Buscamos todos los autos despachados esa misma madrugada
+                                df_noche = df[(df['Hora'].dt.date == fecha_madrugada) & (df['Hora'] <= dt_salida)]
+                                for _, r_auto in df_noche.iterrows():
+                                    if 0 <= r_auto['Hora'].hour < 6:
+                                        autos_tarde.append(f"{r_auto['Patente']} ({r_auto['Hora'].strftime('%H:%M')})")
+                            
+                            autos_str = " | ".join(autos_tarde) if autos_tarde else "Ninguno"
+                            cierres_tardios.append({
+                                'Día de Ingreso': (dt_salida - timedelta(days=1)).strftime('%Y-%m-%d'),
+                                'Empleado': emp_salida,
+                                'Hora de Cierre': dt_salida.strftime('%H:%M:%S'),
+                                'Autos despachados esa madrugada': autos_str
+                            })
+                    except: pass
+                        
+            if cierres_tardios:
+                df_tardios = pd.DataFrame(cierres_tardios).sort_values(by=['Día de Ingreso', 'Hora de Cierre'], ascending=[False, False])
+                st.dataframe(df_tardios, use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ No se registran salidas de personal después de las 00:00 hs.")
+        
         st.markdown("---")
         st.markdown("### 💵 Auditoría de Caja y Efectivo")
         try:
