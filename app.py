@@ -13,8 +13,8 @@ import math
 HORARIOS_ESPERADOS = {
     "John":    {0: 8.5, 1: 8.5, 2: 8.5, 3: 8.5, 4: 8.5, 5: 0.0, 6: 0.0},
     "Rodrigo": {0: 8.5, 1: 8.5, 2: 8.5, 3: 8.5, 4: 8.5, 5: 0.0, 6: 0.0},
-    "Andres":  {0: 5.0, 1: 4.0, 2: 9.0, 3: 4.0, 4: 9.0, 5: 0.0, 6: 0.0},
-    "Lucas":   {0: 4.0, 1: 5.0, 2: 0.0, 3: 5.0, 4: 0.0, 5: 13.0, 6: 5.0}
+    "Andres":  {0: 5.0, 1: 4.0, 2: 9.0, 3: 4.0, 4: 5.0, 5: 8.0, 6: 0.0},
+    "Lucas":   {0: 4.0, 1: 5.0, 2: 0.0, 3: 5.0, 4: 4.0, 5: 5.0, 6: 5.0}
 }
 # ==========================================
 
@@ -339,6 +339,7 @@ except Exception as e:
         obtener_datos.clear()
         st.rerun()
     st.stop()
+
 
 hoy_str_global = hora_actual_uy().split()[0]
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
@@ -672,7 +673,8 @@ if menu == "⏰ Personal":
         if st.button("🔄 Aceptar y Finalizar"):
             st.session_state.cartel_salida_msg = ""
             st.rerun()
-            elif menu == "📥 Ingreso":
+
+elif menu == "📥 Ingreso":
     c_head1, c_head2 = st.columns([3, 1])
     c_head1.subheader("Registro de Ingreso")
     if c_head2.button("🔄 Refrescar Datos", key="ref_ing"):
@@ -1860,7 +1862,7 @@ elif menu == "📤 Salida":
             
             st.markdown("---")
             
-            # --- OPCIÓN BUQUEBUS CON RADIO BUTTONS ---
+            # --- NUEVO: OPCIÓN BUQUEBUS CON RADIO BUTTONS ---
             precio_bqb_sem = tarifas.get("Promo Buquebus Semana (L-V)", {}).get(tipo_vehi, 2750)
             precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
             precio_bqb_1_sem = tarifas.get("Promo Buquebus 1 Semana", {}).get(tipo_vehi, 4800)
@@ -1879,7 +1881,7 @@ elif menu == "📤 Salida":
             
             if "Promo Buquebus" in promo_estadia_sel:
                 st.info("💡 **Añadir días excedentes:** Si el cliente se pasó del paquete que eligió, podés sumar los días extra acá abajo.")
-                dias_extra = st.number_input(f"➕ Días extra al paquete (Tarifa {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0.0, step=0.5)
+                dias_extra = st.number_input(f"➕ Días extra a sumar al paquete (Tarifa de {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0.0, step=0.5)
             
             if st.button("Calcular y Generar Salida"):
                 ws_registro = sh.worksheet("Registro")
@@ -2135,6 +2137,7 @@ elif menu == "📈 Reportes":
                 df_stock['Total'] = pd.to_numeric(df_stock['Total'], errors='coerce').fillna(0)
                 df_ventas_kiosco = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
             
+            # --- NUEVO: FILTRO POR MES ---
             filtro_opcion = st.radio("Filtro de tiempo:", ["Hoy", "Últimos 7 días", "Por Mes", "Elegir Fecha Específica", "Todo el historial"], horizontal=True)
             hoy_dt = datetime.utcnow() - timedelta(hours=3)
             
@@ -2191,8 +2194,8 @@ elif menu == "📈 Reportes":
         df_ventas_kiosco = pd.DataFrame()
         st.error(f"Error cargando base de datos: {e}")
 
-    tab_fin, tab_pers, tab_lav, tab_kio, tab_evt, tab_aud, tab_cierre = st.tabs([
-        "💰 Financiero", "⏰ Personal", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría", "🔄 Cierre de Mes"
+    tab_fin, tab_lav, tab_kio, tab_evt, tab_aud, tab_cierre = st.tabs([
+        "💰 Financiero", "🧽 Lavadero", "🍔 Kiosco", "🎟️ Eventos", "🛡️ Auditoría", "🔄 Cierre de Mes"
     ])
 
     with tab_fin:
@@ -2234,7 +2237,7 @@ elif menu == "📈 Reportes":
                 df_diario['Lavadero'] = 0
 
             df_diario['Total ($)'] = df_diario['Parking'] + df_diario['Lavadero'] + df_diario['Kiosco']
-            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ($)', 'Lavadero': 'Lavadero ($)', 'Kiosco': 'Kiosco ($)'}, inplace=True)
+            df_diario.rename(columns={'Fecha_str': 'Fecha', 'Cant_Autos': 'Cant. Autos', 'Cant_Lavados': 'Cant. Lavados', 'Parking': 'Parking ()','Lavadero':'Lavadero()', 'Kiosco': 'Kiosco ($)'}, inplace=True)
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
@@ -2285,97 +2288,6 @@ elif menu == "📈 Reportes":
             df_op.columns = ['Valet', 'Recaudación ($)']
             st.dataframe(df_op.sort_values(by='Recaudación ($)', ascending=False), use_container_width=True, hide_index=True)
 
-    with tab_pers:
-        st.markdown("### 🕒 Control de Asistencia y Horas Extras")
-        if len(asistencia_data) > 1:
-            df_asist = pd.DataFrame(asistencia_data[1:], columns=["Hora", "Empleado", "Acción", "Detalle"][:len(asistencia_data[0])])
-            df_asist['Hora'] = pd.to_datetime(df_asist['Hora'], errors='coerce')
-            df_asist = df_asist.dropna(subset=['Hora']).sort_values('Hora')
-            
-            if filtro_opcion == "Elegir Fecha Específica":
-                df_asist = df_asist[df_asist['Hora'].dt.date == fecha_elegida]
-            elif filtro_opcion == "Por Mes":
-                df_asist = df_asist[df_asist['Hora'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
-            elif filtro_opcion == "Hoy":
-                df_asist = df_asist[df_asist['Hora'].dt.date == hoy_dt.date()]
-            elif filtro_opcion == "Últimos 7 días":
-                df_asist = df_asist[df_asist['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
-                
-            registros_trabajo = []
-            estado_emp = {}
-            
-            for idx, row in df_asist.iterrows():
-                e = str(row['Empleado']).strip()
-                acc = str(row['Acción']).strip()
-                dt = row['Hora']
-                
-                if acc == "Entrada":
-                    estado_emp[e] = dt
-                elif acc == "Salida" and e in estado_emp:
-                    entrada_dt = estado_emp[e]
-                    horas_trabajadas = (dt - entrada_dt).total_seconds() / 3600.0
-                    
-                    registros_trabajo.append({
-                        'Fecha': entrada_dt.date(),
-                        'Empleado': e,
-                        'Día_Semana': entrada_dt.weekday(),
-                        'Horas_Reales': horas_trabajadas,
-                        'Hora_Ingreso': entrada_dt.hour
-                    })
-                    del estado_emp[e]
-            
-            if registros_trabajo:
-                df_trab = pd.DataFrame(registros_trabajo)
-                df_agrupado = df_trab.groupby(['Fecha', 'Empleado', 'Día_Semana']).agg({'Horas_Reales': 'sum', 'Hora_Ingreso': 'min'}).reset_index()
-                
-                def get_expected(e_name, w_day):
-                    for k, v in HORARIOS_ESPERADOS.items():
-                        if k.lower() in e_name.lower(): return v.get(w_day, 0.0)
-                    return 0.0
-                    
-                df_agrupado['Horas_Esperadas'] = df_agrupado.apply(lambda x: get_expected(x['Empleado'], x['Día_Semana']), axis=1)
-                
-                alertas_list = []
-                for _, row in df_agrupado.iterrows():
-                    emp_name = row['Empleado']
-                    h_real = row['Horas_Reales']
-                    h_esp = row['Horas_Esperadas']
-                    h_ingreso = row['Hora_Ingreso']
-                    fecha_str = row['Fecha'].strftime('%Y-%m-%d')
-                    
-                    alerta_txt = ""
-                    
-                    if "John" in emp_name and h_ingreso < 13:
-                        alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Mañana (Debe ir a la Tarde). "
-                    elif "Rodrigo" in emp_name and h_ingreso >= 13:
-                        alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Tarde (Debe ir a la Mañana). "
-                        
-                    if h_esp == 0 and h_real > 0.5:
-                        alerta_txt += f"🎉 DÍA LIBRE TRABAJADO: Hizo {h_real:.1f} hs."
-                    elif h_real > (h_esp + 0.5):
-                        extra = h_real - h_esp
-                        alerta_txt += f"🔥 HORAS EXTRAS: Hizo {h_real:.1f} hs (Normal: {h_esp:.1f} hs | Extra: {extra:.1f} hs)."
-                    elif h_real < (h_esp - 0.5):
-                        falta = h_esp - h_real
-                        alerta_txt += f"⚠️ TURNO INCOMPLETO: Faltaron {falta:.1f} hs."
-                        
-                    if alerta_txt:
-                        alertas_list.append({
-                            'Fecha': fecha_str,
-                            'Empleado': emp_name,
-                            'Alerta': alerta_txt.strip()
-                        })
-                
-                if alertas_list:
-                    st.error("⚠️ Se detectaron horas extras, días libres trabajados o cambios de turno:")
-                    st.dataframe(pd.DataFrame(alertas_list).sort_values(by=['Fecha', 'Empleado'], ascending=[False, True]), use_container_width=True, hide_index=True)
-                else:
-                    st.success("✅ Todos los turnos coinciden perfectamente con los horarios y días esperados.")
-            else:
-                st.info("No hay suficientes pares de Entrada/Salida para calcular las horas en este período.")
-        else:
-            st.info("Aún no hay registros en la tabla de Asistencia.")
-
     with tab_lav:
         st.markdown("### 🧽 Reporte General de Lavados Realizados")
         if not df.empty:
@@ -2408,7 +2320,7 @@ elif menu == "📈 Reportes":
                     if str(num_lav) in bene:
                         lav_perm = num_lav
                         break
-            
+                
                 lav_usados = 0
                 for h in historial_data[1:]:
                     if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
@@ -2485,24 +2397,20 @@ elif menu == "📈 Reportes":
             if len(ev) > 1 and str(ev[1]).strip():
                 ev_name = str(ev[1]).strip()
                 if ev_name not in eventos_stats:
-                    eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0, 'Valets': set()}
+                    eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
                     
         for r_ev in reg[1:]:
             if len(r_ev) > 4 and "Evento:" in str(r_ev[4]) and (not r_ev[3] or str(r_ev[3]).lower() == "nan"):
                 ev_name = str(r_ev[4]).split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
-                op_name = str(r_ev[4]).split("Op: ")[1].split(" |")[0].strip() if "Op: " in str(r_ev[4]) else "Desconocido"
-                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0, 'Valets': set()}
+                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
                 eventos_stats[ev_name]['Ingresados'] += 1
-                eventos_stats[ev_name]['Valets'].add(op_name)
 
         if not df.empty:
             df_evts = df[df['Validación'].str.startswith('Evento:', na=False)]
             for _, row_ev in df_evts.iterrows():
                 ev_name = str(row_ev['Validación']).replace("Evento: ", "").strip()
-                op_name = str(row_ev['Op']).strip()
-                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0, 'Valets': set()}
+                if ev_name not in eventos_stats: eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0}
                 eventos_stats[ev_name]['Ingresados'] += 1
-                eventos_stats[ev_name]['Valets'].add(op_name)
                 exc_monto = float(row_ev['Excedente_Local']) if pd.notnull(row_ev['Excedente_Local']) else 0
                 if exc_monto > 0:
                     eventos_stats[ev_name]['Autos_Excedidos'] += 1
@@ -2511,18 +2419,16 @@ elif menu == "📈 Reportes":
         if eventos_stats:
             res_list = []
             for ev, stats in eventos_stats.items():
-                if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0:
-                    valets_str = ", ".join(list(stats['Valets'])) if stats['Valets'] else "-"
+                if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0: 
                     res_list.append({
                         "Evento": ev, 
-                        "Valets a Cargo": valets_str,
                         "Total Autos Ingresados": stats['Ingresados'], 
                         "Cant. Autos Excedidos (Hora)": stats['Autos_Excedidos'], 
                         "A Facturar por Excedente ($)": stats['Monto_Excedido']
                     })
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
-                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ()":"{:,.0f}"}), use_container_width=True, hide_index=True)
             else:
                 st.info("No hubo ingresos registrados por eventos.")
                 
@@ -2532,8 +2438,7 @@ elif menu == "📈 Reportes":
             df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
             if not df_quinquela_100.empty:
                 monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
-                texto_alerta_q = f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%."
-                st.warning(texto_alerta_q)
+                st.warning(f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%.")
                 df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
                 st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
             else:
@@ -2550,9 +2455,10 @@ elif menu == "📈 Reportes":
                 st.info("No se utilizaron validaciones normales en este período.")
             
     with tab_aud:
+        # --- NUEVO PANEL DE ALERTAS ---
         st.markdown("### 🚨 Alertas de Cobros Inusuales (>$2000 sin promo)")
         if not df.empty:
-            df_alertas = df[(df['Total'] > 2000) & (~df['Obs'].str.contains("Buquebus", case=False, na=False))]
+            df_alertas = df[df['Obs'].str.contains("🚨 ALERTA >\$2000", case=False, na=False)]
             if not df_alertas.empty:
                 st.error(f"⚠️ Se detectaron {len(df_alertas)} cobros por encima de lo normal en este período. Revisá si corresponde o si hubo un error del valet.")
                 st.dataframe(df_alertas[['Hora', 'Op', 'Patente', 'Ticket', 'Total', 'Obs']].sort_values(by='Hora', ascending=False), use_container_width=True, hide_index=True)
@@ -2588,12 +2494,95 @@ elif menu == "📈 Reportes":
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
                             if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **montocierre:,.0f**,peroultentrada['Empleado']abriócon**{monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
                             else:
                                 st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
         except Exception as e: st.info("Error cargando Efectivo_Caja.")
 
+        st.markdown("---")
+        # --- NUEVO MÓDULO DE CONTROL DE HORAS EXTRAS Y DÍAS LIBRES ---
+        st.markdown("### 🕒 Control de Asistencia y Horas Extras")
+        try:
+            ws_asis = sh.worksheet("Asistencia")
+            datos_asis = ws_asis.get_all_values()
+            if len(datos_asis) > 1:
+                df_asis = pd.DataFrame(datos_asis[1:], columns=["Hora", "Empleado", "Acción", "Detalle"])
+                df_asis['Hora_dt'] = pd.to_datetime(df_asis['Hora'], errors='coerce')
+                df_valid = df_asis.dropna(subset=['Hora_dt'])
+                
+                resultados_hs = []
+                df_es = df_valid[df_valid['Acción'].isin(['Entrada', 'Salida'])].sort_values(['Empleado', 'Hora_dt'])
+                
+                for emp_nombre, group in df_es.groupby('Empleado'):
+                    entrada_tmp = None
+                    hs_por_dia = {}
+                    for _, row in group.iterrows():
+                        if row['Acción'] == 'Entrada':
+                            entrada_tmp = row['Hora_dt']
+                        elif row['Acción'] == 'Salida' and entrada_tmp is not None:
+                            hs_trabajadas = (row['Hora_dt'] - entrada_tmp).total_seconds() / 3600.0
+                            fecha_str = entrada_tmp.strftime("%Y-%m-%d")
+                            
+                            if fecha_str not in hs_por_dia:
+                                hs_por_dia[fecha_str] = {"fecha_dt": entrada_tmp, "total_hs": 0.0}
+                            hs_por_dia[fecha_str]["total_hs"] += hs_trabajadas
+                            
+                            entrada_tmp = None
+                    
+                    emp_key = next((k for k in HORARIOS_ESPERADOS.keys() if k.lower() in emp_nombre.lower()), None)
+                    if emp_key:
+                        for f_str, data_dia in hs_por_dia.items():
+                            dia_semana = data_dia["fecha_dt"].weekday()
+                            hs_hechas = data_dia["total_hs"]
+                            hs_esperadas = HORARIOS_ESPERADOS[emp_key].get(dia_semana, 0.0)
+                            
+                            diff = hs_hechas - hs_esperadas
+                            if diff > 0.5: 
+                                if hs_esperadas == 0:
+                                    alerta = f"🚨 DÍA LIBRE TRABAJADO: Hizo {hs_hechas:.1f} hs."
+                                else:
+                                    alerta = f"🔥 HORAS EXTRAS: Hizo {hs_hechas:.1f} hs (Normal: {hs_esperadas} hs | Extra: {diff:.1f} hs)"
+                                
+                                resultados_hs.append({
+                                    "Fecha": f_str,
+                                    "Empleado": emp_nombre,
+                                    "Alerta": alerta
+                                })
+                
+                if resultados_hs:
+                    st.error("⚠️ Se detectaron horas extras o trabajo en días libres:")
+                    df_alertas_hs = pd.DataFrame(resultados_hs).drop_duplicates()
+                    st.dataframe(df_alertas_hs.sort_values("Fecha", ascending=False), use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ No se detectaron horas extras inusuales en este período.")
+
+                st.markdown("**Registro Completo de Fichajes:**")
+                st.dataframe(df_asis[['Hora', 'Empleado', 'Acción', 'Detalle']].sort_values(by='Hora', ascending=False).head(15), use_container_width=True, hide_index=True)
+        except Exception as e: st.error(f"Error cargando asistencia: {e}")
+        
+        st.markdown("---")
+        st.markdown("### 📷 Auditoría: Cámaras LPR vs. Valets")
+        hoy_str_cam = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
+        autos_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 1 and hoy_str_cam in r[1]]
+        autos_camara = [p for p in autos_camara if p not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
+        
+        patentes_activas_playa = []
+        for r in reg[1:]:
+            if len(r) > 3:
+                tkt_val = str(r[0]).strip()
+                h_sal = str(r[3]).strip()
+                if tkt_val.upper() != "EXTRA" and not tkt_val.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
+                    patentes_activas_playa.append(str(r[1]).strip().upper())
+
+        fugas = [p for p in autos_camara if p not in patentes_activas_playa]
+                
+        if len(autos_camara) == 0: st.info("ℹ️ La cámara aún no ha registrado ingresos en el día de hoy.")
+        elif fugas:
+            st.error(f"🚨 ATENCIÓN: La cámara detectó {len(set(fugas))} vehículo(s) que ingresaron pero no tienen ticket activo en playa.")
+            st.write("Patentes sin registrar:", ", ".join(set(fugas)))
+        else: st.success("✅ Perfecto. Todos los vehículos detectados por la cámara tienen su ticket activo correspondiente.")
+        
     with tab_cierre:
         st.markdown("### 🔄 Calculadora de Acumulados (Fin de mes)")
         st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**. Así sabés exactamente qué número copiar en la Columna H del Excel.")
@@ -2733,3 +2722,4 @@ elif menu == "📖 Ayuda":
       ▼
     [ ⏰ Pestaña 'Personal' ] ──► El sistema decide si hacés arqueo final de turno o salida de apoyo.
     """, language="text")
+
