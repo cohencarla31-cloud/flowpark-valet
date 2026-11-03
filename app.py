@@ -2316,32 +2316,59 @@ elif menu == "📈 Reportes":
                     horas_trabajadas = (dt - entrada_dt).total_seconds() / 3600.0
                     
                     registros_trabajo.append({
-                        'Fecha': entrada_dt.date(),
+                        'Fecha': entrada_dt.strftime('%Y-%m-%d'),
                         'Empleado': e,
                         'Día_Semana': entrada_dt.weekday(),
                         'Horas_Reales': horas_trabajadas,
-                        'Hora_Ingreso': entrada_dt.hour
+                        'Hora_Ingreso': entrada_dt.hour,
+                        'Entrada_str': entrada_dt.strftime('%H:%M'),
+                        'Salida_str': dt.strftime('%H:%M')
                     })
                     del estado_emp[e]
             
             if registros_trabajo:
                 df_trab = pd.DataFrame(registros_trabajo)
-                df_agrupado = df_trab.groupby(['Fecha', 'Empleado', 'Día_Semana']).agg({'Horas_Reales': 'sum', 'Hora_Ingreso': 'min'}).reset_index()
+                
+                # Agrupamos por si hicieron doble turno en el día
+                df_agrupado = df_trab.groupby(['Fecha', 'Empleado', 'Día_Semana']).agg({
+                    'Horas_Reales': 'sum', 
+                    'Hora_Ingreso': 'min',
+                    'Entrada_str': lambda x: ' | '.join(x),
+                    'Salida_str': lambda x: ' | '.join(x)
+                }).reset_index()
                 
                 def get_expected(e_name, w_day):
                     for k, v in HORARIOS_ESPERADOS.items():
                         if k.lower() in e_name.lower(): return v.get(w_day, 0.0)
                     return 0.0
+                
+                def get_quien_debia_estar(w_day, turno_ingreso):
+                    esperados = []
+                    for k, v in HORARIOS_ESPERADOS.items():
+                        if v.get(w_day, 0.0) > 0:
+                            if k == "John" and turno_ingreso < 13: continue
+                            if k == "Rodrigo" and turno_ingreso >= 13: continue
+                            esperados.append(k)
+                    return ", ".join(esperados) if esperados else "Nadie"
                     
                 df_agrupado['Horas_Esperadas'] = df_agrupado.apply(lambda x: get_expected(x['Empleado'], x['Día_Semana']), axis=1)
                 
+                st.markdown("#### 📅 Registro Detallado de Turnos (Día a Día)")
+                df_vista = df_agrupado[['Fecha', 'Empleado', 'Entrada_str', 'Salida_str', 'Horas_Reales', 'Horas_Esperadas']].copy()
+                df_vista.rename(columns={'Entrada_str': 'Hora Entrada', 'Salida_str': 'Hora Salida'}, inplace=True)
+                df_vista['Horas_Reales'] = df_vista['Horas_Reales'].apply(lambda x: f"{x:.1f} hs")
+                df_vista['Horas_Esperadas'] = df_vista['Horas_Esperadas'].apply(lambda x: f"{x:.1f} hs")
+                st.dataframe(df_vista.sort_values(by=['Fecha', 'Hora Entrada'], ascending=[False, False]), use_container_width=True, hide_index=True)
+                
+                st.markdown("#### 🚨 Alertas de Desvíos y Coberturas")
                 alertas_list = []
                 for _, row in df_agrupado.iterrows():
                     emp_name = row['Empleado']
                     h_real = row['Horas_Reales']
                     h_esp = row['Horas_Esperadas']
                     h_ingreso = row['Hora_Ingreso']
-                    fecha_str = row['Fecha'].strftime('%Y-%m-%d')
+                    fecha_str = row['Fecha']
+                    d_sem = row['Día_Semana']
                     
                     alerta_txt = ""
                     
@@ -2351,7 +2378,8 @@ elif menu == "📈 Reportes":
                         alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Tarde (Debe ir a la Mañana). "
                         
                     if h_esp == 0 and h_real > 0.5:
-                        alerta_txt += f"🎉 DÍA LIBRE TRABAJADO: Hizo {h_real:.1f} hs."
+                        debia = get_quien_debia_estar(d_sem, h_ingreso)
+                        alerta_txt += f"🎉 DÍA LIBRE TRABAJADO: Hizo {h_real:.1f} hs (Debería haber estado: {debia})."
                     elif h_real > (h_esp + 0.5):
                         extra = h_real - h_esp
                         alerta_txt += f"🔥 HORAS EXTRAS: Hizo {h_real:.1f} hs (Normal: {h_esp:.1f} hs | Extra: {extra:.1f} hs)."
@@ -2367,7 +2395,6 @@ elif menu == "📈 Reportes":
                         })
                 
                 if alertas_list:
-                    st.error("⚠️ Se detectaron horas extras, días libres trabajados o cambios de turno:")
                     st.dataframe(pd.DataFrame(alertas_list).sort_values(by=['Fecha', 'Empleado'], ascending=[False, True]), use_container_width=True, hide_index=True)
                 else:
                     st.success("✅ Todos los turnos coinciden perfectamente con los horarios y días esperados.")
