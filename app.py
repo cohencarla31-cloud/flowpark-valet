@@ -1691,6 +1691,7 @@ elif menu == "📤 Salida":
         if st.button("✅ Terminar y Atender Siguiente Vehículo", use_container_width=True):
             st.session_state.salida_procesada = False
             st.session_state.salida_tkt_procesado = ""
+            # Forzamos refresco completo para limpiar el selector
             st.rerun()
     
     else:
@@ -1724,8 +1725,13 @@ elif menu == "📤 Salida":
             elif t_val.startswith("EV"): tag = "[EV]"
             else: tag = "[#]"
             
-            t_ing_val = str(r[2]).split()[0]
-            tag_fecha = f" ⚠️(Ingresó: {t_ing_val})" if t_ing_val != hoy_str_global else ""
+            t_ing_val = str(r[2]).strip()
+            # Mostramos fecha y hora si ingresó hoy, o alerta si ingresó otro día
+            t_ing_fecha = t_ing_val.split()[0] if " " in t_ing_val else t_ing_val
+            t_ing_hora = t_ing_val.split()[1][:5] if " " in t_ing_val else ""
+            
+            if t_ing_fecha != hoy_str_global: tag_fecha = f" ⚠️ (Ingresó: {t_ing_fecha} a las {t_ing_hora})" 
+            else: tag_fecha = f" (Hoy a las {t_ing_hora})"
             
             lista_salida_ordenada.append(f"{tag} Tkt: #{r[0]} - 🚗 Pat: {p_val}{tag_fecha}")
         
@@ -1872,7 +1878,7 @@ elif menu == "📤 Salida":
 
             st.markdown("---")
             st.markdown("### 💰 Monto Total Calculado a Cobrar ($):")
-            st.info("💡 Si por algún error, queja o descuento se va a cobrar un monto distinto, borrá el número de arriba y escribí el monto exacto a cobrar.")
+            st.info("💡 Si por algún error, queja o descuento se va a cobrar un monto distinto, borrá el número de abajo y escribí el monto exacto a cobrar.")
             
             monto_cobrado_real = st.number_input("Monto final que ingresa a la caja:", value=float(total_a_pagar_calc), step=50.0)
             
@@ -2052,6 +2058,7 @@ Op: {emp}
                             st.session_state.salida_ticket = texto_ticket
                             st.session_state.salida_wp = link_wp
                             st.session_state.salida_tkt_procesado = tkt
+                            # Refresh to clear selectbox
                             st.rerun()
                             
                         except Exception as e: st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
@@ -2332,8 +2339,7 @@ elif menu == "📈 Reportes":
                         falta = h_esp - h_real
                         alerta_txt += f"⚠️ TURNO INCOMPLETO: Faltaron {falta:.1f} hs."
                         
-                    if alerta_txt:
-                        alertas_list.append({'Fecha': fecha_str, 'Empleado': emp_name, 'Alerta': alerta_txt.strip()})
+                    if alerta_txt: alertas_list.append({'Fecha': fecha_str, 'Empleado': emp_name, 'Alerta': alerta_txt.strip()})
                 
                 if alertas_list: st.dataframe(pd.DataFrame(alertas_list).sort_values(by=['Fecha', 'Empleado'], ascending=[False, True]), use_container_width=True, hide_index=True)
                 else: st.success("✅ Todos los turnos coinciden perfectamente con los horarios y días esperados.")
