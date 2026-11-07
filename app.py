@@ -1924,7 +1924,7 @@ elif menu == "📤 Salida":
                             for ev in eventos_data[1:]:
                                 if len(ev) >= 4 and str(ev[1]).strip() == nombre_evento_salida:
                                     fecha_ev = str(ev[0]).strip()
-                                    hora_fin_str = str(ev[4]).strip() # Ahora lee de la columna E
+                                    hora_fin_str = str(ev[4]).strip()
                                     break
                             
                             if hora_fin_str:
@@ -1994,7 +1994,6 @@ elif menu == "📤 Salida":
                             obs_salida_final = "🧼 Lavado (Faltó especificar cobro)"
                             lavado_para_columna = "Lavado (Faltó especificar cobro)"
                             
-                        # GUARDADO DE JUSTIFICACIÓN DE CAJA (Opción 3)
                         if float(monto_cobrado_real) != float(total_a_pagar_calc):
                             justificativo = detalle_otro if motivo_diferencia == "Otro motivo (Especificar)" else motivo_diferencia
                             texto_diferencia = f"⚠️ COBRÓ ${int(monto_cobrado_real)} (El sistema marcaba ${int(total_a_pagar_calc)}). Motivo: {justificativo}"
@@ -2048,7 +2047,6 @@ Op: {emp}
                                 float(monto_excedente_local),
                                 lavado_para_columna
                             ])
-                            obtener_datos.clear() 
                             
                             cel_salida_clean = str(cel_salida).strip()
                             if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
@@ -2058,7 +2056,8 @@ Op: {emp}
                             st.session_state.salida_ticket = texto_ticket
                             st.session_state.salida_wp = link_wp
                             st.session_state.salida_tkt_procesado = tkt
-                            # Refresh to clear selectbox
+                            
+                            obtener_datos.clear() 
                             st.rerun()
                             
                         except Exception as e: st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
