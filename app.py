@@ -348,7 +348,10 @@ except Exception as e:
         st.rerun()
     st.stop()
 
-hoy_str_global = hora_actual_uy().split()[0]
+hoy_dt = datetime.utcnow() - timedelta(hours=3)
+hoy_str_global = hoy_dt.strftime("%Y-%m-%d")
+hoy_date = hoy_dt.date()
+
 q_data_rows = q_data[1:] if len(q_data) > 1 else []
 val_app_rows = []
 if len(val_app_data) > 0:
@@ -411,6 +414,31 @@ if not opciones_menu:
 
 menu = st.radio("Navegación:", opciones_menu, horizontal=True, label_visibility="collapsed")
 st.divider()
+
+# --- NUEVO: ALERTA DE EVENTOS (48 HS) LECTURA INTELIGENTE ---
+eventos_proximos = []
+for ev in eventos_data[1:]:
+    if len(ev) >= 2:
+        fecha_raw = str(ev[0]).strip()
+        if fecha_raw:
+            try:
+                if "/" in fecha_raw: ev_date = datetime.strptime(fecha_raw, "%d/%m/%Y").date()
+                else: ev_date = pd.to_datetime(fecha_raw).date()
+                
+                dias_faltantes = (ev_date - hoy_date).days
+                if 0 <= dias_faltantes <= 2:
+                    ev_name = str(ev[1]).strip()
+                    cupos = str(ev[2]).strip() if len(ev) > 2 else "Ilimitados"
+                    h_ini = str(ev[3]).strip() if len(ev) > 3 else "-"
+                    h_fin = str(ev[4]).strip() if len(ev) > 4 else "-"
+                    dia_str = "Hoy" if dias_faltantes == 0 else ("Mañana" if dias_faltantes == 1 else "Pasado Mañana")
+                    
+                    eventos_proximos.append(f"**Cuándo:** {dia_str} ({ev_date.strftime('%d/%m')}) | **Evento:** {ev_name} | **Horario:** {h_ini} a {h_fin} hs | **Capacidad:** {cupos} vehículos.")
+            except: pass
+
+if eventos_proximos:
+    st.info("📣 **¡ATENCIÓN EQUIPO - PRÓXIMO EVENTO!**\n\n" + "\n\n".join(eventos_proximos))
+
 
 if st.session_state.rol == "Valet" and menu != "📖 Ayuda":
     if ultimo_est_operador == "Salida":
@@ -688,7 +716,6 @@ elif menu == "📥 Ingreso":
         st.rerun()
 
     k = st.session_state.form_key_count
-    hoy_str = hora_actual_uy().split()[0]
     mes_actual_str = hora_actual_uy()[:7]
     
     invitados_hoy_map = {}
@@ -698,18 +725,21 @@ elif menu == "📥 Ingreso":
     for row in lista_invitados_data[1:]:
         if len(row) >= 3:
             fecha_inv = str(row[0]).strip()
-            if fecha_inv == hoy_str:
-                evt_inv = str(row[1]).strip()
-                pat_inv = str(row[2]).strip().upper().replace("-", "").replace(" ", "")
-                if pat_inv:
-                    invitados_hoy_map[pat_inv] = evt_inv
-                    patentes_invitados.append(pat_inv)
-                    if len(row) > 3 and str(row[3]).strip():
-                        nombres_invitados_map[pat_inv] = str(row[3]).strip()
+            try:
+                if "/" in fecha_inv: d_inv = datetime.strptime(fecha_inv, "%d/%m/%Y").date()
+                else: d_inv = pd.to_datetime(fecha_inv).date()
+                if d_inv == hoy_date:
+                    evt_inv = str(row[1]).strip()
+                    pat_inv = str(row[2]).strip().upper().replace("-", "").replace(" ", "")
+                    if pat_inv:
+                        invitados_hoy_map[pat_inv] = evt_inv
+                        patentes_invitados.append(pat_inv)
+                        if len(row) > 3 and str(row[3]).strip():
+                            nombres_invitados_map[pat_inv] = str(row[3]).strip()
+            except: pass
     
     patentes_camara = [str(r[0]).strip().upper() for r in auditoria_data[1:] if len(r) > 0 and r[0] not in ["", "SIN_PATENTE", "ERROR_TOKEN", "ERROR_FATAL"]]
     patentes_frec = [str(rc[0]).strip().upper().replace("-", "").replace(" ", "") for rc in clientes[1:] if len(rc) > 0 and str(rc[0]).strip()]
-    
     patentes_unificadas = sorted(list(set(patentes_camara + patentes_frec + patentes_mensualistas + patentes_invitados)))
 
     st.markdown("**🔍 Identificar Vehículo (Use solo una línea):**")
@@ -742,8 +772,7 @@ elif menu == "📥 Ingreso":
         if pat_final in datos_mensualistas_map:
             datos_m = datos_mensualistas_map[pat_final]
             nombre_sug = datos_m["nombre"]
-            if datos_m["telefono"]:
-                cel_sug = datos_m["telefono"]
+            if datos_m["telefono"]: cel_sug = datos_m["telefono"]
             
             estado_visual = datos_m["estado"]
             cupos_cliente = datos_m["cupos"]
@@ -760,18 +789,12 @@ elif menu == "📥 Ingreso":
                 excede_cupo_mensual = True
                 st.error(f"🚨 **¡ATENCIÓN! {nombre_sug} tiene un cupo de {cupos_cliente} vehículo(s) y ya hay {autos_en_playa} adentro.** Este auto que entra DEBERÁ ABONAR ESTADÍA.")
             else:
-                if estado_visual == "DEUDOR":
-                    es_deudor = True
-                elif estado_visual == "INHABILITADO":
-                    st.error(f"🛑 **¡ATENCIÓN! PLAN INHABILITADO:** El plan de {nombre_sug} está suspendido. **🗣️ AVISALE AL CLIENTE QUE SE LE COBRARÁ LA ESTADÍA AL RETIRARSE.**")
-                elif estado_visual in ["AL DIA", "AUTORIZADO"]:
-                    st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
-                
-                if datos_m.get("comentario"):
-                    st.warning(f"📣 **AVISO AL VALET:** {datos_m['comentario']}")
+                if estado_visual == "DEUDOR": es_deudor = True
+                elif estado_visual == "INHABILITADO": st.error(f"🛑 **¡ATENCIÓN! PLAN INHABILITADO:** El plan de {nombre_sug} está suspendido. **🗣️ AVISALE AL CLIENTE QUE SE LE COBRARÁ LA ESTADÍA AL RETIRARSE.**")
+                elif estado_visual in ["AL DIA", "AUTORIZADO"]: st.success(f"💳 **Vehículo Mensualista ({estado_visual})** registrado a nombre de: {nombre_sug}")
+                if datos_m.get("comentario"): st.warning(f"📣 **AVISO AL VALET:** {datos_m['comentario']}")
                 
             bene = datos_m.get("beneficio", "")
-            
             if "LAVADO" in bene:
                 lavados_permitidos = 1
                 for num_lav in range(10, 1, -1):
@@ -786,13 +809,11 @@ elif menu == "📥 Ingreso":
                             
                 if not excede_cupo_mensual:
                     texto_estado_lav = f"💦 **Beneficio Activo:** Cuenta con {lavados_permitidos} lavado(s) al mes. (Lleva usados: {lavados_usados})."
-                    if acumulados_disp > 0:
-                        texto_estado_lav += f" ⭐ **TIENE {acumulados_disp} LAVADO(S) ACUMULADO(S).**"
+                    if acumulados_disp > 0: texto_estado_lav += f" ⭐ **TIENE {acumulados_disp} LAVADO(S) ACUMULADO(S).**"
                         
                     if lavados_usados >= lavados_permitidos and acumulados_disp <= 0:
                         st.warning(f"⚠️ **Atención Lavadero:** Este Mensualista ya usó sus {lavados_permitidos} lavado(s) de este mes y NO le quedan acumulados. (Cobrar el próximo).")
-                    else:
-                        st.info(texto_estado_lav)
+                    else: st.info(texto_estado_lav)
 
     if "ultima_patente" not in st.session_state: st.session_state.ultima_patente = ""
         
@@ -804,7 +825,6 @@ elif menu == "📥 Ingreso":
     tkt = st.text_input("🎫 N° Tarjeta (Completar cuando NO SON mensualistas, ni por eventos, ni autorizados  - Se generará uno automático si se deja en blanco):", key=f"tkt_{k}")
     cli_nom = st.text_input("👤 Nombre y Apellido:", key=f"cli_{k}")
     cel = st.text_input("📱 Celular (Para comprobante / aviso):", key=f"cel_{k}")
-    
     tipo_vehi = st.selectbox("🚙 Tipo de Vehículo:", ["Auto", "Camioneta", "Moto"], key=f"veh_{k}")
     
     st.markdown("---")
@@ -813,12 +833,25 @@ elif menu == "📥 Ingreso":
 
     eventos_hoy = []
     cupos_evento = {}
+    detalles_evento_hoy = {}
+    
     for ev in eventos_data[1:]:
-        if len(ev) >= 3 and str(ev[0]).strip() == hoy_str:
-            nombre_ev = str(ev[1]).strip()
-            eventos_hoy.append(nombre_ev)
-            try: cupos_evento[nombre_ev] = int(ev[2])
-            except: cupos_evento[nombre_ev] = 999
+        if len(ev) >= 2:
+            fecha_raw = str(ev[0]).strip()
+            try:
+                if "/" in fecha_raw: ev_date = datetime.strptime(fecha_raw, "%d/%m/%Y").date()
+                else: ev_date = pd.to_datetime(fecha_raw).date()
+                
+                if ev_date == hoy_date:
+                    nombre_ev = str(ev[1]).strip()
+                    eventos_hoy.append(nombre_ev)
+                    cup_ev = int(ev[2]) if len(ev) > 2 and str(ev[2]).isdigit() else 999
+                    h_in_ev = str(ev[3]).strip() if len(ev) > 3 else "N/A"
+                    h_fi_ev = str(ev[4]).strip() if len(ev) > 4 else "N/A"
+                    
+                    cupos_evento[nombre_ev] = cup_ev
+                    detalles_evento_hoy[nombre_ev] = {"inicio": h_in_ev, "fin": h_fi_ev, "cupos": cup_ev}
+            except: pass
 
     evento_sel = ""
     es_vip_lista = False
@@ -833,7 +866,10 @@ elif menu == "📥 Ingreso":
             evento_sel = st.selectbox("🎟️ Ingreso por Evento (Opcional):", [""] + eventos_hoy, key=f"evt_{k}")
             
         if evento_sel:
-            autos_en_evento = sum(1 for r in reg[1:] if len(r) > 4 and f"Evento: {evento_sel}" in str(r[4]) and hoy_str in str(r[2]))
+            d_ev = detalles_evento_hoy.get(evento_sel, {})
+            st.info(f"ℹ️ **Detalles del Evento:** Inicia a las **{d_ev.get('inicio', '-')}** | Finaliza a las **{d_ev.get('fin', '-')}** | Capacidad: **{d_ev.get('cupos', 'Ilimitados')} lugares**.")
+            
+            autos_en_evento = sum(1 for r in reg[1:] if len(r) > 4 and f"Evento: {evento_sel}" in str(r[4]) and hoy_str_global in str(r[2]))
             if autos_en_evento >= cupos_evento.get(evento_sel, 999):
                 st.warning(f"⚠️ ¡ATENCIÓN! Se superó el cupo de {cupos_evento.get(evento_sel, 999)} lugares para '{evento_sel}'. (Van {autos_en_evento} autos). Se permite el ingreso y **NO se le cobrará al cliente**, quedará registrado el excedente para el organizador.")
             else:
@@ -855,8 +891,7 @@ elif menu == "📥 Ingreso":
         if cel_clean.startswith("0"): cel_clean = cel_clean[1:]
             
         tkt_final = str(tkt).strip()
-        if tkt_final.isdigit():
-            tkt_final = str(int(tkt_final))
+        if tkt_final.isdigit(): tkt_final = str(int(tkt_final))
         
         if not tkt_final: 
             if evento_sel:
@@ -882,21 +917,17 @@ elif menu == "📥 Ingreso":
                     if t_val.startswith("MEN-"):
                         num_part = t_val.replace("MEN-", "")
                         if num_part.isdigit(): max_t = max(max_t, int(num_part))
-                    elif t_val.isdigit():
-                        max_t = max(max_t, int(t_val))
+                    elif t_val.isdigit(): max_t = max(max_t, int(t_val))
                 for h_val in historial_data[1:]:
                     if len(h_val) > 3:
                         t_val = str(h_val[3]).replace("#", "").strip().upper()
                         if t_val.startswith("MEN-"):
                             num_part = t_val.replace("MEN-", "")
                             if num_part.isdigit(): max_t = max(max_t, int(num_part))
-                        elif t_val.isdigit():
-                            max_t = max(max_t, int(t_val))
+                        elif t_val.isdigit(): max_t = max(max_t, int(t_val))
                 
-                if pat_final in datos_mensualistas_map and not excede_cupo_mensual:
-                    tkt_final = f"MEN-{max_t + 1}"
-                else:
-                    tkt_final = str(max_t + 1)
+                if pat_final in datos_mensualistas_map and not excede_cupo_mensual: tkt_final = f"MEN-{max_t + 1}"
+                else: tkt_final = str(max_t + 1)
 
         if not pat_final:
             st.warning("⚠️ Debes seleccionar o escribir obligatoriamente la Patente.")
@@ -907,14 +938,9 @@ elif menu == "📥 Ingreso":
                 try:
                     h_ing = hora_actual_uy()
                     estado_txt = f"Estándar ({tipo_vehi}) - Op: {emp}"
-                    if evento_sel:
-                        estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
-                        
-                    if excede_cupo_mensual:
-                        estado_txt += " [EXCEDE CUPO]"
-                        
-                    if solicita_lavado:
-                        estado_txt += " | 🧽 LAVADO PENDIENTE"
+                    if evento_sel: estado_txt = f"Evento: {evento_sel} ({tipo_vehi}) - Op: {emp}"
+                    if excede_cupo_mensual: estado_txt += " [EXCEDE CUPO]"
+                    if solicita_lavado: estado_txt += " | 🧽 LAVADO PENDIENTE"
 
                     sh.worksheet("Registro").append_row([tkt_final, pat_final, h_ing, "", estado_txt, "", 0, 0, 0])
                     
@@ -928,12 +954,9 @@ elif menu == "📥 Ingreso":
                                 break
                     
                     msg_ingreso = f"*PARKING EL GLOBO - TICKET INGRESO*\n👤 Cliente: {cli_nom.strip().title() or nombre_sug or 'Frecuente'}\n🚗 Vehículo: {pat_final}\n🎫 Tarjeta: #{tkt_final}\n🕒 Ingreso: {h_ing}"
-                    if evento_sel:
-                        msg_ingreso += f"\n🎟️ *Invitado Especial:* {evento_sel}"
-                    if es_deudor and not excede_cupo_mensual and texto_deuda_completo:
-                        msg_ingreso += f"\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
-                    if solicita_lavado:
-                        msg_ingreso += "\n\n🧽 *Servicio de Lavado Solicitado*"
+                    if evento_sel: msg_ingreso += f"\n🎟️ *Invitado Especial:* {evento_sel}"
+                    if es_deudor and not excede_cupo_mensual and texto_deuda_completo: msg_ingreso += f"\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
+                    if solicita_lavado: msg_ingreso += "\n\n🧽 *Servicio de Lavado Solicitado*"
                         
                     msg_ingreso += "\n\n¡Gracias por elegirnos!"
                     
@@ -981,8 +1004,7 @@ elif menu == "📊 Activos":
                         ing_dt = pd.to_datetime(h_ing)
                         ahora_dt = pd.to_datetime(hora_actual_uy())
                         horas_pasadas = (ahora_dt - ing_dt).total_seconds() / 3600
-                    except:
-                        horas_pasadas = 0
+                    except: horas_pasadas = 0
                         
                     if horas_pasadas >= 24:
                         tag_24h = f" | 🚨 **¡LLEVA {int(horas_pasadas)} HS!**"
@@ -1004,10 +1026,8 @@ elif menu == "📊 Activos":
                     estado_m = datos_mensualistas_map.get(pat_val, {}).get("estado", "")
                     if estado_m == "AUTORIZADO": cat = "Autorizados"
                     else: cat = "Mensualistas"
-                elif tkt_val.startswith("EV"):
-                    cat = "Eventos"
-                else:
-                    cat = "Estándar (#)"
+                elif tkt_val.startswith("EV"): cat = "Eventos"
+                else: cat = "Estándar (#)"
                 
                 if t_ing not in resumen_activos:
                     resumen_activos[t_ing] = {"Estándar (#)": 0, "Mensualistas": 0, "Autorizados": 0, "Eventos": 0, "Total": 0}
@@ -1038,10 +1058,8 @@ elif menu == "📊 Activos":
                                     time.sleep(1)
                                     st.rerun()
                                     break
-                        except Exception as e:
-                            st.error("Hubo un error al guardar la corrección.")
-                    else:
-                        st.warning("Seleccioná un auto y escribí la patente nueva.")
+                        except Exception as e: st.error("Hubo un error al guardar la corrección.")
+                    else: st.warning("Seleccioná un auto y escribí la patente nueva.")
 
     with tab_historial_valet:
         st.markdown("### ⏪ Revertir Salidas (Solo hoy)")
@@ -1099,15 +1117,13 @@ elif menu == "📊 Activos":
                             try:
                                 ws_anul = sh.worksheet("Auditoria_Anulaciones")
                                 ws_anul.append_row([hora_actual_uy(), emp, tkt_rev, pat_rev, hora_salida_completa])
-                            except Exception as e:
-                                st.error("⚠️ Falta la pestaña 'Auditoria_Anulaciones' en tu Excel. Por favor, creala para guardar este registro.")
+                            except: pass
                             
                         st.toast(f"✅ Salida del ticket #{tkt_rev} anulada con éxito. El auto volvió a la playa.")
                         obtener_datos.clear()
                         time.sleep(1.5)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al anular la salida: {e}")
+                    except Exception as e: st.error(f"Error al anular la salida: {e}")
         else:
             st.info("No hay salidas registradas hoy para anular.")
             
@@ -1147,10 +1163,8 @@ elif menu == "🧽 Lavadero":
             estado = str(r[4])
             
             if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and (not h_sal or h_sal.lower() == "nan"):
-                if "LAVADO PENDIENTE" in estado: 
-                    autos_para_lavar.append(r)
-                elif "LAVADO TERMINADO" in estado: 
-                    autos_terminados.append(r)
+                if "LAVADO PENDIENTE" in estado: autos_para_lavar.append(r)
+                elif "LAVADO TERMINADO" in estado: autos_terminados.append(r)
                 else:
                     if pat in datos_mensualistas_map:
                         bene = datos_mensualistas_map[pat]["beneficio"].upper()
@@ -1169,14 +1183,10 @@ elif menu == "🧽 Lavadero":
                             
                             if lav_usados < lav_perm:
                                 mensualistas_con_lavado.append({
-                                    "patente": pat, 
-                                    "tkt": tkt, 
+                                    "patente": pat, "tkt": tkt, 
                                     "nombre": datos_mensualistas_map[pat]["nombre"], 
-                                    "usados": lav_usados, 
-                                    "permitidos": lav_perm, 
-                                    "ingreso": h_ing,
-                                    "estado_txt": estado,
-                                    "idx_reg": reg.index(r) 
+                                    "usados": lav_usados, "permitidos": lav_perm, 
+                                    "ingreso": h_ing, "estado_txt": estado, "idx_reg": reg.index(r) 
                                 })
                 
     st.markdown("### 🔴 Pendientes de Lavado (Solicitados en Puerta)")
@@ -1204,8 +1214,7 @@ elif menu == "🧽 Lavadero":
                             time.sleep(1)
                             st.rerun()
                             break
-                except:
-                    st.error("Error al actualizar estado.")
+                except: st.error("Error al actualizar estado.")
             
             if c3.button("❌ Cancelar", key=f"canc_{tkt}"):
                 try:
@@ -1218,15 +1227,12 @@ elif menu == "🧽 Lavadero":
                             time.sleep(1)
                             st.rerun()
                             break
-                except:
-                    st.error("Error al cancelar lavado.")
+                except: st.error("Error al cancelar lavado.")
                     
     st.markdown("### 🟢 Lavados Terminados en Playa")
-    if not autos_terminados:
-        st.info("Ningún lavado terminado pendiente de salida.")
+    if not autos_terminados: st.info("Ningún lavado terminado pendiente de salida.")
     else:
-        for auto in autos_terminados:
-            st.success(f"✨ **{str(auto[1]).upper()}** | Tkt #{str(auto[0]).strip()} - Listo para entregar.")
+        for auto in autos_terminados: st.success(f"✨ **{str(auto[1]).upper()}** | Tkt #{str(auto[0]).strip()} - Listo para entregar.")
 
     st.markdown("---")
     st.markdown("### ➕ Carga Manual a Lavadero")
@@ -1260,12 +1266,9 @@ elif menu == "🧽 Lavadero":
                             time.sleep(1)
                             st.rerun()
                             break
-                except Exception as e:
-                    st.error(f"Error: {e}")
-            else:
-                st.warning("Seleccioná un vehículo de la lista.")
-    else:
-        st.info("Todos los autos en playa ya tienen algún estado de lavado asignado.")
+                except Exception as e: st.error(f"Error: {e}")
+            else: st.warning("Seleccioná un vehículo de la lista.")
+    else: st.info("Todos los autos en playa ya tienen algún estado de lavado asignado.")
 
     st.markdown("---")
     st.markdown("### 🎁 Mensualistas Estacionados (Con Lavado a Favor)")
@@ -1284,8 +1287,7 @@ elif menu == "🧽 Lavadero":
                     obtener_datos.clear()
                     time.sleep(1)
                     st.rerun()
-                except Exception as e:
-                    st.error("Error al agregar a la cola.")
+                except Exception as e: st.error("Error al agregar a la cola.")
 
     st.markdown("---")
     st.markdown("### 📊 Directorio de Lavados del Mes (Mensualistas)")
@@ -1316,10 +1318,8 @@ elif menu == "🧽 Lavadero":
                 "Estado": "✅ Disponible" if lav_usados < lav_perm else ("⭐ Usa Acumulado" if datos_m.get("acumulados", 0) > 0 else "❌ Agotado")
             })
             
-    if reporte_lavados_valet:
-        st.dataframe(pd.DataFrame(reporte_lavados_valet).sort_values("Estado", ascending=False), use_container_width=True, hide_index=True)
-    else:
-        st.info("No hay mensualistas con beneficio de lavado registrado.")
+    if reporte_lavados_valet: st.dataframe(pd.DataFrame(reporte_lavados_valet).sort_values("Estado", ascending=False), use_container_width=True, hide_index=True)
+    else: st.info("No hay mensualistas con beneficio de lavado registrado.")
 
     st.markdown("---")
     st.markdown("### 👨‍🔧 Registro General de Lavados")
@@ -1355,19 +1355,15 @@ elif menu == "🧽 Lavadero":
                 df_resumen_mis_lavados = df_resumen_mis_lavados.sort_values(by='Fecha', ascending=False)
                 
                 c_ml1, c_ml2 = st.columns([1, 2])
-                with c_ml1:
-                    st.dataframe(df_resumen_mis_lavados, use_container_width=True, hide_index=True)
+                with c_ml1: st.dataframe(df_resumen_mis_lavados, use_container_width=True, hide_index=True)
                 with c_ml2:
                     with st.expander("Ver detalle de patentes lavadas"):
                         df_det = df_mis_lavados[['Fecha', 'Hora', 'Patente', 'Servicio_Lavado', 'Op']].sort_values(by='Hora', ascending=False)
                         df_det['Hora'] = df_det['Hora'].dt.strftime('%H:%M')
                         st.dataframe(df_det, use_container_width=True, hide_index=True)
-            else:
-                st.info("No hay lavados procesados en el historial general.")
-        else:
-            st.info("No hay turnos cerrados ni tickets cobrados en el historial todavía.")
-    else:
-        st.info("El historial general está vacío.")
+            else: st.info("No hay lavados procesados en el historial general.")
+        else: st.info("No hay turnos cerrados ni tickets cobrados en el historial todavía.")
+    else: st.info("El historial general está vacío.")
 
 elif menu == "✅ Validaciones":
     
@@ -1383,7 +1379,6 @@ elif menu == "✅ Validaciones":
             if len(r)>3:
                 tkt = str(r[0]).strip()
                 h_sal = str(r[3]).strip()
-                # Ocultamos de los locales los tickets MEN- y EV
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and not tkt.upper().startswith("MEN-") and not tkt.upper().startswith("EV") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
@@ -1409,8 +1404,7 @@ elif menu == "✅ Validaciones":
                 
                 if st.button("✅ Aplicar Validación Normal y Avisar", key="btn_n"):
                     if seleccion_mozo_normal:
-                        if not mozo_normal or len(factura_normal) < 4:
-                            st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
+                        if not mozo_normal or len(factura_normal) < 4: st.error("⚠️ Ingrese el nombre del mozo y los 4 dígitos de la factura.")
                         else:
                             tkt_val = seleccion_mozo_normal.split(" - ")[0].replace("#", "").strip()
                             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
@@ -1431,10 +1425,8 @@ elif menu == "✅ Validaciones":
                                 st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
                                 st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                                 obtener_datos.clear()
-                            except Exception as e:
-                                st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
-                    else:
-                        st.error("Selecciona un vehículo de la lista.")
+                            except Exception as e: st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
+                    else: st.error("Selecciona un vehículo de la lista.")
 
             with tab_q_100:
                 st.warning("⚠️ **ATENCIÓN:** Esta opción bonifica el 100% de la estadía al cliente. **El costo será facturado a Quinquela a fin de mes.**")
@@ -1443,8 +1435,7 @@ elif menu == "✅ Validaciones":
                 
                 if st.button("💯 Aplicar Cobertura Total y Avisar", key="btn_100"):
                     if seleccion_mozo_100:
-                        if not mozo_100:
-                            st.error("⚠️ Ingrese el nombre de la persona que autoriza este gasto.")
+                        if not mozo_100: st.error("⚠️ Ingrese el nombre de la persona que autoriza este gasto.")
                         else:
                             tkt_val = seleccion_mozo_100.split(" - ")[0].replace("#", "").strip()
                             pat_val = next((r[1].upper() for r in activos_disponibles if r[0].strip() == tkt_val), "")
@@ -1466,10 +1457,8 @@ elif menu == "✅ Validaciones":
                                 st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
                                 st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                                 obtener_datos.clear()
-                            except Exception as e:
-                                st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
-                    else:
-                        st.error("Selecciona un vehículo de la lista.")
+                            except Exception as e: st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
+                    else: st.error("Selecciona un vehículo de la lista.")
 
         else:
             with st.expander("➕ Cargar Nueva Validación", expanded=True):
@@ -1502,10 +1491,8 @@ elif menu == "✅ Validaciones":
                             st.markdown(f"[➡️ Mandar solo al Celular 1]({f'https://wa.me/{TEL_PARKING_1}?text={msg_aviso}'})")
                             st.markdown(f"[➡️ Mandar solo al Celular 2]({f'https://wa.me/{TEL_PARKING_2}?text={msg_aviso}'})")
                             obtener_datos.clear()
-                        except Exception as e:
-                            st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
-                    else:
-                        st.error("Selecciona un vehículo de la lista.")
+                        except Exception as e: st.error(f"❌ Error al guardar en Excel. Asegurate de haber creado la pestaña 'Validaciones_App'. Detalle: {e}")
+                    else: st.error("Selecciona un vehículo de la lista.")
 
     st.markdown("---")
 
@@ -1535,11 +1522,8 @@ elif menu == "✅ Validaciones":
                 tickets_mostrados.add(tkt_clean)
                 
                 val_data.append({
-                    "Hora": hora_val,
-                    "Local": local_v,
-                    "Patente": pat_v,
-                    "Ticket": f"#{tkt_v}",
-                    "Mozo / Autoriza": mozo_v,
+                    "Hora": hora_val, "Local": local_v, "Patente": pat_v,
+                    "Ticket": f"#{tkt_v}", "Mozo / Autoriza": mozo_v,
                     "Factura": factura_v if "Quinquela" in local_v else "-"
                 })
                 
@@ -1563,17 +1547,13 @@ elif menu == "✅ Validaciones":
                                 break
                                 
                         val_data.append({
-                            "Hora": hora_salida + " (Salida)",
-                            "Local": local_v,
-                            "Patente": pat_v,
-                            "Ticket": f"#{tkt_v}",
-                            "Mozo / Autoriza": mozo_v,
-                            "Factura": factura_v if "Quinquela" in local_v else "-"
+                            "Hora": hora_salida + " (Salida)", "Local": local_v,
+                            "Patente": pat_v, "Ticket": f"#{tkt_v}",
+                            "Mozo / Autoriza": mozo_v, "Factura": factura_v if "Quinquela" in local_v else "-"
                         })
                         tickets_mostrados.add(tkt_clean)
                         
-        if not val_data:
-            st.info(f"Aún no hay validaciones registradas el {fecha_val_str}.")
+        if not val_data: st.info(f"Aún no hay validaciones registradas el {fecha_val_str}.")
         else:
             df_val = pd.DataFrame(val_data)
             df_val = df_val.sort_values(by="Hora", ascending=False)
@@ -1648,8 +1628,7 @@ elif menu == "🍔 Extras":
                                 break
                         st.success(f"✅ Extra cargado al Ticket #{tkt}: {cant}x {prod}")
                         obtener_datos.clear()
-                except Exception as e:
-                    st.error("Hubo un error cargando el extra. Intente nuevamente.")
+                except Exception as e: st.error("Hubo un error cargando el extra. Intente nuevamente.")
                     
     st.markdown("---")
     st.markdown("### 💸 Retiros y Gastos de Caja")
@@ -1666,10 +1645,8 @@ elif menu == "🍔 Extras":
                     obtener_datos.clear()
                     time.sleep(1.5)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error al registrar el gasto: {e}")
-            else:
-                st.warning("Completá el motivo y asegurate de poner un monto mayor a cero.")
+                except Exception as e: st.error(f"Error al registrar el gasto: {e}")
+            else: st.warning("Completá el motivo y asegurate de poner un monto mayor a cero.")
 
 elif menu == "📤 Salida":
     c_head1, c_head2 = st.columns([3, 1])
@@ -1699,20 +1676,16 @@ elif menu == "📤 Salida":
                     for i in range(len(hist_data)-1, 0, -1):
                         if len(hist_data[i]) > 3 and str(hist_data[i][3]).strip() == tkt_to_find:
                             curr_obs = str(hist_data[i][7]) if len(hist_data[i]) > 7 else ""
-                            if curr_obs and curr_obs != "-":
-                                new_obs = f"{curr_obs} | POST-SALIDA: {obs_post}".strip(" | -")
-                            else:
-                                new_obs = f"POST-SALIDA: {obs_post}"
+                            if curr_obs and curr_obs != "-": new_obs = f"{curr_obs} | POST-SALIDA: {obs_post}".strip(" | -")
+                            else: new_obs = f"POST-SALIDA: {obs_post}"
                             ws_h.update_cell(i + 1, 8, new_obs)
                             st.toast("✅ Observación guardada en el historial.")
                             obtener_datos.clear()
                             time.sleep(1)
                             st.rerun()
                             break
-                except Exception as e:
-                    st.error(f"Error al guardar la observación: {e}")
-            else:
-                st.warning("Escribí algo en el campo antes de guardar.")
+                except Exception as e: st.error(f"Error al guardar la observación: {e}")
+            else: st.warning("Escribí algo en el campo antes de guardar.")
         
         st.divider()
         if st.button("✅ Terminar y Atender Siguiente Vehículo", use_container_width=True):
@@ -1721,8 +1694,6 @@ elif menu == "📤 Salida":
             st.rerun()
     
     else:
-        mes_actual_str = hora_actual_uy()[:7]
-        hoy_str_salida = hora_actual_uy().split()[0]
         temp_activos = {}
         for r in reg[1:]:
             if len(r) > 3 and (not r[3] or str(r[3]).lower() == 'nan') and r[0].upper() != "EXTRA" and not str(r[0]).startswith("LPR-"):
@@ -1735,8 +1706,7 @@ elif menu == "📤 Salida":
                 est_m = datos_mensualistas_map.get(pat_val, {}).get("estado", "")
                 cat = 1 if est_m == "AUTORIZADO" else 2
                 return (cat, 0, pat_val)
-            elif tkt_val.startswith("EV"):
-                return (4, 0, pat_val)
+            elif tkt_val.startswith("EV"): return (4, 0, pat_val)
             else:
                 nums = ''.join(filter(str.isdigit, tkt_val))
                 sort_num = int(nums) if nums else 999999
@@ -1751,13 +1721,11 @@ elif menu == "📤 Salida":
             if t_val.startswith("MEN-"):
                 est_m = datos_mensualistas_map.get(p_val, {}).get("estado", "")
                 tag = "[AUT]" if est_m == "AUTORIZADO" else "[MEN]"
-            elif t_val.startswith("EV"):
-                tag = "[EV]"
-            else:
-                tag = "[#]"
+            elif t_val.startswith("EV"): tag = "[EV]"
+            else: tag = "[#]"
             
             t_ing_val = str(r[2]).split()[0]
-            tag_fecha = f" ⚠️(Ingresó: {t_ing_val})" if t_ing_val != hoy_str_salida else ""
+            tag_fecha = f" ⚠️(Ingresó: {t_ing_val})" if t_ing_val != hoy_str_global else ""
             
             lista_salida_ordenada.append(f"{tag} Tkt: #{r[0]} - 🚗 Pat: {p_val}{tag_fecha}")
         
@@ -1818,7 +1786,7 @@ elif menu == "📤 Salida":
                             break
                     
                     for h in historial_data[1:]:
-                        if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
+                        if len(h) > 7 and str(h[0]).startswith(hoy_str_global[:7]) and str(h[2]).upper().replace("-","").replace(" ","") == patente:
                             if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                                 lavados_usados += 1
                 
@@ -1826,8 +1794,7 @@ elif menu == "📤 Salida":
             
             if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                 texto_info_lav = f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})"
-                if acumulados_disp > 0:
-                    texto_info_lav += f" ⭐ **ACUMULADOS VIEJOS DISPONIBLES: {acumulados_disp}**"
+                if acumulados_disp > 0: texto_info_lav += f" ⭐ **ACUMULADOS VIEJOS DISPONIBLES: {acumulados_disp}**"
                 st.info(texto_info_lav)
                 
             if pidio_lavado_flag:
@@ -1840,20 +1807,15 @@ elif menu == "📤 Salida":
             
             if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                 opciones_lavado_disponibles.insert(1, "Lavado Incluido (Mes Actual)")
-                if acumulados_disp > 0:
-                    opciones_lavado_disponibles.insert(2, "Lavado Acumulado (Mes Anterior)")
+                if acumulados_disp > 0: opciones_lavado_disponibles.insert(2, "Lavado Acumulado (Mes Anterior)")
                 
             opcion_por_defecto = 0
             if pidio_lavado_flag:
                 if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
-                    if lavados_permitidos > lavados_usados:
-                        opcion_por_defecto = 1 
-                    elif acumulados_disp > 0:
-                        opcion_por_defecto = 2
-                    else:
-                        opcion_por_defecto = 3 if acumulados_disp > 0 else 2 
-                else:
-                    opcion_por_defecto = 2 
+                    if lavados_permitidos > lavados_usados: opcion_por_defecto = 1 
+                    elif acumulados_disp > 0: opcion_por_defecto = 2
+                    else: opcion_por_defecto = 3 if acumulados_disp > 0 else 2 
+                else: opcion_por_defecto = 2 
                     
             lavado_opcion = st.selectbox("🧼 Servicio de Lavado a procesar en esta salida:", opciones_lavado_disponibles, index=opcion_por_defecto)
             
@@ -1896,17 +1858,14 @@ elif menu == "📤 Salida":
             es_evento_calc = "Evento:" in estado_txt
             monto_estacionamiento_calc = 0
             
-            if es_evento_calc:
-                monto_estacionamiento_calc = 0
+            if es_evento_calc: monto_estacionamiento_calc = 0
             elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
                 monto_lav_calc = 0
                 if lavado_opcion == "Lavado Exterior": monto_lav_calc = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
                 elif lavado_opcion == "Lavado Completo" or "Promo" in lavado_opcion: monto_lav_calc = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
                 monto_estacionamiento_calc = monto_lav_calc
-            elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag:
-                monto_estacionamiento_calc = 0
-            else:
-                monto_estacionamiento_calc = calcular_mejor_precio(mins_calc, tipo_vehi, local_val_calc, tarifas, lavado_opcion, tarifa_override_calc)
+            elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag: monto_estacionamiento_calc = 0
+            else: monto_estacionamiento_calc = calcular_mejor_precio(mins_calc, tipo_vehi, local_val_calc, tarifas, lavado_opcion, tarifa_override_calc)
             
             total_extras_calc = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
             total_a_pagar_calc = monto_estacionamiento_calc + total_extras_calc
@@ -1930,8 +1889,7 @@ elif menu == "📤 Salida":
                     "No se aplicó la validación del local a tiempo",
                     "Otro motivo (Especificar)"
                 ])
-                if motivo_diferencia == "Otro motivo (Especificar)":
-                    detalle_otro = st.text_input("📝 Especificá brevemente el motivo:")
+                if motivo_diferencia == "Otro motivo (Especificar)": detalle_otro = st.text_input("📝 Especificá brevemente el motivo:")
             
             if st.button("Generar Salida y Enviar Ticket", type="primary"):
                 if float(monto_cobrado_real) != float(total_a_pagar_calc) and motivo_diferencia == "Seleccione un motivo...":
@@ -1950,7 +1908,6 @@ elif menu == "📤 Salida":
                         st.rerun()
                     else:
                         h_salida = hora_actual_uy()
-                        
                         monto_excedente_local = 0
                         nombre_evento_salida = ""
                         
@@ -1961,18 +1918,19 @@ elif menu == "📤 Salida":
                             for ev in eventos_data[1:]:
                                 if len(ev) >= 4 and str(ev[1]).strip() == nombre_evento_salida:
                                     fecha_ev = str(ev[0]).strip()
-                                    hora_fin_str = str(ev[3]).strip()
+                                    hora_fin_str = str(ev[4]).strip() # Ahora lee de la columna E
                                     break
                             
                             if hora_fin_str:
                                 try:
-                                    ev_fecha_dt = datetime.strptime(fecha_ev, "%Y-%m-%d")
+                                    if "/" in fecha_ev: ev_fecha_dt = datetime.strptime(fecha_ev, "%d/%m/%Y")
+                                    else: ev_fecha_dt = pd.to_datetime(fecha_ev)
+                                    
                                     h_m = hora_fin_str.split(":")
                                     hora_f = int(h_m[0])
                                     min_f = int(h_m[1])
                                     
-                                    if hora_f < 10:
-                                        ev_fecha_dt += timedelta(days=1)
+                                    if hora_f < 10: ev_fecha_dt += timedelta(days=1)
                                         
                                     ev_fin_dt = ev_fecha_dt.replace(hour=hora_f, minute=min_f)
                                     salida_dt = datetime.strptime(h_salida, "%Y-%m-%d %H:%M:%S")
@@ -1985,8 +1943,7 @@ elif menu == "📤 Salida":
                             monto_excedente_local = calcular_mejor_precio(mins_calc, tipo_vehi, "Ninguna", tarifas, "Ninguno", tarifa_override_calc)
                         
                         info_desc = ""
-                        if es_evento_calc:
-                            info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
+                        if es_evento_calc: info_desc = f"🎟️ Invitado Especial Evento: {nombre_evento_salida}. Sin costo de estadía."
                         elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
                             info_desc = f"✅ Vehículo Mensualista ({nombre_cliente_encontrado}). Parking $0."
                             if monto_estacionamiento_calc > 0: info_desc += f" Se cobra extra: {lavado_opcion.split(' (')[0]}."
@@ -1999,13 +1956,10 @@ elif menu == "📤 Salida":
                             info_desc = f"🛑 Mensualista con DEUDA ({nombre_cliente_encontrado}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
                         else:
                             if local_val_calc in ["Rodrigo Bueno", "N18", "Quinquela 100%"]: 
-                                if local_val_calc == "Quinquela 100%":
-                                    info_desc = "Estacionamiento 100% cubierto por Quinquela."
-                                else:
-                                    info_desc = f"Estacionamiento 100% libre por {local_val_calc}."
+                                if local_val_calc == "Quinquela 100%": info_desc = "Estacionamiento 100% cubierto por Quinquela."
+                                else: info_desc = f"Estacionamiento 100% libre por {local_val_calc}."
                                 if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
-                            elif local_val_calc == "Quinquela": 
-                                info_desc = f"Incluye cortesía de 3 hs por {local_val_calc}."
+                            elif local_val_calc == "Quinquela": info_desc = f"Incluye cortesía de 3 hs por {local_val_calc}."
                             else: 
                                 if tarifa_override_calc > 0:
                                     promo_nombre_base = promo_estadia_sel.split(' -')[0]
@@ -2014,7 +1968,6 @@ elif menu == "📤 Salida":
                                     if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                                 else:
                                     if excede_cupo_flag: info_desc = "⚠️ Tarifa cobrada por exceder el cupo simultáneo del plan mensual. "
-                                    
                                     if "Promo" in lavado_opcion: info_desc += "Tarifa de promoción calculada automáticamente."
                                     elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
                                     else: info_desc += "Tarifa estándar aplicada."
@@ -2035,7 +1988,7 @@ elif menu == "📤 Salida":
                             obs_salida_final = "🧼 Lavado (Faltó especificar cobro)"
                             lavado_para_columna = "Lavado (Faltó especificar cobro)"
                             
-                        # Si hay diferencia de caja, guardamos el justificativo
+                        # GUARDADO DE JUSTIFICACIÓN DE CAJA (Opción 3)
                         if float(monto_cobrado_real) != float(total_a_pagar_calc):
                             justificativo = detalle_otro if motivo_diferencia == "Otro motivo (Especificar)" else motivo_diferencia
                             texto_diferencia = f"⚠️ COBRÓ ${int(monto_cobrado_real)} (El sistema marcaba ${int(total_a_pagar_calc)}). Motivo: {justificativo}"
@@ -2101,8 +2054,7 @@ Op: {emp}
                             st.session_state.salida_tkt_procesado = tkt
                             st.rerun()
                             
-                        except Exception as e: 
-                            st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
+                        except Exception as e: st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
 
 elif menu == "📈 Reportes":
     st.title("📊 Panel de Control y Auditoría")
@@ -2114,24 +2066,21 @@ elif menu == "📈 Reportes":
         if len(datos_hist) > 1 and "Total" in datos_hist[0]:
             headers = datos_hist[0]
             max_cols = max(len(row) for row in datos_hist)
-            while len(headers) < max_cols:
-                headers.append(f"Col_{len(headers)+1}")
+            while len(headers) < max_cols: headers.append(f"Col_{len(headers)+1}")
                 
             padded_hist = [row + [""] * (max_cols - len(row)) for row in datos_hist[1:]]
             df = pd.DataFrame(padded_hist, columns=headers)
             
             df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
             df['Parking'] = pd.to_numeric(df['Parking'], errors='coerce').fillna(0)
-            if 'Excedente_Local' in df.columns:
-                df['Excedente_Local'] = pd.to_numeric(df['Excedente_Local'], errors='coerce').fillna(0)
+            if 'Excedente_Local' in df.columns: df['Excedente_Local'] = pd.to_numeric(df['Excedente_Local'], errors='coerce').fillna(0)
             
             df['Hora'] = pd.to_datetime(df['Hora'], errors='coerce')
             
             if len(df.columns) > 10:
                 df.rename(columns={df.columns[10]: 'Servicio_Lavado'}, inplace=True)
                 df['Servicio_Lavado'] = df['Servicio_Lavado'].astype(str)
-            else:
-                df['Servicio_Lavado'] = "Ninguno"
+            else: df['Servicio_Lavado'] = "Ninguno"
                 
             def calcular_monto_lavado(row):
                 obs_text = str(row['Obs']).upper() + " " + str(row.get('Servicio_Lavado', '')).upper()
@@ -2157,7 +2106,6 @@ elif menu == "📈 Reportes":
                 df_ventas_kiosco = df_stock[~df_stock['Producto'].str.startswith('Inv_')]
             
             filtro_opcion = st.radio("Filtro de tiempo:", ["Hoy", "Últimos 7 días", "Por Mes", "Elegir Fecha Específica", "Todo el historial"], horizontal=True)
-            hoy_dt = datetime.utcnow() - timedelta(hours=3)
             
             if filtro_opcion == "Elegir Fecha Específica":
                 fecha_elegida = st.date_input("Seleccioná la fecha exacta a auditar:", hoy_dt.date())
@@ -2169,15 +2117,13 @@ elif menu == "📈 Reportes":
                 if not df.empty:
                     meses_unicos = df['Hora'].dt.strftime('%Y-%m').dropna().unique()
                     meses_unicos = sorted(list(meses_unicos), reverse=True)
-                else:
-                    meses_unicos = [hoy_dt.strftime('%Y-%m')]
+                else: meses_unicos = [hoy_dt.strftime('%Y-%m')]
                 
                 def formato_mes(ym):
                     try:
                         y, m = ym.split('-')
                         return f"{meses_str[int(m)-1]} {y}"
-                    except:
-                        return ym
+                    except: return ym
                         
                 opciones_meses = [formato_mes(m) for m in meses_unicos]
                 mes_seleccionado_nice = st.selectbox("Seleccionar Mes:", opciones_meses)
@@ -2186,8 +2132,7 @@ elif menu == "📈 Reportes":
                 mes_seleccionado_ym = meses_unicos[idx_mes]
                 
                 df = df[df['Hora'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
-                if not df_ventas_kiosco.empty: 
-                    df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
+                if not df_ventas_kiosco.empty: df_ventas_kiosco = df_ventas_kiosco[df_ventas_kiosco['Fecha_dt'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
 
             elif filtro_opcion == "Hoy": 
                 df = df[df['Hora'].dt.date == hoy_dt.date()]
@@ -2231,10 +2176,8 @@ elif menu == "📈 Reportes":
                 df['Fecha_str'] = df['Hora'].dt.date.astype(str)
                 df['Cant_Lavados'] = (df['Obs'].str.contains('Lavado|🧼', case=False, na=False) | (~df['Servicio_Lavado'].isin(['Ninguno', '', 'nan', 'NaN']))).astype(int)
                 df_diario_p = df.groupby('Fecha_str', as_index=False).agg(
-                    Cant_Autos=('Total', 'count'),
-                    Cant_Lavados=('Cant_Lavados', 'sum'),
-                    Parking=('Monto_Parking_Solo', 'sum'),
-                    Lavadero=('Monto_Lavado', 'sum')
+                    Cant_Autos=('Total', 'count'), Cant_Lavados=('Cant_Lavados', 'sum'),
+                    Parking=('Monto_Parking_Solo', 'sum'), Lavadero=('Monto_Lavado', 'sum')
                 )
             
             df_diario_k = pd.DataFrame()
@@ -2242,8 +2185,7 @@ elif menu == "📈 Reportes":
                 df_ventas_kiosco['Fecha_str'] = df_ventas_kiosco['Fecha_dt'].dt.date.astype(str)
                 df_diario_k = df_ventas_kiosco.groupby('Fecha_str', as_index=False).agg(Kiosco=('Total', 'sum'))
             
-            if not df_diario_p.empty and not df_diario_k.empty:
-                df_diario = pd.merge(df_diario_p, df_diario_k, on='Fecha_str', how='outer').fillna(0)
+            if not df_diario_p.empty and not df_diario_k.empty: df_diario = pd.merge(df_diario_p, df_diario_k, on='Fecha_str', how='outer').fillna(0)
             elif not df_diario_p.empty:
                 df_diario = df_diario_p
                 df_diario['Kiosco'] = 0
@@ -2259,8 +2201,7 @@ elif menu == "📈 Reportes":
             df_diario = df_diario.sort_values(by='Fecha', ascending=False)
             
             st.dataframe(df_diario, use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay ventas registradas.")
+        else: st.info("No hay ventas registradas.")
             
         st.markdown("---")
         st.markdown("### 📊 Control Comercial: Mensualistas y Autorizados")
@@ -2296,8 +2237,7 @@ elif menu == "📈 Reportes":
                     st.error(f"⚠️ Hay {total_deudores} mensualista(s) con deuda pendiente:")
                     st.dataframe(pd.DataFrame(lista_deudores), use_container_width=True, hide_index=True)
                 else: st.success("¡Excelente estado de cuenta! No se registran deudores marcados en el sistema.")
-        except:
-            st.info("Error cargando mensualistas.")
+        except: st.info("Error cargando mensualistas.")
 
         if not df.empty:
             st.markdown("---")
@@ -2313,14 +2253,10 @@ elif menu == "📈 Reportes":
             df_asist['Hora'] = pd.to_datetime(df_asist['Hora'], errors='coerce')
             df_asist = df_asist.dropna(subset=['Hora']).sort_values('Hora')
             
-            if filtro_opcion == "Elegir Fecha Específica":
-                df_asist = df_asist[df_asist['Hora'].dt.date == fecha_elegida]
-            elif filtro_opcion == "Por Mes":
-                df_asist = df_asist[df_asist['Hora'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
-            elif filtro_opcion == "Hoy":
-                df_asist = df_asist[df_asist['Hora'].dt.date == hoy_dt.date()]
-            elif filtro_opcion == "Últimos 7 días":
-                df_asist = df_asist[df_asist['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
+            if filtro_opcion == "Elegir Fecha Específica": df_asist = df_asist[df_asist['Hora'].dt.date == fecha_elegida]
+            elif filtro_opcion == "Por Mes": df_asist = df_asist[df_asist['Hora'].dt.strftime('%Y-%m') == mes_seleccionado_ym]
+            elif filtro_opcion == "Hoy": df_asist = df_asist[df_asist['Hora'].dt.date == hoy_dt.date()]
+            elif filtro_opcion == "Últimos 7 días": df_asist = df_asist[df_asist['Hora'].dt.date >= (hoy_dt - timedelta(days=7)).date()]
                 
             registros_trabajo = []
             estado_emp = {}
@@ -2330,31 +2266,23 @@ elif menu == "📈 Reportes":
                 acc = str(row['Acción']).strip()
                 dt = row['Hora']
                 
-                if acc == "Entrada":
-                    estado_emp[e] = dt
+                if acc == "Entrada": estado_emp[e] = dt
                 elif acc == "Salida" and e in estado_emp:
                     entrada_dt = estado_emp[e]
                     horas_trabajadas = (dt - entrada_dt).total_seconds() / 3600.0
                     
                     registros_trabajo.append({
-                        'Fecha': entrada_dt.strftime('%Y-%m-%d'),
-                        'Empleado': e,
-                        'Día_Semana': entrada_dt.weekday(),
-                        'Horas_Reales': horas_trabajadas,
-                        'Hora_Ingreso': entrada_dt.hour,
-                        'Entrada_str': entrada_dt.strftime('%H:%M'),
-                        'Salida_str': dt.strftime('%H:%M')
+                        'Fecha': entrada_dt.strftime('%Y-%m-%d'), 'Empleado': e, 'Día_Semana': entrada_dt.weekday(),
+                        'Horas_Reales': horas_trabajadas, 'Hora_Ingreso': entrada_dt.hour,
+                        'Entrada_str': entrada_dt.strftime('%H:%M'), 'Salida_str': dt.strftime('%H:%M')
                     })
                     del estado_emp[e]
             
             if registros_trabajo:
                 df_trab = pd.DataFrame(registros_trabajo)
-                
                 df_agrupado = df_trab.groupby(['Fecha', 'Empleado', 'Día_Semana']).agg({
-                    'Horas_Reales': 'sum', 
-                    'Hora_Ingreso': 'min',
-                    'Entrada_str': lambda x: ' | '.join(x),
-                    'Salida_str': lambda x: ' | '.join(x)
+                    'Horas_Reales': 'sum', 'Hora_Ingreso': 'min',
+                    'Entrada_str': lambda x: ' | '.join(x), 'Salida_str': lambda x: ' | '.join(x)
                 }).reset_index()
                 
                 def get_expected(e_name, w_day):
@@ -2391,11 +2319,8 @@ elif menu == "📈 Reportes":
                     d_sem = row['Día_Semana']
                     
                     alerta_txt = ""
-                    
-                    if "John" in emp_name and h_ingreso < 13:
-                        alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Mañana (Debe ir a la Tarde). "
-                    elif "Rodrigo" in emp_name and h_ingreso >= 13:
-                        alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Tarde (Debe ir a la Mañana). "
+                    if "John" in emp_name and h_ingreso < 13: alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Mañana (Debe ir a la Tarde). "
+                    elif "Rodrigo" in emp_name and h_ingreso >= 13: alerta_txt += "🔄 CAMBIO DE TURNO: Fue a la Tarde (Debe ir a la Mañana). "
                         
                     if h_esp == 0 and h_real > 0.5:
                         debia = get_quien_debia_estar(d_sem, h_ingreso)
@@ -2408,20 +2333,12 @@ elif menu == "📈 Reportes":
                         alerta_txt += f"⚠️ TURNO INCOMPLETO: Faltaron {falta:.1f} hs."
                         
                     if alerta_txt:
-                        alertas_list.append({
-                            'Fecha': fecha_str,
-                            'Empleado': emp_name,
-                            'Alerta': alerta_txt.strip()
-                        })
+                        alertas_list.append({'Fecha': fecha_str, 'Empleado': emp_name, 'Alerta': alerta_txt.strip()})
                 
-                if alertas_list:
-                    st.dataframe(pd.DataFrame(alertas_list).sort_values(by=['Fecha', 'Empleado'], ascending=[False, True]), use_container_width=True, hide_index=True)
-                else:
-                    st.success("✅ Todos los turnos coinciden perfectamente con los horarios y días esperados.")
-            else:
-                st.info("No hay suficientes pares de Entrada/Salida para calcular las horas en este período.")
-        else:
-            st.info("Aún no hay registros en la tabla de Asistencia.")
+                if alertas_list: st.dataframe(pd.DataFrame(alertas_list).sort_values(by=['Fecha', 'Empleado'], ascending=[False, True]), use_container_width=True, hide_index=True)
+                else: st.success("✅ Todos los turnos coinciden perfectamente con los horarios y días esperados.")
+            else: st.info("No hay suficientes pares de Entrada/Salida para calcular las horas en este período.")
+        else: st.info("Aún no hay registros en la tabla de Asistencia.")
 
     with tab_lav:
         st.markdown("### 🧽 Reporte General de Lavados Realizados")
@@ -2438,14 +2355,11 @@ elif menu == "📈 Reportes":
                 df_res_lav = df_res_final[['Hora', 'Patente', 'Servicio_Lavado', 'Op']].sort_values(by='Hora', ascending=False)
                 st.dataframe(df_res_lav, use_container_width=True, hide_index=True)
                 st.success(f"**Total de lavados realizados en el período:** {len(df_res_final)}")
-            else:
-                st.info("No se registraron lavados en el período seleccionado.")
-        else:
-            st.info("No hay tickets procesados en este período.")
+            else: st.info("No se registraron lavados en el período seleccionado.")
+        else: st.info("No hay tickets procesados en este período.")
 
         st.markdown("---")
         st.markdown("### 💦 Control de Lavados (Mensualistas)")
-        mes_actual_str = hora_actual_uy()[:7]
         reporte_lavados = []
         for pat, datos_m in datos_mensualistas_map.items():
             bene = str(datos_m["beneficio"]).upper()
@@ -2458,30 +2372,24 @@ elif menu == "📈 Reportes":
             
                 lav_usados = 0
                 for h in historial_data[1:]:
-                    if len(h) > 7 and str(h[0]).startswith(mes_actual_str) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
+                    if len(h) > 7 and str(h[0]).startswith(hoy_str_global[:7]) and str(h[2]).upper().replace("-", "").replace(" ", "") == pat:
                         if ("Lavado Beneficio Usado" in str(h[7]) if len(h) > 7 else False) or (len(h) > 10 and "Lavado Incluido" in str(h[10])):
                             lav_usados += 1
                             
                 reporte_lavados.append({
-                    "Nombre": datos_m["nombre"],
-                    "Patente": pat,
-                    "Plan de Lavado": bene,
-                    "Usados (Mes)": f"{lav_usados} / {lav_perm}",
-                    "Acumulados Extra": datos_m.get("acumulados", 0),
+                    "Nombre": datos_m["nombre"], "Patente": pat, "Plan de Lavado": bene,
+                    "Usados (Mes)": f"{lav_usados} / {lav_perm}", "Acumulados Extra": datos_m.get("acumulados", 0),
                     "Estado": "✅ Disponible" if lav_usados < lav_perm else ("⭐ Usa Acumulado" if datos_m.get("acumulados", 0) > 0 else "❌ Agotado")
                 })
-        if reporte_lavados:
-            st.dataframe(pd.DataFrame(reporte_lavados).sort_values(by="Usados (Mes)", ascending=False), use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay mensualistas con beneficio de lavado.")
+        if reporte_lavados: st.dataframe(pd.DataFrame(reporte_lavados).sort_values(by="Usados (Mes)", ascending=False), use_container_width=True, hide_index=True)
+        else: st.info("No hay mensualistas con beneficio de lavado.")
 
     with tab_kio:
         st.markdown("### 🍔 Reporte de Kiosco / Extras (Ventas)")
         if not df_ventas_kiosco.empty:
             st.dataframe(df_ventas_kiosco[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado', 'Patente']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
             st.success(f"**Total recaudado por Kiosco en el período:** ${total_kiosco:,.0f}")
-        else:
-            st.info("No hay ventas de Kiosco registradas en este período.")
+        else: st.info("No hay ventas de Kiosco registradas en este período.")
 
         st.markdown("---")
         st.markdown("### 📦 Control de Stock y Alertas")
@@ -2506,24 +2414,16 @@ elif menu == "📈 Reportes":
                     if stock_act <= stock_min:
                         estado = "🔴 RE-STOCK"
                         alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
-                    elif stock_act <= stock_min + 5:
-                        estado = "🟡 ATENCIÓN"
+                    elif stock_act <= stock_min + 5: estado = "🟡 ATENCIÓN"
                         
                     stock_list.append({
-                        "Producto": prod,
-                        "Precio": f"${precio:,.0f}",
-                        "Vendidos": int(vendidos),
-                        "Stock Actual": int(stock_act),
-                        "Stock Mínimo": int(stock_min),
-                        "Estado": estado
+                        "Producto": prod, "Precio": f"${precio:,.0f}", "Vendidos": int(vendidos),
+                        "Stock Actual": int(stock_act), "Stock Mínimo": int(stock_min), "Estado": estado
                     })
-            if alertas_stock:
-                st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
-            else:
-                st.success("✅ Todos los productos cuentan con stock suficiente.")
+            if alertas_stock: st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
+            else: st.success("✅ Todos los productos cuentan con stock suficiente.")
                 
-            if stock_list:
-                st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
+            if stock_list: st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
 
     with tab_evt:
         st.markdown("### 🎟️ Reporte General de Eventos")
@@ -2534,7 +2434,6 @@ elif menu == "📈 Reportes":
                 if ev_name not in eventos_stats:
                     eventos_stats[ev_name] = {'Ingresados': 0, 'Autos_Excedidos': 0, 'Monto_Excedido': 0, 'Valets': set()}
                     
-        # Armamos un mapa temporal de los turnos para saber quién estaba trabajando en cada momento
         turnos_activos = []
         estado_tmp = {}
         for a in asistencia_data[1:]:
@@ -2544,8 +2443,7 @@ elif menu == "📈 Reportes":
                 acc = str(a[2]).strip()
                 try:
                     dt_val = pd.to_datetime(dt_str)
-                    if acc == "Entrada":
-                        estado_tmp[emp_n] = dt_val
+                    if acc == "Entrada": estado_tmp[emp_n] = dt_val
                     elif acc == "Salida" and emp_n in estado_tmp:
                         turnos_activos.append({'Emp': emp_n, 'In': estado_tmp[emp_n], 'Out': dt_val})
                         del estado_tmp[emp_n]
@@ -2558,11 +2456,9 @@ elif menu == "📈 Reportes":
                 if ev_name in eventos_stats:
                     eventos_stats[ev_name]['Ingresados'] += 1
                     try:
-                        # Buscamos quiénes estaban trabajando a la hora que entró este auto
                         t_ing = pd.to_datetime(h_ing_str)
                         for t in turnos_activos:
-                            if t['In'] <= t_ing <= t['Out']:
-                                eventos_stats[ev_name]['Valets'].add(t['Emp'])
+                            if t['In'] <= t_ing <= t['Out']: eventos_stats[ev_name]['Valets'].add(t['Emp'])
                     except: pass
 
         if not df.empty:
@@ -2576,11 +2472,9 @@ elif menu == "📈 Reportes":
                         eventos_stats[ev_name]['Autos_Excedidos'] += 1
                         eventos_stats[ev_name]['Monto_Excedido'] += exc_monto
                     try:
-                        # Buscamos quiénes estaban trabajando a la hora que salió este auto
                         t_sal = pd.to_datetime(row_ev['Hora'])
                         for t in turnos_activos:
-                            if t['In'] <= t_sal <= t['Out']:
-                                eventos_stats[ev_name]['Valets'].add(t['Emp'])
+                            if t['In'] <= t_sal <= t['Out']: eventos_stats[ev_name]['Valets'].add(t['Emp'])
                     except: pass
                     
         if eventos_stats:
@@ -2589,8 +2483,7 @@ elif menu == "📈 Reportes":
                 if stats['Ingresados'] > 0 or stats['Monto_Excedido'] > 0:
                     valets_str = ", ".join(list(stats['Valets'])) if stats['Valets'] else "-"
                     res_list.append({
-                        "Evento": ev, 
-                        "Valets a Cargo": valets_str,
+                        "Evento": ev, "Valets a Cargo": valets_str,
                         "Total Autos Ingresados": stats['Ingresados'], 
                         "Cant. Autos Excedidos (Hora)": stats['Autos_Excedidos'], 
                         "A Facturar por Excedente ($)": stats['Monto_Excedido']
@@ -2598,8 +2491,7 @@ elif menu == "📈 Reportes":
             if res_list:
                 df_evt_res = pd.DataFrame(res_list).sort_values("Total Autos Ingresados", ascending=False)
                 st.dataframe(df_evt_res.style.format({"A Facturar por Excedente ($)": "${:,.0f}"}), use_container_width=True, hide_index=True)
-            else:
-                st.info("No hubo ingresos registrados por eventos.")
+            else: st.info("No hubo ingresos registrados por eventos.")
                 
         st.markdown("---")
         st.markdown("### 🏪 Facturación a Locales (Validaciones 100%)")
@@ -2607,12 +2499,10 @@ elif menu == "📈 Reportes":
             df_quinquela_100 = df[df['Validación'] == 'Quinquela 100%']
             if not df_quinquela_100.empty:
                 monto_adeudado = df_quinquela_100['Excedente_Local'].sum()
-                texto_alerta_q = f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%."
-                st.warning(texto_alerta_q)
+                st.warning(f"**Quinquela** debe abonar **${monto_adeudado:,.0f}** por {len(df_quinquela_100)} validaciones cubiertas al 100%.")
                 df_q100_show = df_quinquela_100[['Hora', 'Patente', 'Op', 'Excedente_Local']].rename(columns={'Excedente_Local': 'Monto a Facturar ($)'})
                 st.dataframe(df_q100_show.sort_values('Hora', ascending=False), use_container_width=True, hide_index=True)
-            else:
-                st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
+            else: st.info("No se registraron validaciones al 100% a cargo de locales en este período.")
         
         st.markdown("---")
         st.markdown("### 🏪 Uso de Validaciones Normales")
@@ -2621,8 +2511,7 @@ elif menu == "📈 Reportes":
             if not df_validaciones.empty:
                 df_loc = df_validaciones.groupby('Validación').size().reset_index(name='Cantidad de Autos')
                 st.dataframe(df_loc.sort_values(by='Cantidad de Autos', ascending=False), use_container_width=True, hide_index=True)
-            else:
-                st.info("No se utilizaron validaciones normales en este período.")
+            else: st.info("No se utilizaron validaciones normales en este período.")
             
     with tab_aud:
         st.markdown("### 🚨 Alertas de Cobros Inusuales (>$2000 sin promo)")
@@ -2631,10 +2520,8 @@ elif menu == "📈 Reportes":
             if not df_alertas.empty:
                 st.error(f"⚠️ Se detectaron {len(df_alertas)} cobros por encima de lo normal en este período. Revisá si corresponde o si hubo un error del valet.")
                 st.dataframe(df_alertas[['Hora', 'Op', 'Patente', 'Ticket', 'Total', 'Obs']].sort_values(by='Hora', ascending=False), use_container_width=True, hide_index=True)
-            else:
-                st.success("✅ Todo en orden. No hay cobros injustificados mayores a $2000 en el período seleccionado.")
-        else:
-            st.info("No hay datos suficientes para analizar.")
+            else: st.success("✅ Todo en orden. No hay cobros injustificados mayores a $2000 en el período seleccionado.")
+        else: st.info("No hay datos suficientes para analizar.")
             
         st.markdown("---")
         st.markdown("### 🌙 Auditoría de Cierres de Turno (> 00:00)")
@@ -2647,30 +2534,23 @@ elif menu == "📈 Reportes":
                     emp_salida = str(a[1]).strip()
                     try:
                         dt_salida = pd.to_datetime(hora_str)
-                        if 0 <= dt_salida.hour < 6: # Si salió entre las 00:00 y las 06:00 AM
+                        if 0 <= dt_salida.hour < 6: 
                             fecha_madrugada = dt_salida.date()
                             autos_tarde = []
                             if not df.empty:
-                                # Buscamos todos los autos despachados esa misma madrugada
                                 df_noche = df[(df['Hora'].dt.date == fecha_madrugada) & (df['Hora'] <= dt_salida)]
                                 for _, r_auto in df_noche.iterrows():
-                                    if 0 <= r_auto['Hora'].hour < 6:
-                                        autos_tarde.append(f"{r_auto['Patente']} ({r_auto['Hora'].strftime('%H:%M')})")
+                                    if 0 <= r_auto['Hora'].hour < 6: autos_tarde.append(f"{r_auto['Patente']} ({r_auto['Hora'].strftime('%H:%M')})")
                             
                             autos_str = " | ".join(autos_tarde) if autos_tarde else "Ninguno"
                             cierres_tardios.append({
                                 'Día de Ingreso': (dt_salida - timedelta(days=1)).strftime('%Y-%m-%d'),
-                                'Empleado': emp_salida,
-                                'Hora de Cierre': dt_salida.strftime('%H:%M:%S'),
-                                'Autos despachados esa madrugada': autos_str
+                                'Empleado': emp_salida, 'Hora de Cierre': dt_salida.strftime('%H:%M:%S'), 'Autos despachados esa madrugada': autos_str
                             })
                     except: pass
                         
-            if cierres_tardios:
-                df_tardios = pd.DataFrame(cierres_tardios).sort_values(by=['Día de Ingreso', 'Hora de Cierre'], ascending=[False, False])
-                st.dataframe(df_tardios, use_container_width=True, hide_index=True)
-            else:
-                st.success("✅ No se registran salidas de personal después de las 00:00 hs.")
+            if cierres_tardios: st.dataframe(pd.DataFrame(cierres_tardios).sort_values(by=['Día de Ingreso', 'Hora de Cierre'], ascending=[False, False]), use_container_width=True, hide_index=True)
+            else: st.success("✅ No se registran salidas de personal después de las 00:00 hs.")
         
         st.markdown("---")
         st.markdown("### 💵 Auditoría de Caja y Efectivo")
@@ -2698,16 +2578,14 @@ elif menu == "📈 Reportes":
                             monto_cierre = float(ult_salida['Monto'])
                             monto_apertura = float(ult_entrada['Monto'])
                             dif = monto_apertura - monto_cierre
-                            if dif != 0:
-                                st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
-                            else:
-                                st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
+                            if dif != 0: st.error(f"🚨 **ALERTA EFECTIVO:** {ult_salida['Empleado']} cerró con **${monto_cierre:,.0f}**, pero {ult_entrada['Empleado']} abrió con **${monto_apertura:,.0f}** (Diferencia: ${dif:+,.0f}).")
+                            else: st.success(f"✅ Apertura de {ult_entrada['Empleado']} coincide exacto con el cierre de {ult_salida['Empleado']} (${monto_cierre:,.0f}).")
             else: st.info("ℹ️ Aún no hay registros en la pestaña Efectivo_Caja.")
-        except Exception as e: st.info("Error cargando Efectivo_Caja.")
+        except: st.info("Error cargando Efectivo_Caja.")
 
     with tab_cierre:
         st.markdown("### 🔄 Calculadora de Acumulados (Fin de mes)")
-        st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**. Así sabés exactamente qué número copiar en la Columna H del Excel.")
+        st.write("Esta herramienta calcula automáticamente cuántos lavados le sobraron a cada mensualista en el **mes anterior**.")
         
         hoy_cierre = datetime.utcnow() - timedelta(hours=3)
         mes_ant_dt = (hoy_cierre.replace(day=1) - timedelta(days=1))
@@ -2734,19 +2612,14 @@ elif menu == "📈 Reportes":
                     sobran = lav_perm - lav_usados_ant
                     if sobran > 0:
                         sobrantes_list.append({
-                            "Cliente": datos_m["nombre"],
-                            "Patente": pat,
-                            "Plan Base": lav_perm,
-                            "Usó en el mes": lav_usados_ant,
-                            "A poner en Columna H": sobran
+                            "Cliente": datos_m["nombre"], "Patente": pat, "Plan Base": lav_perm,
+                            "Usó en el mes": lav_usados_ant, "A poner en Columna H": sobran
                         })
             
             if sobrantes_list:
-                df_sobrantes = pd.DataFrame(sobrantes_list).sort_values("A poner en Columna H", ascending=False)
-                st.dataframe(df_sobrantes, use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(sobrantes_list).sort_values("A poner en Columna H", ascending=False), use_container_width=True, hide_index=True)
                 st.success("✨ ¡Listo! Solo tenés que copiar esos números de la última columna directo a la Columna H de tu Excel.")
-            else:
-                st.success("✅ Ningún cliente tuvo lavados sobrantes el mes pasado. No tenés que anotar nada extra.")
+            else: st.success("✅ Ningún cliente tuvo lavados sobrantes el mes pasado.")
 
 elif menu == "📖 Ayuda":
     st.subheader("📖 Manual de Operaciones - FlowPark VIP")
@@ -2795,10 +2668,10 @@ elif menu == "📖 Ayuda":
     
     ---
     
-    ### 🎉 6. EVENTOS VIP Y LISTA DE INVITADOS
-    *   **Auto-Completado:** Escribí la patente. Si está en la lista de hoy, el sistema llena el nombre y selecciona el evento solo.
+    ### 🎉 6. EVENTOS Y LISTA DE INVITADOS
+    *   **Alertas 48hs:** El sistema avisa a todos con 2 días de anticipación de los eventos importantes.
     *   **Control de Cupo:** Si el evento contrató 20 lugares y llega el 21, la app avisa el exceso de cupo.
-    *   **El Reloj Invisible:** A los invitados VIP **nunca se les cobra dinero** ($0). Pero si el evento terminaba a las 03:00 AM y retiran el auto a las 10:00 AM, el sistema factura esas horas extras al Organizador del evento internamente.
+    *   **El Reloj Invisible:** A los invitados nunca se les cobra dinero ($0). Pero si el evento terminaba a las 03:00 AM y retiran el auto a las 10:00 AM, el sistema factura esas horas extras al Organizador del evento internamente.
     
     ---
     
@@ -2824,7 +2697,7 @@ elif menu == "📖 Ayuda":
       ├─ Escribe Patente                                ├─ Revisa autos pendientes
       ├─ ¿Es Mensualista? ──► Revisa Deuda/Cupos        ├─ Revisa Mensualistas estacionados
       ├─ Lava el auto
-      ├─ ¿Es Evento VIP?  ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
+      ├─ ¿Es Evento?      ──► Autocompleta datos        ├─ Toca "Marcar Terminado"
       ├─ ¿Pide Lavado?    ──► Tilda la casilla          │
       ▼                                                 │
     [ Envía Ticket WP ]                                 │
@@ -2835,7 +2708,7 @@ elif menu == "📖 Ayuda":
       │
       ├─ Escribe la Patente para buscar fácil
       ├─ Agrega Extras (kiosco) o tipo de Lavado
-      ├─ Cobra (O pasa gratis si es VIP/Mensualista)
+      ├─ Cobra (O pasa gratis si es Mensualista)
       ▼
     [ Envía Comprobante de Pago WP y toca TERMINAR ]
       │
