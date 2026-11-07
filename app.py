@@ -283,46 +283,54 @@ if c_out.button("🚪 Salir"):
     st.rerun()
 st.divider()
 
+# --- ESCUDO ANTI-CAÍDAS Y ANTI-SPAM (3 REINTENTOS) ---
 @st.cache_data(ttl=120, show_spinner=False)
-def obtener_datos():
-    if not sh: raise Exception("Sin conexión con Google Sheets.")
-    hojas = sh.worksheets()
-    titulos = [h.title for h in hojas]
-    batch = sh.values_batch_get(titulos)
-    
-    data_dict = {}
-    for idx, vr in enumerate(batch.get('valueRanges', [])):
-        nombre_hoja = titulos[idx]
-        data_dict[nombre_hoja] = vr.get('values', [])
+def obtener_datos(reintentos=3):
+    for intento in range(reintentos):
+        try:
+            if not sh: raise Exception("Sin conexión con Google Sheets.")
+            hojas = sh.worksheets()
+            titulos = [h.title for h in hojas]
+            batch = sh.values_batch_get(titulos)
+            
+            data_dict = {}
+            for idx, vr in enumerate(batch.get('valueRanges', [])):
+                nombre_hoja = titulos[idx]
+                data_dict[nombre_hoja] = vr.get('values', [])
 
-    conf = data_dict.get("Configuracion", [])
-    tarifas_raw = data_dict.get("Tarifas", [])
-    extras_raw = data_dict.get("Extras", [])
-    reg = data_dict.get("Registro", [])
-    q_data = data_dict.get("Respuestas de formulario 1", [])
-    val_app_data = data_dict.get("Validaciones_App", [])
-    cli = data_dict.get("Clientes_Frecuentes", [])
-    asistencia = data_dict.get("Asistencia", [])
-    mensualistas = data_dict.get("Base_Mensualistas", [])
-    stock = data_dict.get("Control_Stock", [])
-    efectivo_data = data_dict.get("Efectivo_Caja", [])
-    auditoria = data_dict.get("Auditoria_LPR", [])
-    eventos = data_dict.get("Eventos", [])
-    historial = data_dict.get("Historial_Tickets", [])
-    lista_inv = data_dict.get("Lista de invitados", data_dict.get("Lista_Invitados", []))
-    anulaciones = data_dict.get("Auditoria_Anulaciones", [])
-    
-    empleados = [r[0] for r in conf[1:] if len(r)>0 and r[0]]
-    
-    tarifas = {str(r[0]).strip(): {
-        "Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
-        "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0,
-        "Moto": int(r[3]) if len(r)>3 and str(r[3]).strip().isdigit() else 0
-    } for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
-    
-    extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
-    
-    return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data, anulaciones
+            conf = data_dict.get("Configuracion", [])
+            tarifas_raw = data_dict.get("Tarifas", [])
+            extras_raw = data_dict.get("Extras", [])
+            reg = data_dict.get("Registro", [])
+            q_data = data_dict.get("Respuestas de formulario 1", [])
+            val_app_data = data_dict.get("Validaciones_App", [])
+            cli = data_dict.get("Clientes_Frecuentes", [])
+            asistencia = data_dict.get("Asistencia", [])
+            mensualistas = data_dict.get("Base_Mensualistas", [])
+            stock = data_dict.get("Control_Stock", [])
+            efectivo_data = data_dict.get("Efectivo_Caja", [])
+            auditoria = data_dict.get("Auditoria_LPR", [])
+            eventos = data_dict.get("Eventos", [])
+            historial = data_dict.get("Historial_Tickets", [])
+            lista_inv = data_dict.get("Lista de invitados", data_dict.get("Lista_Invitados", []))
+            anulaciones = data_dict.get("Auditoria_Anulaciones", [])
+            
+            empleados = [r[0] for r in conf[1:] if len(r)>0 and r[0]]
+            
+            tarifas = {str(r[0]).strip(): {
+                "Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
+                "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0,
+                "Moto": int(r[3]) if len(r)>3 and str(r[3]).strip().isdigit() else 0
+            } for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
+            
+            extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
+            
+            return empleados, tarifas, extras, reg, q_data, cli, asistencia, mensualistas, stock, efectivo_data, auditoria, eventos, historial, lista_inv, extras_raw, val_app_data, anulaciones
+        except Exception as e:
+            if intento < reintentos - 1:
+                time.sleep(2)
+            else:
+                raise Exception(f"Fallo tras {reintentos} intentos. Detalle: {str(e)}")
 
 try:
     resultado_datos = obtener_datos()
@@ -969,7 +977,6 @@ elif menu == "📊 Activos":
                     
                     activos_lista.append(r)
                     
-                    # --- NUEVA ALERTA DE 24HS EN PLAYA ---
                     try:
                         ing_dt = pd.to_datetime(h_ing)
                         ahora_dt = pd.to_datetime(hora_actual_uy())
@@ -1376,6 +1383,7 @@ elif menu == "✅ Validaciones":
             if len(r)>3:
                 tkt = str(r[0]).strip()
                 h_sal = str(r[3]).strip()
+                # Ocultamos de los locales los tickets MEN- y EV
                 if tkt.upper() != "EXTRA" and not tkt.startswith("LPR-") and not tkt.upper().startswith("MEN-") and not tkt.upper().startswith("EV") and (not h_sal or h_sal.lower() == "nan"):
                     pat = str(r[1]).upper()
                     h_ing = r[2]
@@ -1575,7 +1583,6 @@ elif menu == "🍔 Extras":
     st.subheader("Carga de Consumos y Extras")
     st.info("ℹ️ IMPORTANTE: Los Lavados se cobran directamente en la sección SALIDA para calcular mejor las promociones.")
     
-    # --- NUEVO: DICCIONARIO DE STOCK REAL ---
     extras_info = {}
     for r in extras_raw[1:]:
         if len(r) > 0 and str(r[0]).strip():
@@ -1606,7 +1613,6 @@ elif menu == "🍔 Extras":
     if st.button("Registrar Extra"):
         if not prod: st.warning("Seleccione un producto.")
         else:
-            # --- NUEVO: BLOQUEO INTELIGENTE DE STOCK ---
             stock_disponible = extras_info.get(prod, {}).get("stock", 0)
             if "lavado" not in prod.lower() and cant > stock_disponible:
                 st.error(f"❌ ¡Operación bloqueada por falta de inventario! Solo quedan {int(stock_disponible)} unidades de '{prod}'.")
@@ -1645,7 +1651,6 @@ elif menu == "🍔 Extras":
                 except Exception as e:
                     st.error("Hubo un error cargando el extra. Intente nuevamente.")
                     
-    # --- NUEVO: MÓDULO DE GASTOS ---
     st.markdown("---")
     st.markdown("### 💸 Retiros y Gastos de Caja")
     with st.expander("Registrar un pago a proveedor o retiro de dinero"):
@@ -1683,7 +1688,7 @@ elif menu == "📤 Salida":
         st.divider()
         
         st.markdown("### 📝 Agregar Observación Post-Salida")
-        st.info("Si notaste un error en el cobro (ej: faltó validación, cliente no tenía efectivo, etc.), dejalo asentado acá para que quede en el reporte.")
+        st.info("Si notaste un error en el cobro, dejalo asentado acá para que quede en el reporte.")
         obs_post = st.text_input("Escribí tu observación:")
         if st.button("💾 Guardar Observación"):
             if obs_post:
@@ -1818,7 +1823,6 @@ elif menu == "📤 Salida":
                                 lavados_usados += 1
                 
             cel_salida = st.text_input("Celular del cliente para WhatsApp:", value=cel_encontrado)
-            obs_salida = st.text_input("Observaciones de Salida (Opcional):")
             
             if estado_mensual_encontrado and "LAVADO" in beneficio_encontrado.upper() and not excede_cupo_flag:
                 texto_info_lav = f"💦 **Este Mensualista cuenta con: {beneficio_encontrado}** (Usados este mes: {lavados_usados} de {lavados_permitidos})"
@@ -1858,7 +1862,7 @@ elif menu == "📤 Salida":
             
             st.markdown("---")
             
-            # --- OPCIÓN BUQUEBUS CON RADIO BUTTONS ---
+            # --- CÁLCULOS INTERNOS ---
             precio_bqb_sem = tarifas.get("Promo Buquebus Semana (L-V)", {}).get(tipo_vehi, 2750)
             precio_bqb_finde = tarifas.get("Promo Buquebus Finde", {}).get(tipo_vehi, 2200)
             precio_bqb_1_sem = tarifas.get("Promo Buquebus 1 Semana", {}).get(tipo_vehi, 4800)
@@ -1874,212 +1878,231 @@ elif menu == "📤 Salida":
             
             dias_extra = 0.0
             tarifa_dia_completo = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
-            
             if "Promo Buquebus" in promo_estadia_sel:
                 st.info("💡 **Añadir días excedentes:** Si el cliente se pasó del paquete que eligió, podés sumar los días extra acá abajo.")
                 dias_extra = st.number_input(f"➕ Días extra al paquete (Tarifa {tipo_vehi}: ${tarifa_dia_completo}/día):", min_value=0.0, step=0.5)
+
+            # CÁLCULO INVISIBLE PARA LA OPCIÓN 3
+            h_salida_calc = hora_actual_uy()
+            ing_calc = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
+            mins_calc = int((datetime.utcnow() - timedelta(hours=3) - ing_calc).total_seconds() / 60)
+            local_val_calc = obtener_validacion_local(patente, tkt, h_ingreso, val_combinadas)
             
-            if st.button("Calcular y Generar Salida"):
-                ws_registro = sh.worksheet("Registro")
-                estado_en_vivo = ws_registro.cell(idx_real, 4).value if idx_real else None
-                
-                if estado_en_vivo and str(estado_en_vivo).strip() != "" and str(estado_en_vivo).lower() != "nan":
-                    st.error("⚠️ PROCESO DETENIDO: Se detectó un doble clic. Este vehículo ya fue cobrado hace un instante. Evitando duplicados en la caja.")
-                    time.sleep(3)
-                    obtener_datos.clear()
-                    st.session_state.salida_procesada = False
-                    st.rerun()
+            tarifa_override_calc = 0
+            if "Semana (L-V)" in promo_estadia_sel: tarifa_override_calc = precio_bqb_sem + (dias_extra * tarifa_dia_completo)
+            elif "Finde" in promo_estadia_sel: tarifa_override_calc = precio_bqb_finde + (dias_extra * tarifa_dia_completo)
+            elif "1 Semana" in promo_estadia_sel: tarifa_override_calc = precio_bqb_1_sem + (dias_extra * tarifa_dia_completo)
+            
+            es_evento_calc = "Evento:" in estado_txt
+            monto_estacionamiento_calc = 0
+            
+            if es_evento_calc:
+                monto_estacionamiento_calc = 0
+            elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
+                monto_lav_calc = 0
+                if lavado_opcion == "Lavado Exterior": monto_lav_calc = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
+                elif lavado_opcion == "Lavado Completo" or "Promo" in lavado_opcion: monto_lav_calc = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
+                monto_estacionamiento_calc = monto_lav_calc
+            elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag:
+                monto_estacionamiento_calc = 0
+            else:
+                monto_estacionamiento_calc = calcular_mejor_precio(mins_calc, tipo_vehi, local_val_calc, tarifas, lavado_opcion, tarifa_override_calc)
+            
+            total_extras_calc = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
+            total_a_pagar_calc = monto_estacionamiento_calc + total_extras_calc
+
+            st.markdown("---")
+            st.markdown("### 💰 Monto Total Calculado a Cobrar ($):")
+            st.info("💡 Si por algún error, queja o descuento se va a cobrar un monto distinto, borrá el número de arriba y escribí el monto exacto a cobrar.")
+            
+            monto_cobrado_real = st.number_input("Monto final que ingresa a la caja:", value=float(total_a_pagar_calc), step=50.0)
+            
+            motivo_diferencia = ""
+            detalle_otro = ""
+            
+            if float(monto_cobrado_real) != float(total_a_pagar_calc):
+                st.error("🚨 **JUSTIFICACIÓN DE CAJA (Obligatorio):**\n\nEl sistema calculó **${}** pero ingresaste **${}**. Seleccioná el motivo:".format(int(total_a_pagar_calc), int(monto_cobrado_real)))
+                motivo_diferencia = st.selectbox("Motivo de la diferencia:", [
+                    "Seleccione un motivo...",
+                    "Error al registrar la hora de ingreso",
+                    "Demora en la entrega del vehículo (Queja)",
+                    "Descuento / Cortesía autorizada",
+                    "No se aplicó la validación del local a tiempo",
+                    "Otro motivo (Especificar)"
+                ])
+                if motivo_diferencia == "Otro motivo (Especificar)":
+                    detalle_otro = st.text_input("📝 Especificá brevemente el motivo:")
+            
+            if st.button("Generar Salida y Enviar Ticket", type="primary"):
+                if float(monto_cobrado_real) != float(total_a_pagar_calc) and motivo_diferencia == "Seleccione un motivo...":
+                    st.error("❌ No podés generar el ticket con un precio modificado sin explicar el motivo. Por favor, seleccioná uno de la lista.")
+                elif float(monto_cobrado_real) != float(total_a_pagar_calc) and motivo_diferencia == "Otro motivo (Especificar)" and not detalle_otro.strip():
+                    st.error("❌ Escribí el motivo en el casillero antes de continuar.")
                 else:
-                    h_salida = hora_actual_uy()
-                    ing = datetime.strptime(h_ingreso, "%Y-%m-%d %H:%M:%S")
-                    mins = int((datetime.utcnow() - timedelta(hours=3) - ing).total_seconds() / 60)
-                    local_val = obtener_validacion_local(patente, tkt, h_ingreso, val_combinadas)
+                    ws_registro = sh.worksheet("Registro")
+                    estado_en_vivo = ws_registro.cell(idx_real, 4).value if idx_real else None
                     
-                    tarifa_override = 0
-                    if "Semana (L-V)" in promo_estadia_sel: 
-                        tarifa_override = precio_bqb_sem + (dias_extra * tarifa_dia_completo)
-                    elif "Finde" in promo_estadia_sel: 
-                        tarifa_override = precio_bqb_finde + (dias_extra * tarifa_dia_completo)
-                    elif "1 Semana" in promo_estadia_sel: 
-                        tarifa_override = precio_bqb_1_sem + (dias_extra * tarifa_dia_completo)
-                    
-                    es_evento = "Evento:" in estado_txt
-                    nombre_evento_salida = ""
-                    monto_excedente_local = 0
-                    
-                    if es_evento:
-                        nombre_evento_salida = estado_txt.split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
-                        hora_fin_str = ""
-                        fecha_ev = ""
-                        for ev in eventos_data[1:]:
-                            if len(ev) >= 4 and str(ev[1]).strip() == nombre_evento_salida:
-                                fecha_ev = str(ev[0]).strip()
-                                hora_fin_str = str(ev[3]).strip()
-                                break
-                        
-                        if hora_fin_str:
-                            try:
-                                ev_fecha_dt = datetime.strptime(fecha_ev, "%Y-%m-%d")
-                                h_m = hora_fin_str.split(":")
-                                hora_f = int(h_m[0])
-                                min_f = int(h_m[1])
-                                
-                                if hora_f < 10:
-                                    ev_fecha_dt += timedelta(days=1)
-                                    
-                                ev_fin_dt = ev_fecha_dt.replace(hour=hora_f, minute=min_f)
-                                salida_dt = datetime.strptime(h_salida, "%Y-%m-%d %H:%M:%S")
-                                
-                                if salida_dt > ev_fin_dt:
-                                    mins_extra = int((salida_dt - ev_fin_dt).total_seconds() / 60)
-                                    monto_excedente_local = calcular_mejor_precio(mins_extra, tipo_vehi, "Ninguna", tarifas)
-                            except:
-                                pass
-                    elif local_val == "Quinquela 100%":
-                        monto_excedente_local = calcular_mejor_precio(mins, tipo_vehi, "Ninguna", tarifas, "Ninguno", tarifa_override)
-                    
-                    if es_evento:
-                        monto_estacionamiento = 0
-                        info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
-                        
-                    elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
-                        monto_lavado = 0
-                        if lavado_opcion == "Lavado Exterior":
-                            monto_lavado = tarifas.get("Lavado Exterior", {}).get(tipo_vehi, 350)
-                        elif lavado_opcion == "Lavado Completo" or "Promo" in lavado_opcion:
-                            monto_lavado = tarifas.get("Lavado Completo", {}).get(tipo_vehi, 500)
-                            
-                        monto_estacionamiento = monto_lavado
-                        info_desc = f"✅ Vehículo Mensualista ({nombre_cliente_encontrado}). Parking $0."
-                        if monto_lavado > 0: info_desc += f" Se cobra extra: {lavado_opcion.split(' (')[0]}."
-                        elif "Incluido" in lavado_opcion: info_desc += " Lavado descontado de su plan mensual."
-                        elif "Acumulado" in lavado_opcion: info_desc += " Lavado imputado a saldo a favor de mes anterior."
-                        
-                    elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag:
-                        monto_estacionamiento = 0
-                        nombre_cliente = nombre_cliente_encontrado.strip().title()
-                        saludo = f"Buen día {nombre_cliente}," if nombre_cliente and nombre_cliente != "Cliente" else "Buen día,"
-                        texto_deuda_completo = f"{saludo} desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
-                        info_desc = f"🛑 Mensualista con DEUDA ({nombre_cliente_encontrado}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
-                        
+                    if estado_en_vivo and str(estado_en_vivo).strip() != "" and str(estado_en_vivo).lower() != "nan":
+                        st.error("⚠️ PROCESO DETENIDO: Se detectó un doble clic. Este vehículo ya fue cobrado hace un instante. Evitando duplicados en la caja.")
+                        time.sleep(3)
+                        obtener_datos.clear()
+                        st.session_state.salida_procesada = False
+                        st.rerun()
                     else:
-                        monto_estacionamiento = calcular_mejor_precio(mins, tipo_vehi, local_val, tarifas, lavado_opcion, tarifa_override)
-                        if local_val in ["Rodrigo Bueno", "N18", "Quinquela 100%"]: 
-                            if local_val == "Quinquela 100%":
-                                info_desc = "Estacionamiento 100% cubierto por Quinquela."
-                            else:
-                                info_desc = f"Estacionamiento 100% libre por {local_val}."
-                            if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
-                        elif local_val == "Quinquela": 
-                            info_desc = f"Incluye cortesía de 3 hs por {local_val}."
-                        else: 
-                            if tarifa_override > 0:
-                                promo_nombre_base = promo_estadia_sel.split(' -')[0]
-                                if dias_extra > 0:
-                                    info_desc = f"{promo_nombre_base} + {dias_extra} Día(s) extra."
+                        h_salida = hora_actual_uy()
+                        
+                        monto_excedente_local = 0
+                        nombre_evento_salida = ""
+                        
+                        if es_evento_calc:
+                            nombre_evento_salida = estado_txt.split("Evento: ")[1].split(" (")[0].replace(" [EXCEDE CUPO]", "").strip()
+                            hora_fin_str = ""
+                            fecha_ev = ""
+                            for ev in eventos_data[1:]:
+                                if len(ev) >= 4 and str(ev[1]).strip() == nombre_evento_salida:
+                                    fecha_ev = str(ev[0]).strip()
+                                    hora_fin_str = str(ev[3]).strip()
+                                    break
+                            
+                            if hora_fin_str:
+                                try:
+                                    ev_fecha_dt = datetime.strptime(fecha_ev, "%Y-%m-%d")
+                                    h_m = hora_fin_str.split(":")
+                                    hora_f = int(h_m[0])
+                                    min_f = int(h_m[1])
+                                    
+                                    if hora_f < 10:
+                                        ev_fecha_dt += timedelta(days=1)
+                                        
+                                    ev_fin_dt = ev_fecha_dt.replace(hour=hora_f, minute=min_f)
+                                    salida_dt = datetime.strptime(h_salida, "%Y-%m-%d %H:%M:%S")
+                                    
+                                    if salida_dt > ev_fin_dt:
+                                        mins_extra = int((salida_dt - ev_fin_dt).total_seconds() / 60)
+                                        monto_excedente_local = calcular_mejor_precio(mins_extra, tipo_vehi, "Ninguna", tarifas)
+                                except: pass
+                        elif local_val_calc == "Quinquela 100%":
+                            monto_excedente_local = calcular_mejor_precio(mins_calc, tipo_vehi, "Ninguna", tarifas, "Ninguno", tarifa_override_calc)
+                        
+                        info_desc = ""
+                        if es_evento_calc:
+                            info_desc = f"🎟️ Invitado VIP Evento: {nombre_evento_salida}. Sin costo de estadía."
+                        elif estado_mensual_encontrado in ["AUTORIZADO", "AL DIA"] and not excede_cupo_flag:
+                            info_desc = f"✅ Vehículo Mensualista ({nombre_cliente_encontrado}). Parking $0."
+                            if monto_estacionamiento_calc > 0: info_desc += f" Se cobra extra: {lavado_opcion.split(' (')[0]}."
+                            elif "Incluido" in lavado_opcion: info_desc += " Lavado descontado de su plan mensual."
+                            elif "Acumulado" in lavado_opcion: info_desc += " Lavado imputado a saldo a favor de mes anterior."
+                        elif estado_mensual_encontrado == "DEUDOR" and not excede_cupo_flag:
+                            nombre_cliente = nombre_cliente_encontrado.strip().title()
+                            saludo = f"Buen día {nombre_cliente}," if nombre_cliente and nombre_cliente != "Cliente" else "Buen día,"
+                            texto_deuda_completo = f"{saludo} desde Parking El Globo le informamos que aún no se ha registrado su pago y que el estacionamiento se paga del 1 al 10, aplicándose, a partir de esa fecha un 5% cada 5 días de multa."
+                            info_desc = f"🛑 Mensualista con DEUDA ({nombre_cliente_encontrado}). Costo de estadía $0.\n\n⚠️ *AVISO DE PAGO PENDIENTE:*\n{texto_deuda_completo}"
+                        else:
+                            if local_val_calc in ["Rodrigo Bueno", "N18", "Quinquela 100%"]: 
+                                if local_val_calc == "Quinquela 100%":
+                                    info_desc = "Estacionamiento 100% cubierto por Quinquela."
                                 else:
-                                    info_desc = f"🚢 Promo Especial aplicada: {promo_nombre_base}."
+                                    info_desc = f"Estacionamiento 100% libre por {local_val_calc}."
                                 if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
-                            else:
-                                if excede_cupo_flag:
-                                    info_desc = "⚠️ Tarifa cobrada por exceder el cupo simultáneo del plan mensual. "
+                            elif local_val_calc == "Quinquela": 
+                                info_desc = f"Incluye cortesía de 3 hs por {local_val_calc}."
+                            else: 
+                                if tarifa_override_calc > 0:
+                                    promo_nombre_base = promo_estadia_sel.split(' -')[0]
+                                    if dias_extra > 0: info_desc = f"{promo_nombre_base} + {dias_extra} Día(s) extra."
+                                    else: info_desc = f"🚢 Promo Especial aplicada: {promo_nombre_base}."
+                                    if lavado_opcion != "Ninguno": info_desc += " + Lavado cobrado."
                                 else:
-                                    info_desc = ""
-                                
-                                if "Promo" in lavado_opcion: info_desc += "Tarifa de promoción calculada automáticamente."
-                                elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
-                                else: info_desc += "Tarifa estándar aplicada."
-                    
-                    total_extras = float(datos[7]) if len(datos) > 7 and datos[7] and datos[7] != "" else 0
-                    detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
-                    
-                    obs_salida_final = obs_salida if obs_salida else "-"
-                    
-                    lavado_para_columna = lavado_opcion
-                    
-                    if lavado_opcion != "Ninguno":
-                        nom_lavado = lavado_opcion.split(" (")[0]
-                        if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
-                        else: detalle_extras_txt += f" | 🧼 {nom_lavado}"
+                                    if excede_cupo_flag: info_desc = "⚠️ Tarifa cobrada por exceder el cupo simultáneo del plan mensual. "
+                                    
+                                    if "Promo" in lavado_opcion: info_desc += "Tarifa de promoción calculada automáticamente."
+                                    elif lavado_opcion != "Ninguno": info_desc += "Tarifa estándar + Lavado cobrado."
+                                    else: info_desc += "Tarifa estándar aplicada."
                         
-                        if lavado_opcion == "Lavado Incluido (Mes Actual)":
-                            obs_salida_final += " | Lavado Beneficio Usado"
-                        elif lavado_opcion == "Lavado Acumulado (Mes Anterior)":
-                            obs_salida_final += " | Lavado Acumulado Usado"
-                        else:
-                            obs_salida_final += f" | 🧼 {nom_lavado}"
-                    elif pidio_lavado_flag:
-                        obs_salida_final += " | 🧼 Lavado (Faltó especificar cobro)"
-                        lavado_para_columna = "Lavado (Faltó especificar cobro)"
+                        detalle_extras_txt = str(datos[5]) if len(datos) > 5 and datos[5] else "Sin extras de kiosco."
+                        obs_salida_final = "-"
+                        lavado_para_columna = lavado_opcion
                         
-                    total_a_pagar = monto_estacionamiento + total_extras
-                    
-                    # --- NUEVO: ALERTA DE COBRO INUSUAL ---
-                    if total_a_pagar > 2000 and "Buquebus" not in promo_estadia_sel and mins < 1440:
-                        if obs_salida_final == "-":
-                            obs_salida_final = "🚨 ALERTA >$2000"
-                        else:
-                            obs_salida_final = "🚨 ALERTA >$2000 | " + obs_salida_final
-                    
-                    texto_ticket = f"""*PARKING EL GLOBO - TICKET DE EGRESO*
+                        if lavado_opcion != "Ninguno":
+                            nom_lavado = lavado_opcion.split(" (")[0]
+                            if detalle_extras_txt == "Sin extras de kiosco.": detalle_extras_txt = f"🧼 {nom_lavado}"
+                            else: detalle_extras_txt += f" | 🧼 {nom_lavado}"
+                            
+                            if lavado_opcion == "Lavado Incluido (Mes Actual)": obs_salida_final = "Lavado Beneficio Usado"
+                            elif lavado_opcion == "Lavado Acumulado (Mes Anterior)": obs_salida_final = "Lavado Acumulado Usado"
+                            else: obs_salida_final = f"🧼 {nom_lavado}"
+                        elif pidio_lavado_flag:
+                            obs_salida_final = "🧼 Lavado (Faltó especificar cobro)"
+                            lavado_para_columna = "Lavado (Faltó especificar cobro)"
+                            
+                        # Si hay diferencia de caja, guardamos el justificativo
+                        if float(monto_cobrado_real) != float(total_a_pagar_calc):
+                            justificativo = detalle_otro if motivo_diferencia == "Otro motivo (Especificar)" else motivo_diferencia
+                            texto_diferencia = f"⚠️ COBRÓ ${int(monto_cobrado_real)} (El sistema marcaba ${int(total_a_pagar_calc)}). Motivo: {justificativo}"
+                            if obs_salida_final == "-": obs_salida_final = texto_diferencia
+                            else: obs_salida_final = texto_diferencia + " | " + obs_salida_final
+                        
+                        if float(monto_cobrado_real) > 2000 and "Buquebus" not in promo_estadia_sel and mins_calc < 1440:
+                            if obs_salida_final == "-": obs_salida_final = "🚨 ALERTA >$2000"
+                            else: obs_salida_final = "🚨 ALERTA >$2000 | " + obs_salida_final
+                        
+                        texto_ticket = f"""*PARKING EL GLOBO - TICKET DE EGRESO*
 ---------------------------------
 👤 Cliente: {nombre_cliente_encontrado}
 🚗 Vehículo: {patente} | Tkt: #{tkt}
 🕒 Ingreso: {h_ingreso}
 🕒 Salida:  {h_salida}
-⏱️ Estadía total: {mins//60}h {mins%60}m
+⏱️ Estadía total: {mins_calc//60}h {mins_calc%60}m
 ---------------------------------
 📋 DETALLE:
 {detalle_extras_txt}
-Estacionamiento y Servicios: ${monto_estacionamiento}
-Total Extras (Kiosco): ${total_extras}
 ---------------------------------
-💰 *TOTAL A PAGAR: ${total_a_pagar}*
+💰 *TOTAL A PAGAR: ${int(monto_cobrado_real)}*
 ℹ️ {info_desc}
 Op: {emp}
 
 ¡Gracias por elegirnos!"""
 
-                    try:
-                        ws_registro.update_cells([
-                            gspread.Cell(row=idx_real, col=4, value=h_salida),
-                            gspread.Cell(row=idx_real, col=7, value=float(monto_estacionamiento)),
-                            gspread.Cell(row=idx_real, col=9, value=float(total_a_pagar))
-                        ])
-                        
-                        if lavado_opcion == "Lavado Acumulado (Mes Anterior)" and fila_cliente_excel > 0:
-                            nuevo_acumulado = max(0, acumulados_disp - 1)
-                            sh.worksheet("Base_Mensualistas").update_cell(fila_cliente_excel, 8, nuevo_acumulado)
-                        
-                        local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento else (local_val if local_val else "Ninguna")
-                        
-                        try: ws_h = sh.worksheet("Historial_Tickets")
-                        except: 
-                            ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="11")
-                            ws_h.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs", "Validación", "Excedente_Local", "Servicio_Lavado"])
-                        
-                        ws_h.append_row([
-                            h_salida, emp, patente, f"#{tkt}", float(monto_estacionamiento), 
-                            float(total_extras), float(total_a_pagar), 
-                            obs_salida_final.strip(" | -"), 
-                            local_val_guardar,
-                            float(monto_excedente_local),
-                            lavado_para_columna
-                        ])
-                        obtener_datos.clear() 
-                        
-                        cel_salida_clean = str(cel_salida).strip()
-                        if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
-                        link_wp = f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})"
-                        
-                        st.session_state.salida_procesada = True
-                        st.session_state.salida_ticket = texto_ticket
-                        st.session_state.salida_wp = link_wp
-                        st.session_state.salida_tkt_procesado = tkt
-                        st.rerun()
-                        
-                    except Exception as e: 
-                        st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
+                        try:
+                            ws_registro.update_cells([
+                                gspread.Cell(row=idx_real, col=4, value=h_salida),
+                                gspread.Cell(row=idx_real, col=7, value=float(monto_estacionamiento_calc)),
+                                gspread.Cell(row=idx_real, col=9, value=float(monto_cobrado_real))
+                            ])
+                            
+                            if lavado_opcion == "Lavado Acumulado (Mes Anterior)" and fila_cliente_excel > 0:
+                                nuevo_acumulado = max(0, acumulados_disp - 1)
+                                sh.worksheet("Base_Mensualistas").update_cell(fila_cliente_excel, 8, nuevo_acumulado)
+                            
+                            local_val_guardar = f"Evento: {nombre_evento_salida}" if es_evento_calc else (local_val_calc if local_val_calc else "Ninguna")
+                            
+                            try: ws_h = sh.worksheet("Historial_Tickets")
+                            except: 
+                                ws_h = sh.add_worksheet(title="Historial_Tickets", rows="1000", cols="11")
+                                ws_h.append_row(["Hora", "Op", "Patente", "Ticket", "Parking", "Extras", "Total", "Obs", "Validación", "Excedente_Local", "Servicio_Lavado"])
+                            
+                            ws_h.append_row([
+                                h_salida, emp, patente, f"#{tkt}", float(monto_estacionamiento_calc), 
+                                float(total_extras_calc), float(monto_cobrado_real), 
+                                obs_salida_final.strip(" | -"), 
+                                local_val_guardar,
+                                float(monto_excedente_local),
+                                lavado_para_columna
+                            ])
+                            obtener_datos.clear() 
+                            
+                            cel_salida_clean = str(cel_salida).strip()
+                            if cel_salida_clean.startswith("0"): cel_salida_clean = cel_salida_clean[1:]
+                            link_wp = f"[📲 Enviar Ticket por WhatsApp](https://wa.me/{cel_salida_clean}?text={urllib.parse.quote(texto_ticket)})"
+                            
+                            st.session_state.salida_procesada = True
+                            st.session_state.salida_ticket = texto_ticket
+                            st.session_state.salida_wp = link_wp
+                            st.session_state.salida_tkt_procesado = tkt
+                            st.rerun()
+                            
+                        except Exception as e: 
+                            st.error(f"❌ Ocurrió un error al registrar la salida. Intente de nuevo. Detalle: {e}")
 
 elif menu == "📈 Reportes":
     st.title("📊 Panel de Control y Auditoría")
@@ -2779,11 +2802,9 @@ elif menu == "📖 Ayuda":
     
     ---
     
-    ### ✏️ 7. CORRECCIÓN DE PATENTES (ERRORES DE TIPEO)
-    Si escribiste mal una patente (ej: `ABC124` en vez de `ABC123`):
-    1. Ir a la pestaña **📊 Activos**.
-    2. Bajar hasta el panel **"✏️ Corregir Patente"**.
-    3. Seleccionar el auto mal cargado y escribir la patente correcta.
+    ### ✏️ 7. CORRECCIÓN DE CAJA Y MONTOS
+    *   Si por algún motivo el Valet le cobra al cliente menos o más dinero del que dice el sistema, **puede modificar el número final** antes de emitir el ticket.
+    *   Al hacerlo, es **OBLIGATORIO** que elija el motivo de la diferencia de una lista desplegable (ej: Error de ingreso, Queja, Cortesía, etc.). Esa justificación queda registrada en el sistema.
     
     ---
     
