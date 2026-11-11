@@ -406,6 +406,11 @@ if (ultimo_est_operador in ["Entrada", "Fichaje"] and st.session_state.rol == "V
     opciones_menu.extend(["📥 Ingreso", "📊 Activos", "🧽 Lavadero", "🍔 Extras", "📤 Salida", "✅ Validaciones"])
 if st.session_state.rol and st.session_state.rol.startswith("Local_"): opciones_menu.append("✅ Validaciones")
 if es_admin: opciones_menu.append("📈 Reportes")
+
+# ✨ MAGIA PARA JOHN (Acceso exclusivo a Kiosco) ✨
+if st.session_state.usuario and "John" in st.session_state.usuario and not es_admin:
+    opciones_menu.append("📋 Control Stock")
+
 if st.session_state.rol: opciones_menu.append("📖 Ayuda")
 
 if not opciones_menu:
@@ -1691,7 +1696,6 @@ elif menu == "📤 Salida":
         if st.button("✅ Terminar y Atender Siguiente Vehículo", use_container_width=True):
             st.session_state.salida_procesada = False
             st.session_state.salida_tkt_procesado = ""
-            # Forzamos refresco completo para limpiar el selector
             st.rerun()
     
     else:
@@ -1726,7 +1730,6 @@ elif menu == "📤 Salida":
             else: tag = "[#]"
             
             t_ing_val = str(r[2]).strip()
-            # Mostramos fecha y hora si ingresó hoy, o alerta si ingresó otro día
             t_ing_fecha = t_ing_val.split()[0] if " " in t_ing_val else t_ing_val
             t_ing_hora = t_ing_val.split()[1][:5] if " " in t_ing_val else ""
             
@@ -2284,6 +2287,13 @@ elif menu == "📈 Reportes":
                     })
                     del estado_emp[e]
             
+            if estado_emp:
+                st.markdown("#### 🟢 Turnos Actuales en Curso (Sin cerrar)")
+                en_curso_list = []
+                for emp_nombre, hora_in in estado_emp.items():
+                    en_curso_list.append({"Valet Activo": emp_nombre, "Fichó Entrada a las": hora_in.strftime('%H:%M hs')})
+                st.dataframe(pd.DataFrame(en_curso_list), use_container_width=True, hide_index=True)
+                
             if registros_trabajo:
                 df_trab = pd.DataFrame(registros_trabajo)
                 df_agrupado = df_trab.groupby(['Fecha', 'Empleado', 'Día_Semana']).agg({
@@ -2307,7 +2317,7 @@ elif menu == "📈 Reportes":
                     
                 df_agrupado['Horas_Esperadas'] = df_agrupado.apply(lambda x: get_expected(x['Empleado'], x['Día_Semana']), axis=1)
                 
-                st.markdown("#### 📅 Registro Detallado de Turnos (Día a Día)")
+                st.markdown("#### 📅 Registro Detallado de Turnos Finalizados")
                 df_vista = df_agrupado[['Fecha', 'Empleado', 'Entrada_str', 'Salida_str', 'Horas_Reales', 'Horas_Esperadas']].copy()
                 df_vista.rename(columns={'Entrada_str': 'Hora Entrada', 'Salida_str': 'Hora Salida'}, inplace=True)
                 df_vista['Horas_Reales'] = df_vista['Horas_Reales'].apply(lambda x: f"{x:.1f} hs")
@@ -2397,10 +2407,11 @@ elif menu == "📈 Reportes":
         else: st.info("No hay ventas de Kiosco registradas en este período.")
 
         st.markdown("---")
-        st.markdown("### 📦 Control de Stock y Alertas")
+        st.markdown("### 📦 Control de Stock, Faltantes y Alertas")
         if len(extras_raw) > 1:
             stock_list = []
             alertas_stock = []
+            alertas_faltantes = []
             for r in extras_raw[1:]:
                 if len(r) > 0 and str(r[0]).strip():
                     prod = str(r[0]).strip()
@@ -2415,20 +2426,41 @@ elif menu == "📈 Reportes":
                     try: stock_min = float(r[6]) if len(r) > 6 and str(r[6]).strip() else 5
                     except: stock_min = 5
                     
+                    try: fisico = float(r[7]) if len(r) > 7 and str(r[7]).strip() else stock_act
+                    except: fisico = stock_act
+                    try: diferencia = float(r[8]) if len(r) > 8 and str(r[8]).strip() else 0
+                    except: diferencia = 0
+                    
                     estado = "🟢 OK"
                     if stock_act <= stock_min:
                         estado = "🔴 RE-STOCK"
                         alertas_stock.append(f"**{prod}**: Quedan {int(stock_act)} (Mínimo: {int(stock_min)})")
                     elif stock_act <= stock_min + 5: estado = "🟡 ATENCIÓN"
                         
+                    if diferencia < 0:
+                        alertas_faltantes.append(f"**{prod}**: FALTAN {abs(int(diferencia))} un. (Sistema dice {int(stock_act)}, Valet contó {int(fisico)})")
+                        
                     stock_list.append({
-                        "Producto": prod, "Precio": f"${precio:,.0f}", "Vendidos": int(vendidos),
-                        "Stock Actual": int(stock_act), "Stock Mínimo": int(stock_min), "Estado": estado
+                        "Producto": prod, "Vendidos": int(vendidos),
+                        "Stock Sistema": int(stock_act), 
+                        "Conteo Físico": int(fisico),
+                        "Diferencia": int(diferencia),
+                        "Estado": estado
                     })
-            if alertas_stock: st.error("🚨 **ALERTAS DE STOCK MÍNIMO:**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
-            else: st.success("✅ Todos los productos cuentan con stock suficiente.")
+                    
+            if alertas_faltantes:
+                st.error("🚨 **¡ALERTA GRAVE - POSIBLE PÉRDIDA DE INVENTARIO!**\n" + "\n".join([f"- {a}" for a in alertas_faltantes]))
                 
-            if stock_list: st.dataframe(pd.DataFrame(stock_list), use_container_width=True, hide_index=True)
+            if alertas_stock: 
+                st.warning("🛒 **ALERTAS DE REPOSICIÓN (STOCK MÍNIMO):**\n" + "\n".join([f"- {a}" for a in alertas_stock]))
+                
+            if not alertas_faltantes and not alertas_stock: 
+                st.success("✅ Todos los productos cuentan con stock suficiente y cuadran con el recuento físico.")
+                
+            if stock_list: 
+                def color_negative(val):
+                    return 'background-color: #ffcccc' if val < 0 else ''
+                st.dataframe(pd.DataFrame(stock_list).style.applymap(color_negative, subset=['Diferencia']), use_container_width=True, hide_index=True)
 
     with tab_evt:
         st.markdown("### 🎟️ Reporte General de Eventos")
@@ -2625,6 +2657,73 @@ elif menu == "📈 Reportes":
                 st.dataframe(pd.DataFrame(sobrantes_list).sort_values("A poner en Columna H", ascending=False), use_container_width=True, hide_index=True)
                 st.success("✨ ¡Listo! Solo tenés que copiar esos números de la última columna directo a la Columna H de tu Excel.")
             else: st.success("✅ Ningún cliente tuvo lavados sobrantes el mes pasado.")
+
+elif menu == "📋 Control Stock":
+    st.subheader("📋 Panel de Supervisor: Stock y Ventas")
+    st.info("👋 Hola John. Desde este panel exclusivo podés auditar las ventas de bebidas y detectar si hay faltantes en la heladera según lo declarado por el equipo.")
+    
+    if st.button("🔄 Refrescar Datos", key="ref_kio_john"):
+        obtener_datos.clear()
+        st.rerun()
+
+    dias = st.slider("Ver ventas de los últimos X días:", 1, 15, 1)
+    fecha_lim = (hoy_dt - timedelta(days=dias-1)).date()
+    
+    df_ventas_john = pd.DataFrame()
+    if len(stock_data) > 1:
+        pad = [r + [""] * (8 - len(r)) for r in stock_data[1:]]
+        df_st = pd.DataFrame(pad, columns=["Fecha", "Producto", "Cantidad", "Empleado", "Patente", "Precio_U", "Total", "Fecha_Corta"])
+        df_st['Fecha_dt'] = pd.to_datetime(df_st['Fecha'], errors='coerce')
+        df_st = df_st.dropna(subset=['Fecha_dt'])
+        df_st['Total'] = pd.to_numeric(df_st['Total'], errors='coerce').fillna(0)
+        df_ventas_john = df_st[(~df_st['Producto'].str.startswith('Inv_')) & (df_st['Fecha_dt'].dt.date >= fecha_lim)]
+        
+    tot_k = df_ventas_john['Total'].sum() if not df_ventas_john.empty else 0
+    
+    st.markdown("### 🍔 Ventas de Bebidas Registradas")
+    if not df_ventas_john.empty:
+        st.dataframe(df_ventas_john[['Fecha', 'Producto', 'Cantidad', 'Total', 'Empleado']].sort_values(by='Fecha', ascending=False), use_container_width=True, hide_index=True)
+        st.success(f"💰 **Total vendido en Kiosco este período:** ${tot_k:,.0f}")
+    else:
+        st.info("No se registraron ventas en los días seleccionados.")
+
+    st.markdown("---")
+    st.markdown("### 📦 Estado de la Heladera y Faltantes (En Vivo)")
+    
+    if len(extras_raw) > 1:
+        lista_s = []
+        alertas_f = []
+        for r in extras_raw[1:]:
+            if len(r) > 0 and str(r[0]).strip():
+                prod = str(r[0]).strip()
+                if "lavado" in prod.lower(): continue 
+                
+                try: s_act = float(r[5]) if len(r) > 5 and str(r[5]).strip() else 0
+                except: s_act = 0
+                try: fisico = float(r[7]) if len(r) > 7 and str(r[7]).strip() else s_act
+                except: fisico = s_act
+                try: dif = float(r[8]) if len(r) > 8 and str(r[8]).strip() else 0
+                except: dif = 0
+                
+                if dif < 0:
+                    alertas_f.append(f"**{prod}**: FALTAN {abs(int(dif))} un. (Sistema dice {int(s_act)}, contaron {int(fisico)})")
+                    
+                lista_s.append({
+                    "Producto": prod,
+                    "Stock Sistema": int(s_act), 
+                    "Conteo en Heladera": int(fisico),
+                    "Diferencia": int(dif)
+                })
+                
+        if alertas_f:
+            st.error("🚨 **FALTANTES DETECTADOS EN EL ÚLTIMO CIERRE:**\n" + "\n".join([f"- {a}" for a in alertas_f]))
+        else:
+            st.success("✅ Todo el stock cuadra a la perfección con lo declarado en la heladera.")
+            
+        if lista_s:
+            def color_negative(val):
+                return 'background-color: #ffcccc' if val < 0 else ''
+            st.dataframe(pd.DataFrame(lista_s).style.applymap(color_negative, subset=['Diferencia']), use_container_width=True, hide_index=True)
 
 elif menu == "📖 Ayuda":
     st.subheader("📖 Manual de Operaciones - FlowPark VIP")
