@@ -1259,11 +1259,16 @@ elif menu == "🧽 Lavadero":
         auto_manual = st.selectbox("Seleccionar vehículo en playa:", [""] + opc_lav_man, key="lav_man")
         if st.button("➕ Enviar a Lavadero", key="btn_lav_man"):
             if auto_manual:
+                # Obtenemos el número de ticket del vehículo seleccionado en el desplegable
                 t_add = auto_manual.split(" - Tkt: #")[1].strip()
                 try:
+                    # Buscamos la fila en la tabla de registros ("reg")
                     for idx, row in enumerate(reg):
-                        if str(row[0]).strip() == tkt and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                        # Buscamos el ticket exacto y verificamos que no tenga hora de salida
+                        if str(row[0]).strip() == t_add and (len(row) <= 3 or not row[3] or str(row[3]).lower() == "nan"):
+                            # Agregamos la etiqueta "LAVADO PENDIENTE" al estado del vehículo
                             nuevo_estado = str(row[4]) + " | 🧽 LAVADO PENDIENTE"
+                            # Actualizamos la fila en la base de datos
                             sh.worksheet("Registro").update_cell(idx + 1, 5, nuevo_estado)
                             st.toast("✅ ¡Vehículo agregado a la cola de lavado!")
                             obtener_datos.clear()
