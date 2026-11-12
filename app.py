@@ -135,6 +135,11 @@ def calcular_mejor_precio(minutos, tipo_vehi, local_validacion, tarifas, tipo_la
     if not tarifas_8h: tarifas_8h = tarifas.get("Dia_Completo", {})
     v_promo8h = tarifas_8h.get(tipo_vehi, 550)
     v_promo24h = tarifas.get("Promo_24h", {}).get(tipo_vehi, 1300)
+    
+    # Prevenir que las promociones vacías (ej: Motos) den cero y regalen el ticket
+    if v_promo4h <= 0: v_promo4h = v_hora * 4
+    if v_promo8h <= 0: v_promo8h = v_hora * 8
+    if v_promo24h <= 0: v_promo24h = v_hora * 24
 
     def costo_solo_tiempo(mins):
         if mins <= 0: return 0
@@ -317,11 +322,15 @@ def obtener_datos(reintentos=3):
             
             empleados = [r[0] for r in conf[1:] if len(r)>0 and r[0]]
             
+            def parse_precio(val):
+                try: return int(float(str(val).replace(',', '.')))
+                except: return 0
+                
             tarifas = {str(r[0]).strip(): {
-                "Auto": int(r[1]) if len(r)>1 and str(r[1]).strip().isdigit() else 0, 
-                "Camioneta": int(r[2]) if len(r)>2 and str(r[2]).strip().isdigit() else 0,
-                "Moto": int(r[3]) if len(r)>3 and str(r[3]).strip().isdigit() else 0
-            } for r in tarifas_raw[1:] if len(r) > 0 and r[0].strip()}
+                "Auto": parse_precio(r[1]) if len(r)>1 else 0, 
+                "Camioneta": parse_precio(r[2]) if len(r)>2 else 0,
+                "Moto": parse_precio(r[3]) if len(r)>3 else 0
+            } for r in tarifas_raw[1:] if len(r) > 0 and str(r[0]).strip()}
             
             extras = {r[0]: int(r[1]) for r in extras_raw[1:] if len(r)>0 and r[0]}
             
